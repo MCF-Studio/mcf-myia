@@ -84,7 +84,8 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
 
 ## 3 bis. App de bureau et contenus partagés
 
-**Fenêtre (Tauri 2)** : CSP stricte (`script-src 'self'`, aucune connexion réseau depuis la page, `object-src 'none'`),
+**Fenêtre (Tauri 2)** : CSP stricte (`script-src 'self'`, aucune connexion réseau depuis la page, `object-src 'none'`,
+images locales plus le seul CDN des avatars Discord),
 capacités limitées à : relais du sidecar, métriques, notifications, ouverture de liens **http/https**
 dans le navigateur système. La page n'ouvre jamais de lien elle-même ; les réponses sont rendues en Markdown avec le
 HTML échappé. (`freezePrototype` est désactivé : incompatible avec xterm.js, le terminal des consoles.)
@@ -95,6 +96,11 @@ config, pas de l'interface) ; Claude Code y applique ses propres règles de perm
 **Compromis assumé** : une page compromise pourrait taper dans une console ouverte, et Claude Code peut exécuter
 des commandes. La défense repose donc sur l'impossibilité d'injecter du script dans la page (CSP sans inline, HTML
 des réponses échappé, liens ouverts hors de l'app), et `freezePrototype` est désactivé à cause d'xterm.js.
+
+**Compte mcfstudio.fr (Guilde)** : OAuth 2.0 + PKCE avec redirection loopback (RFC 8252) : le navigateur du système
+s'ouvre sur `<site>/autoriser`, le site renvoie vers `http://127.0.0.1:<port>/callback` où MyIA écoute le temps de
+l'échange ; l'état (`state`) est vérifié (un code injecté par un tiers est refusé). Jeton d'accès 15 min en mémoire
+seulement ; jeton de renouvellement (rotation) dans le coffre Windows ; déconnexion = révocation sur le site.
 
 **Coach des sessions Claude** : le modèle local évalue la difficulté d'une tâche (1 à 5) et choisit Haiku, Sonnet ou
 Opus, pour `claude_delegate` (modèle affiché dans la confirmation) comme pour l'ouverture d'une console. Dans une

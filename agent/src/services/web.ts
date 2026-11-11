@@ -222,7 +222,7 @@ async function search(query: string, max: number): Promise<SearchResult[]> {
 }
 
 /** Ouvre un lien dans le navigateur par défaut, sans passer par cmd (pas d'interprétation de & ou ^). */
-function openInBrowser(url: string) {
+export function openInBrowser(url: string) {
   const [cmd, args] =
     process.platform === "win32"
       ? ["rundll32.exe", ["url.dll,FileProtocolHandler", url]]

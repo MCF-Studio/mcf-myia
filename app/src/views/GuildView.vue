@@ -4,6 +4,8 @@ import {
   CircleOff,
   FlaskConical,
   Handshake,
+  LogIn,
+  LogOut,
   Moon,
   Plus,
   Power,
@@ -11,6 +13,7 @@ import {
   ScrollText,
   ShieldCheck,
   Trash2,
+  UserRound,
   Users,
   WifiOff,
   X,
@@ -51,6 +54,46 @@ interface JournalEntry {
 }
 
 const g = ref<Guild>();
+
+// ─── compte mcfstudio.fr (connexion OAuth dans le navigateur) ───
+interface McfAccountInfo {
+  id: number;
+  name: string;
+  avatar: string | null;
+  certified: boolean;
+}
+const account = ref<McfAccountInfo | null>(null);
+const accountSite = ref("");
+const accountError = ref("");
+const loggingIn = ref(false);
+
+async function loadAccount() {
+  const r = await call<{ site: string; account: McfAccountInfo | null; error?: string }>("guild.account").catch(() => undefined);
+  if (!r) return;
+  account.value = r.account;
+  accountSite.value = r.site.replace(/^https?:\/\//, "");
+  accountError.value = r.error ?? "";
+}
+
+async function login() {
+  loggingIn.value = true;
+  accountError.value = "";
+  try {
+    const r = await call<{ account: McfAccountInfo }>("guild.login");
+    account.value = r.account;
+    toast(`Connecté en tant que ${r.account.name}`, "success");
+  } catch (e) {
+    accountError.value = (e as Error).message;
+  } finally {
+    loggingIn.value = false;
+  }
+}
+
+async function logout() {
+  await call("guild.logout").catch(() => undefined);
+  account.value = null;
+  toast("Déconnecté de mcfstudio.fr");
+}
 const dirty = ref(false);
 const models = ref<string[]>([]);
 const journal = ref<JournalEntry[]>([]);
@@ -188,6 +231,7 @@ const offersOn = computed(() => g.value?.offers.filter((o) => o.enabled).length 
 const DECISION = { auto: "acceptée automatiquement", ask: "te sera demandée", refuse: "refusée", erreur: "erreur" } as const;
 
 onMounted(async () => {
+  void loadAccount();
   await load();
   const r = await call<{ installed: { name: string }[] }>("models.list").catch(() => ({ installed: [] }));
   models.value = r.installed.map((m) => m.name);
@@ -205,6 +249,31 @@ onMounted(async () => {
       </div>
       <button class="btn primary" :disabled="!dirty" @click="save"><Save :size="16" /> Enregistrer</button>
     </header>
+
+    <!-- Compte mcfstudio.fr -->
+    <section class="card account">
+      <template v-if="account">
+        <img v-if="account.avatar?.startsWith('https://cdn.discordapp.com/')" :src="account.avatar" alt="" class="acc-avatar" referrerpolicy="no-referrer" />
+        <div v-else class="acc-avatar acc-initial">{{ account.name.charAt(0).toUpperCase() }}</div>
+        <div class="acc-text">
+          <strong>{{ account.name }} <span v-if="account.certified" class="badge accent"><BadgeCheck :size="12" /> certifié</span></strong>
+          <span class="small muted">Connecté à {{ accountSite }} · la Guilde te reconnaîtra sous ce nom.</span>
+        </div>
+        <button class="btn sm ghost" @click="logout"><LogOut :size="14" /> Se déconnecter</button>
+      </template>
+      <template v-else>
+        <UserRound :size="22" class="acc-icon" />
+        <div class="acc-text">
+          <strong>Compte mcfstudio.fr</strong>
+          <span class="small muted">
+            {{ loggingIn ? "Termine la connexion dans ton navigateur (Discord ou e-mail), puis clique sur « Autoriser »." : "Pour participer à la Guilde : connexion dans ton navigateur, MyIA ne voit jamais ton mot de passe." }}
+          </span>
+          <span v-if="accountError" class="small acc-error">{{ accountError }}</span>
+        </div>
+        <button v-if="loggingIn" class="btn sm" @click="call('guild.cancelLogin')">Annuler</button>
+        <button v-else class="btn primary sm" @click="login"><LogIn :size="14" /> Se connecter avec mcfstudio.fr</button>
+      </template>
+    </section>
 
     <!-- État : relais + interrupteur -->
     <section class="status card">
@@ -405,6 +474,45 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
+}
+.account {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.acc-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 30%;
+  object-fit: cover;
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.acc-initial {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+}
+.acc-icon {
+  color: var(--accent);
+  flex: none;
+}
+.acc-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.acc-text strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acc-error {
+  color: var(--danger);
 }
 .status {
   display: grid;

@@ -32,6 +32,15 @@ const McpServerSchema = z.object({
 });
 
 export const ConfigSchema = z.object({
+  /** Site MCF Studio (compte de la Guilde). https obligatoire, sauf boucle locale (site de développement). */
+  site: z
+    .object({
+      url: z
+        .string()
+        .regex(/^(https:\/\/[a-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/i, "adresse https du site attendue (sans / final)")
+        .default("https://mcfstudio.fr"),
+    })
+    .prefault({}),
   /** Comment l'agent appelle son utilisateur (prompts système). */
   user: z.object({ name: z.string().min(1).max(60).default("l'utilisateur") }).prefault({}),
   llm: z

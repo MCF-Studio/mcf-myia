@@ -12,6 +12,8 @@ import { loadConfig, type Config } from "../core/config.js";
 import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
 import { triageTask } from "../core/claude-coach.js";
 import { decide, journal, loadGuild, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
+import { McfAccount } from "../core/mcf-account.js";
+import { openInBrowser } from "../services/web.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
 import { MODEL_NAME, OllamaClient } from "../core/llm.js";
 import { makeTeamRoot } from "../core/team-runner.js";
@@ -461,6 +463,38 @@ function patchConfig(mutate: (raw: Record<string, any>) => void) {
 
 rpc.method("guild.get", () => ({ ...loadGuild(), relay: { online: false, reason: "relais MCF Studio pas encore en ligne" } }));
 
+// Compte mcfstudio.fr (OAuth + PKCE, boucle locale) : jeton de renouvellement dans le coffre Windows.
+let mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
+let mcfLogin: AbortController | undefined;
+
+rpc.method("guild.account", async () => {
+  try {
+    return { site: cfg.site.url, account: (await mcf.account()) ?? null };
+  } catch (e) {
+    return { site: cfg.site.url, account: null, error: (e as Error).message };
+  }
+});
+
+rpc.method("guild.login", async () => {
+  if (mcfLogin) throw new Error("connexion déjà en cours dans le navigateur");
+  mcfLogin = new AbortController();
+  try {
+    return { site: cfg.site.url, account: await mcf.login(mcfLogin.signal) };
+  } finally {
+    mcfLogin = undefined;
+  }
+});
+
+rpc.method("guild.cancelLogin", () => {
+  mcfLogin?.abort();
+  return true;
+});
+
+rpc.method("guild.logout", async () => {
+  await mcf.logout();
+  return true;
+});
+
 rpc.method("guild.save", (params) => {
   const { relay: _r, ...raw } = (params ?? {}) as Record<string, unknown>;
   return saveGuild(raw);
@@ -612,6 +646,7 @@ rpc.method("config.reload", async () => {
   teams = loadTeams();
   registry = undefined;
   live.clear();
+  mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
   return true;
 });
 
