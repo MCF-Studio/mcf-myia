@@ -59,6 +59,9 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   un fichier existant en argument (alors confirmé). Chercher un exe sur le PC (`program_find`) est en lecture seule ;
   l'**enregistrer** demande confirmation. Shells et interpréteurs (cmd, PowerShell, node, python…) sont refusés à
   l'enregistrement : sinon ce serait une commande libre déguisée.
+  Chemins locaux uniquement (pas de chemin réseau, qui ferait fuiter le jeton NTLM), nom réel vérifié (pas de nom court
+  8.3), outils du dossier Windows refusés sauf une courte liste inoffensive, empreinte SHA-256 enregistrée : un
+  exécutable modifié depuis redemande confirmation avant de se lancer.
 - Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,

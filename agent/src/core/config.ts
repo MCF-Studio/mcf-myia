@@ -101,7 +101,11 @@ export const ConfigSchema = z.object({
   programs: z
     .record(
       z.string().min(1).max(40),
-      z.object({ path: z.string().min(1).max(500), description: z.string().max(200).optional() }),
+      z.object({
+        path: z.string().min(1).max(500),
+        description: z.string().max(200).optional(),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }),
     )
     .default({}),
 });
