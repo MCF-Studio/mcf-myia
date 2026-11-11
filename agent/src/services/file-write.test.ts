@@ -47,4 +47,26 @@ describe("écriture de fichiers", () => {
     expect(needsConfirmation(tool, undefined, cfg, parse({ path: "nouveau-test-xyz.md", content: "a", mode: "overwrite" }))).toBe(true);
     expect(needsConfirmation(tool, undefined, cfg, parse({ path: path.join(home, "Desktop", "x.md"), content: "a" }))).toBe(true);
   });
+
+  it("refuse les contournements Windows : flux alternatif, point ou espace final, nom court, nom réservé", () => {
+    for (const n of ["notes.txt:cache.exe", "run.bat.", "run.bat ", "CONFIG~1.md", "con.txt", "dossier./a.md"]) {
+      expect(() => resolveWritable(cfg, n), JSON.stringify(n)).toThrow();
+    }
+  });
+
+  it("liste d'autorisation : texte seulement ; le code passe par Claude Code", () => {
+    for (const n of ["script.py", "main.gd", "app.js", "page.svg"]) expect(() => resolveWritable(cfg, n), n).toThrow(/format texte autorisé/);
+    for (const n of ["notes.txt", "doc.md", "data.csv", "conf.yaml", "page.html"]) expect(() => resolveWritable(cfg, n), n).not.toThrow();
+  });
+
+  it("refuse les fichiers qui pilotent d'autres outils (agents IA, npm, Windows)", () => {
+    for (const n of ["CLAUDE.md", "projet/AGENTS.md", ".mcp.json", "desktop.ini", "projet/package.json"]) {
+      expect(() => resolveWritable(cfg, n), n).toThrow(/pilote un autre outil|format texte/);
+    }
+  });
+
+  it("la lecture garde les contrôles de chemin mais accepte tout nom", () => {
+    expect(() => resolveWritable(cfg, "projet/package.json", { read: true })).not.toThrow();
+    expect(() => resolveWritable(cfg, String.raw`\\evil.example\share\x.txt`, { read: true })).toThrow(/réseau/);
+  });
 });

@@ -68,7 +68,10 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   Office sans macros), dans les dossiers habituels (Bureau, Documents, Musique, Images, Vidéos, projets) ; tout le reste,
   et tout fichier de Téléchargements, est confirmé.
   `music_play` lance une playlist, un morceau ou un dossier du dossier Musique (playlist générée dans `workspace\playlists`).
-- Écriture de fichiers : `file_write` crée, remplace ou complète des fichiers **texte** (pas d'exécutable ni de script),
+- Écriture de fichiers : `file_write` crée, remplace ou complète des fichiers **texte** (liste d'autorisation : txt, md,
+  csv, json, yaml, html… ; le code passe par Claude Code ; fichiers qui pilotent un autre outil refusés : CLAUDE.md,
+  AGENTS.md, .mcp.json, package.json, desktop.ini…). Contrôle sur le chemin réel (liens, noms courts 8.3), flux
+  alternatifs « a.txt:b », points/espaces finaux et noms réservés Windows refusés ;
   uniquement dans les dossiers de l'utilisateur ; jamais dans un dossier qui exécute du code automatiquement
   (`.git`, `.vscode`, `.claude`, `.github`…), ni via un lien qui en sortirait. Nouveau fichier dans `Documents\MyIA`
   (dossier par défaut) ou le workspace : direct ; remplacer, compléter ou écrire ailleurs : confirmation avec aperçu.

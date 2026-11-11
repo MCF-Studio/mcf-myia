@@ -22,7 +22,26 @@ const MAX_BYTES = 1024 * 1024;
 const READ_MAX = 200_000;
 
 /** Dossiers où un fichier écrit peut être exécuté sans action de l'utilisateur (hooks, tâches d'éditeur, agents). */
-const AUTORUN_SEGMENTS = new Set([".git", ".husky", ".vscode", ".idea", ".claude", ".github", "node_modules", "startup", "démarrage"]);
+const AUTORUN_SEGMENTS = new Set([
+  ".git", ".husky", ".vscode", ".idea", ".claude", ".cursor", ".github", ".gitlab", "node_modules", ".cargo",
+  "startup", "démarrage", "start menu", "menu démarrer",
+]);
+
+/** Liste d'AUTORISATION : uniquement des formats texte. Le code et les scripts passent par Claude Code (claude_delegate). */
+const TEXT_EXT = new Set(
+  "txt md markdown csv tsv json yaml yml toml xml html htm css log tex srt vtt sql rst adoc org ics vcf".split(" "),
+);
+
+/** Fichiers texte qui pilotent un autre outil (agents IA, npm, Windows) : jamais écrits par l'IA. */
+const BLOCKED_NAMES = new Set(
+  [
+    "claude.md", "claude.local.md", "agents.md", "gemini.md", "copilot-instructions.md", ".cursorrules", ".windsurfrules",
+    ".mcp.json", "mcp.json", "settings.json", "settings.local.json", "desktop.ini", "package.json", "package-lock.json",
+    ".npmrc", ".yarnrc.yml", "pnpm-workspace.yaml", "composer.json", "pyproject.toml", "cargo.toml", "tauri.conf.json",
+    "docker-compose.yml", "compose.yml", "compose.yaml", ".gitlab-ci.yml", "tasks.json", "launch.json", "mise.toml",
+    "agent.json", "agents.json", "teams.json", "guild.json",
+  ].map((n) => n.toLowerCase()),
+);
 
 export const defaultWriteDir = () => path.join(os.homedir(), "Documents", "MyIA");
 
@@ -30,30 +49,60 @@ function writablePlaces(cfg: Config): string[] {
   return [...new Set([defaultWriteDir(), ...knownPlaces(cfg)])];
 }
 
-/** Résout et contrôle une destination d'écriture. Chemin relatif = dans Documents\MyIA. */
-export function resolveWritable(cfg: Config, p: string): string {
+/** Chemin réel : ancêtre existant le plus profond résolu (liens, jonctions, noms courts), puis le reste du chemin. */
+function canonical(abs: string): string {
+  let existing = abs;
+  const rest: string[] = [];
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    rest.unshift(path.basename(existing));
+    existing = parent;
+  }
+  return path.join(fs.realpathSync.native(existing), ...rest);
+}
+
+/**
+ * Résout et contrôle une destination d'écriture (chemin relatif = dans Documents\MyIA).
+ * Rappelée juste avant l'écriture : le contrôle porte sur le chemin RÉEL au dernier moment.
+ */
+export function resolveWritable(cfg: Config, p: string, opts: { read?: boolean } = {}): string {
   const raw = p.trim();
   if (!raw) throw new Error("chemin vide");
-  const abs = /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("//") ? assertLocalPath(raw) : path.resolve(defaultWriteDir(), raw);
-  if (!isInside(defaultWriteDir(), abs) && !writablePlaces(cfg).some((d) => isInside(d, abs))) {
-    throw new Error(`écriture refusée hors de tes dossiers (Documents, Bureau, projets…) : ${abs}`);
+  const isAbs = /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("//");
+  const abs = isAbs ? assertLocalPath(raw) : path.resolve(defaultWriteDir(), raw);
+
+  // Particularités Windows qui font écrire ailleurs que ce que le nom laisse croire :
+  // flux alternatif (« a.txt:b.exe »), point/espace final ignoré (« x.bat. »), nom court 8.3 (« CONFIG~1 »).
+  const parts = abs.slice(3).split(/[\\/]+/).filter(Boolean);
+  if (abs.slice(2).includes(":")) throw new Error("caractère « : » interdit dans un chemin (flux alternatif)");
+  for (const part of parts) {
+    if (/[. ]$/.test(part)) throw new Error(`nom invalide « ${part} » (point ou espace final)`);
+    if (part.includes("~")) throw new Error(`nom invalide « ${part} » (« ~ » interdit)`);
+    if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(part)) throw new Error(`nom réservé par Windows : ${part}`);
   }
-  const segments = abs.split(/[\\/]+/).map((s) => s.toLowerCase());
-  const bad = segments.find((s) => AUTORUN_SEGMENTS.has(s));
+
+  const real = canonical(abs);
+  if (fs.existsSync(real) && fs.lstatSync(real).isSymbolicLink()) throw new Error("la cible est un lien : écriture refusée");
+  const roots = writablePlaces(cfg).map((d) => (fs.existsSync(d) ? fs.realpathSync.native(d) : path.resolve(d)));
+  if (!roots.some((d) => isInside(d, real))) {
+    throw new Error(`écriture refusée hors de tes dossiers (Documents, Bureau, projets…) : ${real}`);
+  }
+  const segments = real.split(/[\\/]+/).map((x) => x.toLowerCase());
+  const bad = segments.find((x) => AUTORUN_SEGMENTS.has(x));
   if (bad) throw new Error(`écriture refusée dans « ${bad} » : ce dossier peut exécuter du code automatiquement`);
-  const ext = path.extname(abs).slice(1).toLowerCase();
+  if (fs.existsSync(real) && fs.statSync(real).isDirectory()) throw new Error(`${real} est un dossier`);
+  // Lecture : mêmes dossiers et mêmes contrôles de chemin, mais tout fichier (le binaire est refusé à la lecture).
+  if (opts.read) return real;
+  const name = path.basename(real).toLowerCase();
+  if (BLOCKED_NAMES.has(name)) throw new Error(`${path.basename(real)} pilote un autre outil (agents, npm, Windows…) : non modifiable par l'IA`);
+  const ext = path.extname(real).slice(1).toLowerCase();
   if (!ext) throw new Error("donne une extension au fichier (.txt, .md, .csv, .json…)");
-  if (EXECUTABLE.has(ext)) throw new Error(`.${ext} est un format exécutable ou un script : non autorisé`);
-  // Lien symbolique ou jonction qui sortirait des dossiers autorisés.
-  const parent = path.dirname(abs);
-  if (fs.existsSync(parent)) {
-    const realParent = fs.realpathSync.native(parent);
-    if (!writablePlaces(cfg).some((d) => fs.existsSync(d) && isInside(fs.realpathSync.native(d), realParent)) && !isInside(defaultWriteDir(), realParent)) {
-      throw new Error("le dossier pointe hors de tes dossiers (lien) : écriture refusée");
-    }
+  if (!TEXT_EXT.has(ext) || EXECUTABLE.has(ext)) {
+    throw new Error(`.${ext} n'est pas un format texte autorisé (txt, md, csv, json, yaml, html…). Pour du code, délègue à Claude Code.`);
   }
-  if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) throw new Error(`${abs} est un dossier`);
-  return abs;
+  if (fs.existsSync(real) && fs.statSync(real).isDirectory()) throw new Error(`${real} est un dossier`);
+  return real;
 }
 
 const QUICK_DIRS = () => [defaultWriteDir(), paths.workspace];
@@ -116,7 +165,7 @@ export function fileWriteService(cfg: Config): Service {
           risk: "read",
           preview: () => "",
           async run(a) {
-            const p = resolveWritable(cfg, a.path); // mêmes dossiers autorisés qu'en écriture
+            const p = resolveWritable(cfg, a.path, { read: true }); // mêmes dossiers, mêmes contrôles de chemin
             if (!fs.existsSync(p)) throw new Error(`introuvable : ${p}`);
             const buf = fs.readFileSync(p);
             if (buf.subarray(0, 8000).includes(0)) throw new Error("fichier binaire : lecture texte impossible");
