@@ -3,6 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Bell,
+  BookOpen,
   AppWindow,
   Download,
   FilePlus2,
@@ -121,6 +122,37 @@ async function addRoot() {
   toast("Dossier ajouté : tes projets seront détectés", "success");
 }
 
+// ─── Mémoire : documents que l'IA consulte (présentations de projets…) ────────
+const memFolders = ref<string[]>([]);
+const memDocs = ref<{ name: string; title: string }[]>([]);
+
+async function loadMemory() {
+  try {
+    const m = await call<{ folders: string[]; docs: { name: string; title: string }[] }>("memory.status");
+    memFolders.value = m.folders;
+    memDocs.value = m.docs;
+  } catch {
+    /* cœur arrêté */
+  }
+}
+
+async function saveMemory(folders: string[]) {
+  try {
+    await call("config.setMemoryFolders", { folders });
+    await loadMemory();
+    return true;
+  } catch (e) {
+    toast((e as Error).message, "error");
+    return false;
+  }
+}
+
+async function addMemoryFolder() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier de documents pour la mémoire de l'IA" });
+  if (typeof dir !== "string" || memFolders.value.includes(dir)) return;
+  if (await saveMemory([...memFolders.value, dir])) toast(`Mémoire : ${memDocs.value.length} document(s) disponibles`, "success");
+}
+
 // ─── Programmes lançables par les agents ─────────────────────────────────────
 interface Prog {
   name: string;
@@ -223,6 +255,7 @@ onMounted(async () => {
   loadVoices();
   void loadConfigBits();
   void loadPrograms();
+  void loadMemory();
   void loadWhisper();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = loadVoices;
   if (inTauri) appVersion.value = await getVersion();
@@ -290,6 +323,26 @@ const shortcuts: [string, string][] = [
           <button class="btn sm ghost icon danger" title="Retirer" @click="roots.splice(i, 1); saveRoots()"><Trash2 :size="14" /></button>
         </div>
         <div v-if="!roots.length" class="empty small">Aucun dossier : ajoute celui qui contient tes projets.</div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h3 class="sec-title">Mémoire</h3>
+          <button class="btn sm" @click="addMemoryFolder"><FolderPlus :size="14" /> Ajouter un dossier</button>
+        </div>
+        <p class="tiny muted">
+          Documents texte (.md, .txt) que l'IA consulte pour connaître tes projets : les passages utiles sont joints à chaque demande.
+          Ils restent sur ce PC et ne sont jamais partagés avec la Guilde.
+        </p>
+        <div v-for="f in memFolders" :key="f" class="root-row">
+          <BookOpen :size="16" />
+          <code class="path grow">{{ f }}</code>
+          <button class="btn sm ghost icon danger" title="Retirer" @click="saveMemory(memFolders.filter((x) => x !== f))"><Trash2 :size="14" /></button>
+        </div>
+        <div v-if="!memFolders.length" class="empty small">Aucun dossier : ajoute celui qui contient tes présentations de projets.</div>
+        <p v-else class="tiny muted">
+          {{ memDocs.length }} document(s){{ memDocs.length ? " : " + memDocs.slice(0, 8).map((d) => d.title).join(", ") + (memDocs.length > 8 ? "…" : "") : "" }}
+        </p>
       </section>
 
       <section class="card">

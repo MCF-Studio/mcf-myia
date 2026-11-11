@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Agent } from "./agent.js";
 import type { Config } from "./config.js";
+import type { Memory } from "./memory.js";
 import type { AgentProfile } from "./profiles.js";
 import { reachable, TeamBudget, type Team, type TeamNode } from "./teams.js";
 import { defineTool, type AgentUI, type Service, type Tool } from "./types.js";
@@ -17,6 +18,7 @@ export interface TeamContext {
   team: Team;
   profileOf(id: string): AgentProfile;
   budget: TeamBudget;
+  memory?: Memory;
 }
 
 function describe(p: AgentProfile) {
@@ -83,6 +85,7 @@ export function makeTeamAgent(node: TeamNode, ctx: TeamContext, depth: number, c
     extraTools: tool ? [tool] : [],
     teamNote: lines.join("\n"),
     trustInput: !caller,
+    memory: ctx.memory,
   });
 }
 

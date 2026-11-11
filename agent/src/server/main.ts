@@ -13,6 +13,7 @@ import { addProgram, assertLocalPath, listPrograms, removeProgram, searchProgram
 import { triageTask } from "../core/claude-coach.js";
 import { decide, journal, loadGuild, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
+import { memoryFor } from "../core/memory.js";
 import { openInBrowser } from "../services/web.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
 import { MODEL_NAME, OllamaClient } from "../core/llm.js";
@@ -101,9 +102,9 @@ async function agentFor(c: Conversation): Promise<Live> {
     let budget: TeamBudget | undefined;
     if (team) {
       budget = new TeamBudget(team.maxCalls, team.maxDepth);
-      agent = makeTeamRoot({ cfg, services, team, profileOf, budget });
+      agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders) });
     } else {
-      agent = new Agent(cfg, services, profile);
+      agent = new Agent(cfg, services, profile, { memory: memoryFor(cfg.memory.folders) });
     }
     agent.importHistory(c.history);
     await agent.refreshServices();
@@ -624,6 +625,21 @@ rpc.method("config.get", () => ({
 rpc.method("config.setUserName", (params) => {
   const { name } = parse(z.object({ name: z.string().trim().min(1).max(60) }), params);
   patchConfig((raw) => (raw.user = { ...(raw.user ?? {}), name }));
+  return true;
+});
+
+rpc.method("memory.status", () => {
+  const m = memoryFor(cfg.memory.folders);
+  return { folders: cfg.memory.folders, docs: m?.list() ?? [] };
+});
+
+rpc.method("config.setMemoryFolders", (params) => {
+  const { folders } = parse(z.object({ folders: z.array(z.string().min(3).max(500)).max(20) }), params);
+  for (const f of folders) {
+    const abs = assertLocalPath(f);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new Error(`dossier introuvable : ${abs}`);
+  }
+  patchConfig((raw) => (raw.memory = { folders }));
   return true;
 });
 

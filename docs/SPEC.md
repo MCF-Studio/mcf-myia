@@ -123,6 +123,12 @@ code, pas par le prompt. Les profils sont locaux (`config/agents.json`, hors git
 **Thèmes** : une liste fermée de couleurs (`#hex` ou `rgb()/rgba()`), un rayon parmi trois valeurs. Pas de CSS libre,
 pas d'URL, pas de police distante : un thème ne peut ni exécuter de code ni appeler un serveur.
 
+**Mémoire** : dossiers de documents texte (`.md`, `.txt`) choisis par l'utilisateur (Paramètres → Général,
+`memory.folders` dans `config/agent.json`, hors git). À chaque demande, l'index des documents et les passages les
+plus pertinents (recherche par mots-clés, sans réseau) sont joints au prompt ; les outils `memory_search` et
+`memory_read` (lecture seule) donnent le reste. Limites : 300 fichiers, 200 Ko par fichier, 2 Mo au total. La
+mémoire ne quitte jamais le PC : l'agent de la Guilde (bac à sable) ne la reçoit pas, ce que vérifie un test.
+
 **Marketplace (à venir)** : registre sur mcfstudio.fr, publications par des membres certifiés. Tant qu'il n'existe pas,
 l'app n'affiche aucun contenu fictif ; seule l'installation depuis un fichier local est proposée.
 
@@ -150,6 +156,8 @@ modèle.
 | Crash silencieux de la console ou du sidecar                                        | Erreurs fatales journalisées (event `crash`) avec la pile d'appel                       |
 | L'IA fait lancer un programme dangereux ou un shell                                 | Liste fermée de programmes enregistrés ; ajout confirmé ; shells/interpréteurs bloqués |
 | Ouverture d'un fichier piégé (script, raccourci) proposée par une page lue           | Extensions exécutables refusées ; hors dossiers habituels, confirmation                |
+| Fuite de la mémoire (présentations, projets) vers un autre membre via la Guilde      | Le bac à sable de la Guilde est construit sans mémoire ni services ; test dédié          |
+| Écriture de fichier détournée (chemin « C:dossier », lien, flux alternatif)          | Chemins relatifs au lecteur refusés ; chemin réel contrôlé avant ET après écriture       |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

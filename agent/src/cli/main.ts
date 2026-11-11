@@ -4,6 +4,7 @@ import { styleText } from "node:util";
 import { Agent } from "../core/agent.js";
 import { audit } from "../core/audit.js";
 import { loadConfig, type Config } from "../core/config.js";
+import { memoryFor } from "../core/memory.js";
 import { paths } from "../core/paths.js";
 import { deleteSecret, getSecret, KNOWN_SECRETS, setSecret } from "../core/secrets.js";
 import type { AgentUI } from "../core/types.js";
@@ -60,7 +61,7 @@ function isExitError(e: unknown) {
 
 async function makeAgent(): Promise<{ agent: Agent; cfg: Config }> {
   const cfg = loadConfig();
-  const agent = new Agent(cfg, buildServices(cfg));
+  const agent = new Agent(cfg, buildServices(cfg), undefined, { memory: memoryFor(cfg.memory.folders) });
   await agent.client.ensureRunning();
   if (!(await agent.client.hasModel())) {
     throw new Error(`Modèle ${cfg.llm.model} absent. Lance : ${paths.ollamaExe} pull ${cfg.llm.model}`);

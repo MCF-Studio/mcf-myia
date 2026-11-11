@@ -86,4 +86,8 @@ describe("écriture de fichiers", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("refuse un chemin « C:dossier » (lecteur sans antislash, ambigu)", () => {
+    expect(() => resolveWritable(cfg, "C:UsersmcfamDesktop/bonjour.md")).toThrow(/chemin invalide/);
+  });
 });

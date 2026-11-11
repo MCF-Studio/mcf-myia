@@ -31,7 +31,8 @@ export function programsService(): Service {
           name: "program_launch",
           description:
             `Lance un programme enregistré par l'utilisateur. Programmes : ${names}. ` +
-            "Si le programme demandé n'est pas dans la liste, cherche-le avec program_find puis propose de l'ajouter avec program_register.",
+            "Si le programme demandé n'est pas dans la liste, cherche-le avec program_find puis propose de l'ajouter avec program_register. " +
+            "Pas pour créer ou écrire un fichier : utilise file_write.",
           schema: z.object({
             program: z.string().min(1).describe("Nom du programme enregistré"),
             open: z.string().max(500).optional().describe("Fichier ou dossier existant à ouvrir avec (optionnel)"),

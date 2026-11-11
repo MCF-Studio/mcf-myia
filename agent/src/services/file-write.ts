@@ -86,6 +86,8 @@ function verifyWritten(cfg: Config, file: string) {
 export function resolveWritable(cfg: Config, p: string, opts: { read?: boolean } = {}): string {
   const raw = p.trim();
   if (!raw) throw new Error("chemin vide");
+  // « C:dossier » (lettre de lecteur sans \) = chemin relatif au dossier courant de ce lecteur : ambigu, refusé.
+  if (/^[A-Za-z]:(?![\\/])/.test(raw)) throw new Error(`chemin invalide « ${raw} » : écris-le en entier, ex. C:\\Users\\…`);
   const isAbs = /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("//");
   const abs = isAbs ? assertLocalPath(raw) : path.resolve(defaultWriteDir(), raw);
 

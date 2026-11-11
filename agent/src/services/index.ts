@@ -7,6 +7,7 @@ import { godotService } from "./godot.js";
 import { mcpService } from "./mcp.js";
 import { fileWriteService } from "./file-write.js";
 import { filesService } from "./files.js";
+import { memoryService } from "./memory.js";
 import { programsService } from "./programs.js";
 import { projectsService } from "./projects.js";
 import { telegramService } from "./telegram.js";
@@ -25,6 +26,7 @@ export function buildServices(cfg: Config): Service[] {
     programsService(),
     filesService(cfg),
     fileWriteService(cfg),
+    memoryService(cfg),
     ...Object.entries(cfg.mcpServers).map(([name, s]) => mcpService(name, s)),
   ];
 }

@@ -108,6 +108,8 @@ export const ConfigSchema = z.object({
     })
     .prefault({}),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
+  /** Mémoire : dossiers de documents (Markdown, texte) où les agents puisent (voir core/memory.ts). */
+  memory: z.object({ folders: z.array(z.string().min(3).max(500)).max(20).default([]) }).prefault({}),
   /** Programmes que l'IA peut lancer : nom → exécutable (voir core/programs.ts). */
   programs: z
     .record(
