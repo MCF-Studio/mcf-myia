@@ -66,6 +66,8 @@ export const ConfigSchema = z.object({
     .object({
       command: z.string().default("claude"),
       model: z.string().optional(),
+      /** Choisir Haiku/Sonnet/Opus selon la difficulté de chaque tâche (prioritaire sur `model`). */
+      autoModel: z.boolean().default(true),
       maxTurns: z.number().int().min(1).max(200).default(40),
       timeoutMinutes: z.number().min(1).max(240).default(30),
       defaultAllowedTools: z

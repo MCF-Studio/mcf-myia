@@ -4,6 +4,8 @@ import type { Config } from "../core/config.js";
 import { paths } from "../core/paths.js";
 import { commandWorks, runProcess } from "../core/proc.js";
 import type { ProjectRegistry } from "../core/projects.js";
+import { CLAUDE_MODELS, MODEL_LABEL, triageTask, type Triage } from "../core/claude-coach.js";
+import { OllamaClient } from "../core/llm.js";
 import { defineTool, truncate, type Service, type ToolContext } from "../core/types.js";
 
 const APPEND_PROMPT =
@@ -33,6 +35,8 @@ interface ClaudeRun {
   appendPrompt: string;
   maxTurns?: number;
   timeoutMinutes?: number;
+  /** Alias Claude Code (haiku, sonnet, opus) ; absent = claude.model de la config. */
+  model?: string;
 }
 
 async function runClaude(cfg: Config, o: ClaudeRun, ctx: ToolContext): Promise<string> {
@@ -50,7 +54,7 @@ async function runClaude(cfg: Config, o: ClaudeRun, ctx: ToolContext): Promise<s
     String(maxTurns),
     "--append-system-prompt",
     o.appendPrompt,
-    ...(cfg.claude.model ? ["--model", cfg.claude.model] : []),
+    ...((o.model ?? cfg.claude.model) ? ["--model", (o.model ?? cfg.claude.model)!] : []),
     "--allowedTools",
     ...o.tools,
   ];
@@ -95,7 +99,25 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
   const schema = z.object({
     task: z.string().min(10).describe("Consigne complète et autonome pour Claude Code (contexte, but, critère de réussite)"),
     project: z.string().min(1).optional().describe("Nom du projet dans lequel travailler ; absent = dossier workspace"),
+    model: z
+      .enum(["auto", ...CLAUDE_MODELS])
+      .default("auto")
+      .describe("auto = choisi selon la difficulté (recommandé) ; sinon haiku, sonnet ou opus si l'utilisateur l'a demandé"),
   });
+
+  // Choix du modèle fait une fois, avant la confirmation, et réutilisé à l'exécution.
+  const llm = new OllamaClient(cfg.llm);
+  const choices = new WeakMap<object, Triage>();
+  const choose = async (a: z.infer<typeof schema>): Promise<Triage | undefined> => {
+    if (a.model !== "auto") return { model: a.model, difficulty: 3, reason: "modèle demandé explicitement", by: "local" };
+    if (cfg.claude.model && !cfg.claude.autoModel) return undefined; // modèle imposé par la config
+    let t = choices.get(a);
+    if (!t) {
+      t = await triageTask(llm, a.task);
+      choices.set(a, t);
+    }
+    return t;
+  };
 
   const resolve = (project?: string) => {
     const p = project ? reg.resolve(project) : undefined;
@@ -130,15 +152,26 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
               return undefined;
             }
           },
-          check: (a) => void resolve(a.project),
-          preview(a) {
+          async check(a) {
+            resolve(a.project);
+            await choose(a);
+          },
+          async preview(a) {
             const { cwd, tools } = resolve(a.project);
-            return `Dossier : ${cwd}\nOutils accordés : ${tools.join(", ")}\nConsigne :\n────────\n${a.task}\n────────`;
+            const t = await choose(a);
+            const model = t ? `${MODEL_LABEL[t.model]} — difficulté ${t.difficulty}/5 : ${t.reason}` : `${cfg.claude.model} (config)`;
+            return `Dossier : ${cwd}\nModèle : ${model}\nOutils accordés : ${tools.join(", ")}\nConsigne :\n────────\n${a.task}\n────────`;
           },
           async run(a, ctx) {
             const { cwd, tools } = resolve(a.project);
             if (!fs.existsSync(cwd)) throw new Error(`dossier introuvable : ${cwd}`);
-            return runClaude(cfg, { task: a.task, cwd, tools, permissionMode: "acceptEdits", appendPrompt: APPEND_PROMPT }, ctx);
+            const t = await choose(a);
+            if (t) ctx.ui.progress(`Modèle Claude : ${t.model} (difficulté ${t.difficulty}/5)`);
+            return runClaude(
+              cfg,
+              { task: a.task, cwd, tools, permissionMode: "acceptEdits", appendPrompt: APPEND_PROMPT, model: t?.model },
+              ctx,
+            );
           },
         }),
         defineTool({

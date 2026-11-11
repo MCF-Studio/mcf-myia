@@ -5,6 +5,7 @@ import { claudeService } from "./claude.js";
 import { discordService } from "./discord.js";
 import { godotService } from "./godot.js";
 import { mcpService } from "./mcp.js";
+import { filesService } from "./files.js";
 import { programsService } from "./programs.js";
 import { projectsService } from "./projects.js";
 import { telegramService } from "./telegram.js";
@@ -21,6 +22,7 @@ export function buildServices(cfg: Config): Service[] {
     claudeService(cfg, reg),
     webService(cfg),
     programsService(),
+    filesService(cfg),
     ...Object.entries(cfg.mcpServers).map(([name, s]) => mcpService(name, s)),
   ];
 }

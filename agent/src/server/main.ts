@@ -9,11 +9,12 @@ import { Agent } from "../core/agent.js";
 import { audit } from "../core/audit.js";
 import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
-import { addProgram, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
+import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
+import { triageTask } from "../core/claude-coach.js";
 import { MODEL_NAME, OllamaClient } from "../core/llm.js";
 import { makeTeamRoot } from "../core/team-runner.js";
 import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
-import { paths } from "../core/paths.js";
+import { isInside, paths } from "../core/paths.js";
 import { ProjectRegistry } from "../core/projects.js";
 import {
   AgentProfileSchema,
@@ -453,6 +454,23 @@ function patchConfig(mutate: (raw: Record<string, any>) => void) {
   cfg = patchConfigFile(mutate);
   live.clear();
 }
+
+rpc.method("claude.triage", async (params) => {
+  const { task } = parse(z.object({ task: z.string().trim().min(3).max(6000) }), params);
+  return triageTask(ollama(), task);
+});
+
+/** Passation d'une console : le fichier existe-t-il (et a-t-il fini d'être écrit) ? Dossiers autorisés uniquement. */
+rpc.method("handoff.status", (params) => {
+  const { cwd, file } = parse(z.object({ cwd: z.string().max(500), file: z.string().regex(/^\.myia\/handoff-[0-9-]{8,20}\.md$/) }), params);
+  const allowed = [paths.workspace, ...cfg.projectRoots.map((r) => r.path), ...Object.values(cfg.projects).map((p) => p.path)];
+  const dir = path.resolve(assertLocalPath(cwd));
+  if (!allowed.some((r) => isInside(r, dir))) throw new Error("dossier non autorisé");
+  const full = path.join(dir, file);
+  if (!fs.existsSync(full)) return { exists: false };
+  const st = fs.statSync(full);
+  return { exists: true, size: st.size, mtime: st.mtimeMs };
+});
 
 rpc.method("programs.list", () => listPrograms());
 

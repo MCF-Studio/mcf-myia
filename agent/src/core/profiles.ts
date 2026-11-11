@@ -20,6 +20,12 @@ export const AgentProfileSchema = z.object({
   model: z.string().max(120).regex(MODEL_NAME).optional(),
   /** Couleur d'accent dans l'interface. */
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  /** Photo : image PNG/JPEG/WebP en data URL (256 px max, recadrée par l'app). Pas de SVG : il peut contenir du script. */
+  avatar: z
+    .string()
+    .max(150_000)
+    .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/]+={0,2}$/, "image PNG, JPEG ou WebP attendue")
+    .optional(),
   /** Consignes ajoutées au prompt système (ton, rôle). Ne remplacent jamais les règles de sécurité. */
   instructions: z.string().max(4000).optional(),
   /** Ids des services autorisés ; absent = tous les services disponibles. */

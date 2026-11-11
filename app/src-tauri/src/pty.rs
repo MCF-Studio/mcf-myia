@@ -76,7 +76,17 @@ fn clamp_size(cols: u16, rows: u16) -> PtySize {
 
 /// Lance Claude Code dans `cwd`. `resume` = reprendre la dernière session de ce dossier (`claude --continue`).
 #[tauri::command]
-pub fn pty_spawn(app: AppHandle, state: State<'_, Ptys>, cwd: String, resume: bool, cols: u16, rows: u16) -> Result<u32, String> {
+#[allow(clippy::too_many_arguments)]
+pub fn pty_spawn(
+    app: AppHandle,
+    state: State<'_, Ptys>,
+    cwd: String,
+    resume: bool,
+    cols: u16,
+    rows: u16,
+    model: Option<String>,
+    prompt: Option<String>,
+) -> Result<u32, String> {
     let dir = PathBuf::from(&cwd);
     if !dir.is_dir() {
         return Err(format!("dossier introuvable : {cwd}"));
@@ -90,6 +100,24 @@ pub fn pty_spawn(app: AppHandle, state: State<'_, Ptys>, cwd: String, resume: bo
     let mut cmd = CommandBuilder::new(program);
     if resume {
         cmd.arg("--continue");
+    }
+    // Modèle : liste fermée d'alias Claude Code.
+    if let Some(m) = model.filter(|m| !m.is_empty()) {
+        if !["haiku", "sonnet", "opus"].contains(&m.as_str()) {
+            return Err(format!("modèle inconnu : {m}"));
+        }
+        cmd.arg("--model");
+        cmd.arg(m);
+    }
+    // Tâche de départ : un seul argument (pas de shell), une seule ligne, bornée.
+    if let Some(p) = prompt.map(|p| p.replace(['\r', '\n'], " ").trim().to_string()).filter(|p| !p.is_empty()) {
+        if p.len() > 8000 {
+            return Err("tâche trop longue (8000 caractères max)".into());
+        }
+        if p.starts_with('-') {
+            return Err("une tâche ne peut pas commencer par « - »".into());
+        }
+        cmd.arg(p);
     }
     cmd.cwd(&dir);
     cmd.env("TERM", "xterm-256color");

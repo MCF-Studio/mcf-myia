@@ -14,6 +14,44 @@ export function pickTextFile(accept = ".json", maxBytes = 64_000): Promise<strin
   });
 }
 
+/**
+ * Choisit une image et la recadre en carré (centre), réduite à `size` px, encodée en WebP.
+ * Le recadrage passe par un canvas : seuls des pixels ressortent (pas de métadonnées EXIF, pas de SVG).
+ */
+export function pickAvatar(size = 256): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/webp";
+    input.onchange = () => {
+      const f = input.files?.[0];
+      if (!f) return resolve(undefined);
+      if (!/^image\/(png|jpeg|webp)$/.test(f.type)) return reject(new Error("image PNG, JPEG ou WebP attendue"));
+      if (f.size > 15 * 1024 * 1024) return reject(new Error("image trop lourde (15 Mo max)"));
+      const url = URL.createObjectURL(f);
+      const img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = Math.min(size, side);
+        const ctx = canvas.getContext("2d")!;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        let data = canvas.toDataURL("image/webp", 0.86);
+        if (!data.startsWith("data:image/webp")) data = canvas.toDataURL("image/jpeg", 0.86);
+        resolve(data);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("image illisible"));
+      };
+      img.src = url;
+    };
+    input.click();
+  });
+}
+
 export function downloadText(filename: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
   const a = document.createElement("a");

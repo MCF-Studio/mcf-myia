@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Bot, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload } from "lucide-vue-next";
+import { Bot, Camera, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import Toggle from "../components/Toggle.vue";
-import { downloadText, pickTextFile } from "../lib/files";
+import { downloadText, pickAvatar, pickTextFile } from "../lib/files";
 import { agentColor } from "../lib/format";
 import { call } from "../lib/rpc";
 import { createConversation, refreshAgents, refreshOverview, state, toast } from "../lib/store";
@@ -23,6 +23,7 @@ const form = reactive({
   description: "",
   model: "",
   color: "",
+  avatar: "",
   instructions: "",
   restrict: false,
   services: [] as string[],
@@ -51,6 +52,7 @@ function load(a?: AgentProfile) {
   form.description = a?.description ?? "";
   form.model = a?.model ?? "";
   form.color = a?.color ?? "";
+  form.avatar = a?.avatar ?? "";
   form.instructions = a?.instructions ?? "";
   form.restrict = !!a?.services;
   form.services = a?.services ? [...a.services] : services.value.map((s) => s.id);
@@ -68,6 +70,7 @@ function toProfile(): AgentProfile {
   if (form.description.trim()) p.description = form.description.trim();
   if (form.model) p.model = form.model;
   if (form.color) p.color = form.color;
+  if (form.avatar) p.avatar = form.avatar;
   if (form.instructions.trim()) p.instructions = form.instructions.trim();
   if (form.restrict) p.services = [...form.services];
   return p;
@@ -120,6 +123,15 @@ async function importFile() {
 
 function exportJson() {
   return JSON.stringify({ $schema: "myia/agent@1", ...toProfile() }, null, 2);
+}
+
+async function choosePhoto() {
+  try {
+    const data = await pickAvatar();
+    if (data) form.avatar = data;
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
 }
 
 async function copyJson() {
@@ -177,7 +189,18 @@ onMounted(async () => {
 
       <form class="card editor" @submit.prevent="save">
         <div class="editor-head">
-          <AgentAvatar :agent="{ id: form.id || 'x', name: form.name || '?', color: form.color || undefined }" :size="52" />
+          <div class="avatar-edit">
+            <AgentAvatar
+              :agent="{ id: form.id || 'x', name: form.name || '?', color: form.color || undefined, avatar: form.avatar || undefined }"
+              :size="64"
+            />
+            <button type="button" class="avatar-btn" :title="form.avatar ? 'Changer la photo' : 'Ajouter une photo'" @click="choosePhoto">
+              <Camera :size="14" />
+            </button>
+            <button v-if="form.avatar" type="button" class="avatar-del" title="Retirer la photo" @click="form.avatar = ''">
+              <X :size="12" />
+            </button>
+          </div>
           <div>
             <h2>{{ form.name || "Nouvel agent" }}</h2>
             <span class="mono tiny muted">id : {{ form.id || "—" }}</span>
@@ -322,6 +345,39 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+.avatar-edit {
+  position: relative;
+  flex: none;
+}
+.avatar-btn,
+.avatar-del {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--surface);
+}
+.avatar-btn {
+  right: -6px;
+  bottom: -6px;
+  width: 28px;
+  height: 28px;
+  background: var(--lava);
+  color: var(--accent-contrast);
+  box-shadow: 0 4px 12px -4px var(--glow);
+}
+.avatar-del {
+  right: -6px;
+  top: -6px;
+  width: 22px;
+  height: 22px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.avatar-del:hover {
+  color: var(--danger);
 }
 .editor-head h2 {
   font-size: 1.3rem;

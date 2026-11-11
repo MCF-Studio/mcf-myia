@@ -62,6 +62,10 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   Chemins locaux uniquement (pas de chemin réseau, qui ferait fuiter le jeton NTLM), nom réel vérifié (pas de nom court
   8.3), outils du dossier Windows refusés sauf une courte liste inoffensive, empreinte SHA-256 enregistrée : un
   exécutable modifié depuis redemande confirmation avant de se lancer.
+- Fichiers et musique : `open_path` ouvre un dossier ou un fichier avec l'application par défaut (via l'Explorateur,
+  sans shell), **jamais** un exécutable ou un script (`.exe`, `.bat`, `.ps1`, `.lnk`, `.js`…) ; chemins locaux uniquement ;
+  hors des dossiers habituels (Bureau, Documents, Téléchargements, Musique, Images, Vidéos, projets), ouverture confirmée.
+  `music_play` lance une playlist, un morceau ou un dossier du dossier Musique (playlist générée dans `workspace\playlists`).
 - Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,
@@ -81,6 +85,16 @@ config, pas de l'interface) ; Claude Code y applique ses propres règles de perm
 **Compromis assumé** : une page compromise pourrait taper dans une console ouverte, et Claude Code peut exécuter
 des commandes. La défense repose donc sur l'impossibilité d'injecter du script dans la page (CSP sans inline, HTML
 des réponses échappé, liens ouverts hors de l'app), et `freezePrototype` est désactivé à cause d'xterm.js.
+
+**Coach des sessions Claude** : le modèle local évalue la difficulté d'une tâche (1 à 5) et choisit Haiku, Sonnet ou
+Opus, pour `claude_delegate` (modèle affiché dans la confirmation) comme pour l'ouverture d'une console. Dans une
+console : changement de modèle (`/model`), `/compact`, et « résumer et repartir » (Claude écrit une passation dans
+`<projet>/.myia/handoff-*.md`, la session est vidée par `/clear`, puis reprise depuis la passation ; le cœur ne surveille
+ce fichier que dans le workspace et les dossiers de projets). L'alerte « session longue » est une **estimation** (durée,
+volume affiché), pas une mesure du contexte réel.
+
+**Photos d'agents** : PNG, JPEG ou WebP en data URL, recadrées et réduites à 256 px par l'app (le passage par un canvas
+retire les métadonnées). Pas de SVG ni d'URL : une image ne peut ni exécuter de script ni appeler un serveur.
 
 **Profils d'agents** : des données validées par schéma. Un profil peut seulement **restreindre** les services d'un agent ;
 ses consignes s'ajoutent au prompt système sans remplacer les règles (§3), qui sont de toute façon appliquées par le
@@ -115,6 +129,7 @@ modèle.
 | Réponse du modèle contenant du HTML/script (page web lue)                           | Markdown rendu avec HTML échappé ; CSP sans script inline ; liens ouverts hors de l'app |
 | Crash silencieux de la console ou du sidecar                                        | Erreurs fatales journalisées (event `crash`) avec la pile d'appel                       |
 | L'IA fait lancer un programme dangereux ou un shell                                 | Liste fermée de programmes enregistrés ; ajout confirmé ; shells/interpréteurs bloqués |
+| Ouverture d'un fichier piégé (script, raccourci) proposée par une page lue           | Extensions exécutables refusées ; hors dossiers habituels, confirmation                |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

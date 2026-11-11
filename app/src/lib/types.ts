@@ -6,6 +6,8 @@ export interface AgentProfile {
   description?: string;
   model?: string;
   color?: string;
+  /** Photo en data URL (PNG/JPEG/WebP, 256 px max). */
+  avatar?: string;
   instructions?: string;
   services?: string[];
 }

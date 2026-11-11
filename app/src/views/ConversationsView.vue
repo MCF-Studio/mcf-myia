@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import ChatPanel from "../components/ChatPanel.vue";
 import TerminalPanel from "../components/TerminalPanel.vue";
-import { isTerminalKey, killTerminal, openClaude, terminals } from "../lib/terminals";
+import { CLAUDE_MODELS, isTerminalKey, killTerminal, openClaude, terminals, triage, type Triage } from "../lib/terminals";
 import { relTime } from "../lib/format";
 import { call } from "../lib/rpc";
 import { settings } from "../lib/settings";
@@ -56,6 +56,26 @@ const workspace = ref("");
 const consoleDir = ref("");
 const consoleResume = ref(false);
 const launching = ref(false);
+const consoleTask = ref("");
+/** "auto" = le modèle local choisit selon la difficulté ; "" = modèle par défaut de Claude Code. */
+const consoleModel = ref<"auto" | "" | "haiku" | "sonnet" | "opus">("auto");
+const advice = ref<Triage>();
+const advising = ref(false);
+
+async function adviseModel() {
+  const task = consoleTask.value.trim();
+  if (task.length < 3) return undefined;
+  advising.value = true;
+  try {
+    advice.value = await triage(task);
+    return advice.value;
+  } catch (e) {
+    toast((e as Error).message, "error");
+    return undefined;
+  } finally {
+    advising.value = false;
+  }
+}
 
 async function askConsole() {
   pickerOpen.value = false;
@@ -76,7 +96,12 @@ async function launchConsole() {
   launching.value = true;
   try {
     const p = projects.value.find((x) => x.path === consoleDir.value);
-    const key = await openClaude(consoleDir.value, p?.name ?? "workspace", consoleResume.value);
+    const task = consoleTask.value.trim();
+    let model: string | undefined = consoleModel.value || undefined;
+    if (model === "auto") model = task ? (advice.value ?? (await adviseModel()))?.model : undefined;
+    const key = await openClaude(consoleDir.value, p?.name ?? "workspace", consoleResume.value, model, task || undefined);
+    consoleTask.value = "";
+    advice.value = undefined;
     cs.openTabs.push(key);
     cs.activeTab = key;
     consoleDialog.value = false;
@@ -327,6 +352,40 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
               <option v-for="p in projects" :key="p.path" :value="p.path">{{ p.name }}{{ p.kinds.length ? ` · ${p.kinds.join(", ")}` : "" }}</option>
             </select>
           </label>
+          <label class="field">
+            <span class="small">Tâche <em class="muted">(optionnelle : Claude démarre directement dessus)</em></span>
+            <textarea
+              v-model="consoleTask"
+              class="input"
+              rows="3"
+              maxlength="8000"
+              placeholder="Ex. ajoute un écran d'options au menu principal"
+              @input="advice = undefined"
+            />
+          </label>
+          <div class="field">
+            <span class="small">Modèle Claude</span>
+            <div class="segmented model-seg">
+              <button type="button" :class="{ on: consoleModel === 'auto' }" title="Le modèle local choisit selon la difficulté de la tâche" @click="consoleModel = 'auto'">
+                Auto
+              </button>
+              <button v-for="m in CLAUDE_MODELS" :key="m.id" type="button" :class="{ on: consoleModel === m.id }" :title="m.hint" @click="consoleModel = m.id">
+                {{ m.label }}
+              </button>
+              <button type="button" :class="{ on: consoleModel === '' }" title="Le modèle configuré dans Claude Code" @click="consoleModel = ''">Défaut</button>
+            </div>
+            <div v-if="consoleModel === 'auto'" class="advice small">
+              <template v-if="advice">
+                <strong>{{ CLAUDE_MODELS.find((m) => m.id === advice!.model)?.label }}</strong>
+                <span class="muted">· difficulté {{ advice.difficulty }}/5 · {{ advice.reason }}</span>
+              </template>
+              <span v-else-if="consoleTask.trim().length >= 3" class="muted">
+                <button type="button" class="link" :disabled="advising" @click="adviseModel">{{ advising ? "analyse…" : "Voir le modèle conseillé" }}</button>
+                (choisi automatiquement à l'ouverture)
+              </span>
+              <span v-else class="muted">Décris la tâche pour que le modèle soit choisi selon sa difficulté.</span>
+            </div>
+          </div>
           <label class="row small check">
             <input v-model="consoleResume" type="checkbox" />
             Reprendre la dernière session de ce dossier (<span class="mono">claude --continue</span>)
@@ -449,6 +508,29 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.model-seg {
+  align-self: flex-start;
+}
+.advice {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.advice strong {
+  color: var(--accent);
+}
+.link {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.field em {
+  font-style: normal;
 }
 .check {
   gap: 8px;

@@ -194,7 +194,8 @@ export class OllamaClient {
     });
   }
 
-  async chat(messages: ChatMessage[], tools: ToolSpec[], signal?: AbortSignal): Promise<ChatMessage> {
+  /** `format: "json"` force une réponse JSON (classification, extraction). */
+  async chat(messages: ChatMessage[], tools: ToolSpec[], signal?: AbortSignal, opts: { format?: "json"; temperature?: number } = {}): Promise<ChatMessage> {
     const timeout = AbortSignal.timeout(300_000);
     const r = await fetch(this.url("/api/chat"), {
       method: "POST",
@@ -206,7 +207,8 @@ export class OllamaClient {
         stream: false,
         think: false,
         keep_alive: this.cfg.keepAlive,
-        options: { num_ctx: this.cfg.numCtx, temperature: this.cfg.temperature },
+        ...(opts.format ? { format: opts.format } : {}),
+        options: { num_ctx: this.cfg.numCtx, temperature: opts.temperature ?? this.cfg.temperature },
       }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
