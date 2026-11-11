@@ -7,7 +7,9 @@ import path from "node:path";
 import { z } from "zod";
 import { Agent } from "../core/agent.js";
 import { audit } from "../core/audit.js";
-import { loadConfig, parseConfig as loadConfigFrom, type Config } from "../core/config.js";
+import { patchConfigFile } from "../core/config-file.js";
+import { loadConfig, type Config } from "../core/config.js";
+import { addProgram, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
 import { MODEL_NAME, OllamaClient } from "../core/llm.js";
 import { makeTeamRoot } from "../core/team-runner.js";
 import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
@@ -448,13 +450,28 @@ rpc.method("themes.delete", (params) => {
 
 /** Modifie un réglage simple de config/agent.json sans toucher au reste du fichier. */
 function patchConfig(mutate: (raw: Record<string, any>) => void) {
-  const raw = JSON.parse(fs.readFileSync(paths.config, "utf8")) as Record<string, any>;
-  mutate(raw);
-  loadConfigFrom(raw); // valide avant d'écrire
-  writeJsonAtomic(paths.config, raw);
-  cfg = loadConfig();
+  cfg = patchConfigFile(mutate);
   live.clear();
 }
+
+rpc.method("programs.list", () => listPrograms());
+
+rpc.method("programs.add", (params) => {
+  const p = parse(z.object({ name: z.string(), path: z.string().max(500), description: z.string().max(200).optional() }), params);
+  const added = addProgram(p.name.trim(), p.path, p.description);
+  cfg = loadConfig();
+  live.clear(); // les agents verront le nouveau programme dans la description de program_launch
+  return added;
+});
+
+rpc.method("programs.remove", (params) => {
+  removeProgram(parse(z.object({ name: z.string() }), params).name);
+  cfg = loadConfig();
+  live.clear();
+  return true;
+});
+
+rpc.method("programs.search", (params) => searchPrograms(parse(z.object({ query: z.string().min(2).max(60) }), params).query));
 
 rpc.method("config.get", () => ({
   userName: cfg.user.name,

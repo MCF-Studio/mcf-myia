@@ -55,6 +55,10 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   package.json, dépôt git). Les commandes de build sont **générées par le code** à partir de la structure du projet
   (un preset d'export Godot = une cible ; Tauri/Rust = build, build-debug, check, test, front), lancées **sans shell**.
   Le modèle choisit un projet et une cible, jamais une commande ; la commande exacte est montrée avant confirmation.
+- Programmes : l'IA ne lance que les exécutables **enregistrés** (`programs` dans la config), sans shell, avec au plus
+  un fichier existant en argument (alors confirmé). Chercher un exe sur le PC (`program_find`) est en lecture seule ;
+  l'**enregistrer** demande confirmation. Shells et interpréteurs (cmd, PowerShell, node, python…) sont refusés à
+  l'enregistrement : sinon ce serait une commande libre déguisée.
 - Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,
@@ -107,6 +111,7 @@ modèle.
 | Agent ou thème partagé piégé                                                        | Formats = données validées par schéma ; un profil ne peut que restreindre ; règles appliquées dans le code |
 | Réponse du modèle contenant du HTML/script (page web lue)                           | Markdown rendu avec HTML échappé ; CSP sans script inline ; liens ouverts hors de l'app |
 | Crash silencieux de la console ou du sidecar                                        | Erreurs fatales journalisées (event `crash`) avec la pile d'appel                       |
+| L'IA fait lancer un programme dangereux ou un shell                                 | Liste fermée de programmes enregistrés ; ajout confirmé ; shells/interpréteurs bloqués |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

@@ -97,6 +97,13 @@ export const ConfigSchema = z.object({
     })
     .prefault({}),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
+  /** Programmes que l'IA peut lancer : nom → exécutable (voir core/programs.ts). */
+  programs: z
+    .record(
+      z.string().min(1).max(40),
+      z.object({ path: z.string().min(1).max(500), description: z.string().max(200).optional() }),
+    )
+    .default({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

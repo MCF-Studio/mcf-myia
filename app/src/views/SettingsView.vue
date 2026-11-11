@@ -3,7 +3,9 @@ import { getVersion } from "@tauri-apps/api/app";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Bell,
+  AppWindow,
   Download,
+  FilePlus2,
   FolderOpen,
   FolderPlus,
   Info,
@@ -13,6 +15,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  Search,
   Server,
   SlidersHorizontal,
   Trash2,
@@ -117,6 +120,57 @@ async function addRoot() {
   toast("Dossier ajouté : tes projets seront détectés", "success");
 }
 
+// ─── Programmes lançables par les agents ─────────────────────────────────────
+interface Prog {
+  name: string;
+  path: string;
+}
+const programs = ref<Prog[]>([]);
+const pending = ref<Prog>();
+const progQuery = ref("");
+const found = ref<(Prog & { source: string })[]>([]);
+const searching = ref(false);
+
+async function loadPrograms() {
+  programs.value = await call<Prog[]>("programs.list").catch(() => []);
+}
+
+async function browseExe() {
+  const file = await openDialog({ multiple: false, title: "Programme à ajouter", filters: [{ name: "Programme", extensions: ["exe"] }] });
+  if (typeof file !== "string") return;
+  const base = file.split(/[\\/]/).pop()!.replace(/\.exe$/i, "");
+  pending.value = { name: base.charAt(0).toUpperCase() + base.slice(1), path: file };
+}
+
+async function confirmAdd() {
+  if (!pending.value) return;
+  try {
+    await call("programs.add", { name: pending.value.name.trim(), path: pending.value.path });
+    toast(`${pending.value.name} ajouté : les agents peuvent le lancer`, "success");
+    pending.value = undefined;
+    await loadPrograms();
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+async function removeProg(name: string) {
+  await call("programs.remove", { name }).catch((e) => toast(e.message, "error"));
+  await loadPrograms();
+}
+
+async function searchProg() {
+  searching.value = true;
+  try {
+    found.value = await call("programs.search", { query: progQuery.value.trim() });
+    if (!found.value.length) toast("Rien trouvé : choisis le .exe à la main");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    searching.value = false;
+  }
+}
+
 function loadVoices() {
   voiceList.value = voices();
 }
@@ -124,6 +178,7 @@ function loadVoices() {
 onMounted(async () => {
   loadVoices();
   void loadConfigBits();
+  void loadPrograms();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = loadVoices;
   if (inTauri) appVersion.value = await getVersion();
   void refreshSidecar();
@@ -190,6 +245,46 @@ const shortcuts: [string, string][] = [
           <button class="btn sm ghost icon danger" title="Retirer" @click="roots.splice(i, 1); saveRoots()"><Trash2 :size="14" /></button>
         </div>
         <div v-if="!roots.length" class="empty small">Aucun dossier : ajoute celui qui contient tes projets.</div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h3 class="sec-title">Programmes</h3>
+          <button class="btn sm" @click="browseExe"><FilePlus2 :size="14" /> Choisir un .exe</button>
+        </div>
+        <p class="tiny muted">
+          Les agents peuvent lancer ces programmes (« ouvre Blender »). S'il en manque un, ils le cherchent sur le PC et te proposent de
+          l'ajouter. Les shells et interpréteurs (cmd, PowerShell, Python…) ne peuvent pas être ajoutés.
+        </p>
+
+        <form v-if="pending" class="prog-pending" @submit.prevent="confirmAdd">
+          <input v-model="pending.name" class="input" maxlength="40" placeholder="Nom (ex. Blender)" required />
+          <code class="path grow" :title="pending.path">{{ pending.path }}</code>
+          <button class="btn primary sm" :disabled="!pending.name.trim()">Ajouter</button>
+          <button type="button" class="btn ghost sm" @click="pending = undefined">Annuler</button>
+        </form>
+
+        <div v-for="p in programs" :key="p.name" class="root-row">
+          <AppWindow :size="16" />
+          <strong class="prog-name">{{ p.name }}</strong>
+          <code class="path grow" :title="p.path">{{ p.path }}</code>
+          <button class="btn sm ghost icon danger" title="Retirer" @click="removeProg(p.name)"><Trash2 :size="14" /></button>
+        </div>
+        <div v-if="!programs.length && !pending" class="empty small">Aucun programme enregistré.</div>
+
+        <form class="prog-search" @submit.prevent="searchProg">
+          <Search :size="15" />
+          <input v-model="progQuery" placeholder="Chercher un programme installé (ex. obs, blender, steam)" />
+          <button class="btn sm" :disabled="progQuery.trim().length < 2 || searching">{{ searching ? "Recherche…" : "Chercher" }}</button>
+        </form>
+        <div v-for="f in found" :key="f.path" class="root-row found">
+          <span class="badge">{{ f.source }}</span>
+          <strong class="prog-name">{{ f.name }}</strong>
+          <code class="path grow" :title="f.path">{{ f.path }}</code>
+          <button class="btn sm" :disabled="programs.some((p) => p.path.toLowerCase() === f.path.toLowerCase())" @click="pending = { name: f.name, path: f.path }">
+            Ajouter
+          </button>
+        </div>
       </section>
       </template>
 
@@ -597,6 +692,55 @@ kbd {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.prog-name {
+  white-space: nowrap;
+  min-width: 90px;
+}
+.prog-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 6px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-elevated));
+}
+.prog-pending .input {
+  width: 180px;
+  height: 32px;
+}
+.prog-pending .grow {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prog-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 4px 4px 4px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+.prog-search:focus-within {
+  border-color: var(--accent);
+}
+.prog-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  height: 30px;
+}
+.found .badge {
+  flex: none;
 }
 .depth {
   width: 64px;
