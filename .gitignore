@@ -1,0 +1,24 @@
+# Dépendances et builds
+node_modules/
+dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+
+# Données propres à chaque machine : jamais publiées
+config/agent.json
+config/agents.json
+data/
+runtime/
+ollama/
+workspace/
+
+# Notes personnelles hors projet
+opencode-godot-setup.md
+
+# Divers
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

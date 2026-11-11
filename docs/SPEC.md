@@ -1,0 +1,117 @@
+# MyIA : agent local du quotidien (spec v2 : console + app de bureau)
+
+## 1. But
+
+Un agent local à qui l'utilisateur parle en texte, depuis la console ou l'app de bureau (Tauri 2 + Vue 3). Il comprend la demande,
+regarde les **services disponibles** et les utilise : envoyer une annonce Telegram/Discord, lancer le build d'un
+projet, préparer un projet Godot avec des addons, ou déléguer une tâche lourde à Claude Code.
+
+## 2. Architecture
+
+```
+G:\MyIALocal\
+  runtime\ollama\        binaire Ollama autonome (pas celui de C:)
+  ollama\models\         modèles (variable OLLAMA_MODELS)
+  agent\                 code (TypeScript, Node 24)
+    src\core\            moteur indépendant de l'interface (réutilisé par Tauri)
+    src\services\        un fichier par service (telegram, discord, claude, projects, godot, mcp)
+    src\cli\             interface console
+  config\agent.json      configuration NON secrète (projets, destinations, modèle)
+  data\audit\            journal JSONL de toutes les actions
+  workspace\             dossier de travail par défaut des délégations sans projet
+  docs\                  cette spec
+```
+
+- **Cerveau hybride** : un modèle local (Ollama, `qwen3:8b`) comprend la demande et choisit l'outil. Les tâches lourdes
+  (code, build cassé, mise en place complexe) partent vers Claude Code via `claude -p` (abonnement, pas de clé API).
+- **Services** : chaque service déclare ses outils et une fonction `available()`. Seuls les outils des services
+  disponibles (jeton présent, binaire trouvé…) sont montrés au modèle. Ajouter un service = un fichier dans
+  `services/` ou une entrée `mcpServers` dans la config (n'importe quel serveur MCP stdio).
+- **Interface** : le cœur expose `Agent.handle(message, ui)` où `ui` fournit `confirm()` et `progress()`. La console
+  l'implémente directement ; l'app lance le même cœur en **sidecar** Node (`agent/dist/server/main.js`) et lui parle en
+  JSON-RPC sur stdio. Le Rust ne fait que relayer les lignes ; le sidecar valide chaque paramètre (zod).
+- **Agents multiples** : un profil = nom, modèle, consignes, couleur, liste blanche de services. Chaque conversation a
+  sa propre instance d'agent et son historique ; plusieurs conversations peuvent tourner en parallèle.
+
+## 3. Modèle de permissions (qui peut faire quoi)
+
+Une seule personne : l'utilisateur, sur sa machine. Pas d'accès réseau entrant : rien n'écoute sur une interface externe
+(Ollama est forcé sur 127.0.0.1).
+
+Chaque outil a un niveau de risque :
+
+| Niveau     | Exemples                                             | Règle                                                  |
+| ---------- | ---------------------------------------------------- | ------------------------------------------------------ |
+| `read`     | lister les projets, chercher un addon, recherche web | exécuté sans demander                                  |
+| `launch`   | ouvrir l'éditeur Godot, ouvrir un lien               | sans demander ; `browser_open` demande si le lien ne vient ni d'l'utilisateur ni d'une recherche |
+| `local`    | build d'un projet, création de projet, délégation    | confirmation, sauf si le projet est en `autoApprove`   |
+| `external` | message Telegram/Discord, tout outil MCP non déclaré | **confirmation toujours**, avec le contenu exact       |
+
+Limites dures, appliquées dans le code et pas seulement dans le prompt :
+
+- Destinations Telegram/Discord : uniquement les **noms** déclarés dans la config. Le modèle ne peut pas inventer un
+  chat_id ni un salon.
+- Projets : ceux de la config, plus ceux **détectés** sous `projectRoots` (project.godot, src-tauri, Cargo.toml,
+  package.json, dépôt git). Les commandes de build sont **générées par le code** à partir de la structure du projet
+  (un preset d'export Godot = une cible ; Tauri/Rust = build, build-debug, check, test, front), lancées **sans shell**.
+  Le modèle choisit un projet et une cible, jamais une commande ; la commande exacte est montrée avant confirmation.
+- Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
+- Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
+- Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,
+  ni 169.254.169.254), taille plafonnée. `web_research` lance Claude Code avec **seulement** WebSearch et WebFetch,
+  dans `workspace\` : aucun accès aux fichiers ni aux commandes.
+
+## 3 bis. App de bureau et contenus partagés
+
+**Fenêtre (Tauri 2)** : CSP stricte (`script-src 'self'`, aucune connexion réseau depuis la page, `object-src 'none'`),
+prototypes gelés, capacités limitées à : relais du sidecar, métriques, notifications, ouverture de liens **http/https**
+dans le navigateur système. La page n'ouvre jamais de lien elle-même ; les réponses sont rendues en Markdown avec le
+HTML échappé.
+
+**Profils d'agents** : des données validées par schéma. Un profil peut seulement **restreindre** les services d'un agent ;
+ses consignes s'ajoutent au prompt système sans remplacer les règles (§3), qui sont de toute façon appliquées par le
+code, pas par le prompt. Les profils sont locaux (`config/agents.json`, hors git).
+
+**Thèmes** : une liste fermée de couleurs (`#hex` ou `rgb()/rgba()`), un rayon parmi trois valeurs. Pas de CSS libre,
+pas d'URL, pas de police distante : un thème ne peut ni exécuter de code ni appeler un serveur.
+
+**Marketplace (à venir)** : registre sur mcfstudio.fr, publications par des membres certifiés. Tant qu'il n'existe pas,
+l'app n'affiche aucun contenu fictif ; seule l'installation depuis un fichier local est proposée.
+
+## 4. Secrets
+
+Jetons (bot Telegram, bot Discord) dans le **Gestionnaire d'identification Windows** (service `MyIA`), saisis via
+`myia secret set <nom>` (saisie masquée). Jamais dans `config\agent.json`, jamais dans les journaux, jamais envoyés au
+modèle.
+
+## 5. Menaces et mesures
+
+| Menace                                                                              | Mesure                                                                                 |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Le modèle local se trompe (mauvais destinataire, mauvais texte)                     | Destinations fermées + confirmation avec le texte exact avant tout envoi               |
+| Injection de prompt via un résultat d'outil (description d'addon, sortie de Claude) | Les actions `external` exigent toujours la confirmation humaine, quel que soit le prompt |
+| Exécution de commande arbitraire                                                    | Pas d'outil « shell libre » ; builds = argv fixés en config, sans shell                |
+| Fuite de jeton                                                                      | Coffre Windows, redaction dans le journal, jamais dans le contexte du modèle           |
+| Archive d'addon malveillante (chemins `..`)                                         | Extraction limitée à `addons/`, chemins normalisés et vérifiés                         |
+| Addon Godot piégé (code GDScript)                                                   | Source affichée (titre, auteur, URL) dans la confirmation ; Asset Library officielle   |
+| Accès réseau à l'agent ou à Ollama                                                  | Rien en écoute hors 127.0.0.1 ; `OLLAMA_HOST=127.0.0.1:11434`                          |
+| Page web piégée (« ouvre ce lien », « envoie ce message »)                          | Contenu marqué comme donnée ; envois toujours confirmés ; `browser_open` confirme les liens venus d'une page |
+| Lecture web vers le réseau local (Ollama, box, NAS)                                 | `web_read` refuse toute IP non publique, vérifiée à chaque redirection                 |
+| Agent ou thème partagé piégé                                                        | Formats = données validées par schéma ; un profil ne peut que restreindre ; règles appliquées dans le code |
+| Réponse du modèle contenant du HTML/script (page web lue)                           | Markdown rendu avec HTML échappé ; CSP sans script inline ; liens ouverts hors de l'app |
+| Crash silencieux de la console ou du sidecar                                        | Erreurs fatales journalisées (event `crash`) avec la pile d'appel                       |
+| Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
+
+## 6. Isolation
+
+Mono-utilisateur, donc pas d'isolation entre clients à gérer en v1. Si l'agent touche un jour à des données clients
+(projets clients, mcfstudio.fr), chaque client sera un projet séparé de la config, avec ses propres destinations
+et outils autorisés. Aucune donnée d'un projet ne sera passée en contexte à un autre.
+
+## 7. Feuille de route
+
+1. **v1 (ici)** : console, Telegram, Discord, builds, Godot, délégation Claude Code, serveurs MCP externes.
+2. WhatsApp (API Cloud officielle de Meta, numéro dédié).
+3. **App Tauri 2 + Vue 3 (v0.1, ici)** : vue d'ensemble, conversations onglets/grille, agents, modèles, réglages.
+4. Installateur autonome (Node embarqué), registre Marketplace sur mcfstudio.fr.
+5. Voix locale de qualité (Whisper en entrée, Piper en sortie ; la synthèse Windows sert en attendant).

@@ -1,0 +1,82 @@
+{
+  "user": {
+    "name": "Alex"
+  },
+  "telegram": {
+    "destinations": {
+      "annonces": "-1001234567890",
+      "perso": "123456789"
+    }
+  },
+  "discord": {
+    "channels": {
+      "annonces": "123456789012345678",
+      "dev": "123456789012345679"
+    }
+  },
+  "projects": {
+    "site-vitrine": {
+      "path": "D:/projets/site-vitrine",
+      "description": "Site Astro",
+      "build": {
+        "default": [
+          "cmd",
+          "/d",
+          "/c",
+          "npm",
+          "run",
+          "build"
+        ],
+        "test": [
+          "cmd",
+          "/d",
+          "/c",
+          "npm",
+          "test"
+        ]
+      },
+      "claudeAllowedTools": [
+        "Read",
+        "Glob",
+        "Grep",
+        "Edit",
+        "Write",
+        "Bash(npm run *)",
+        "Bash(git status:*)",
+        "Bash(git diff:*)"
+      ]
+    },
+    "mon-jeu": {
+      "path": "D:/game_dev/mon-jeu",
+      "description": "Jeu Godot 4.7",
+      "build": {
+        "default": [
+          "D:/godot/Godot_v4.7.2-stable_win64.exe",
+          "--headless",
+          "--path",
+          ".",
+          "--export-release",
+          "Windows Desktop",
+          "build/mon-jeu.exe"
+        ]
+      },
+      "autoApprove": false
+    }
+  },
+  "mcpServers": {
+    "exemple": {
+      "command": "node",
+      "args": [
+        "G:/MyIALocal/mcp/exemple/server.js"
+      ],
+      "env": {
+        "API_TOKEN": "secret:exemple_token"
+      },
+      "description": "serveur MCP quelconque",
+      "risk": "external",
+      "readOnlyTools": [
+        "list_things"
+      ]
+    }
+  }
+}
