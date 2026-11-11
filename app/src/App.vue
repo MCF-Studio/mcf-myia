@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AlertTriangle, CheckCircle2, Download, Info, RotateCw } from "lucide-vue-next";
 import { computed, onMounted, onUnmounted, watchEffect } from "vue";
 import Sidebar from "./components/Sidebar.vue";
+import TitleBar from "./components/TitleBar.vue";
 import { inTauri } from "./lib/rpc";
 import { settings } from "./lib/settings";
 import { navigate, restartSidecar, startPolling, state, type View } from "./lib/store";
@@ -69,12 +71,24 @@ function onClick(e: MouseEvent) {
   if (/^https?:\/\//i.test(href) && inTauri) void openUrl(href);
 }
 
+/** Menu de l'icône de la zone de notification : ouvrir directement une vue. */
+function openView(v: unknown) {
+  if (typeof v === "string" && order.includes(v as View)) navigate(v as View);
+}
+let unlistenNavigate: (() => void) | undefined;
+async function startTrayNavigation() {
+  if (!inTauri) return;
+  unlistenNavigate = await listen<string>("app://navigate", (e) => openView(e.payload));
+}
+
 onMounted(() => {
   void startUpdates();
+  void startTrayNavigation();
   window.addEventListener("keydown", onKey);
   document.addEventListener("click", onClick);
 });
 onUnmounted(() => {
+  unlistenNavigate?.();
   window.removeEventListener("keydown", onKey);
   document.removeEventListener("click", onClick);
 });
@@ -84,6 +98,8 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
 </script>
 
 <template>
+  <div class="frame">
+  <TitleBar />
   <div class="shell">
     <Sidebar />
     <main class="main">
@@ -124,12 +140,19 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
       </TransitionGroup>
     </div>
   </div>
+  </div>
 </template>
 
 <style>
+.frame {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
 .shell {
   display: flex;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 .main {
   flex: 1;
@@ -186,7 +209,8 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
 }
 .updating {
   position: fixed;
-  inset: 0;
+  /* sous la barre de titre : la fenêtre reste déplaçable pendant la mise à jour */
+  inset: var(--titlebar-h) 0 0 0;
   z-index: 100;
   display: grid;
   place-items: center;

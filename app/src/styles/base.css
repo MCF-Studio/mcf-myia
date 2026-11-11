@@ -24,6 +24,7 @@
   --pad: 20px;
   --gap: 16px;
   --sidebar-w: 248px;
+  --titlebar-h: 36px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   --lava: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);

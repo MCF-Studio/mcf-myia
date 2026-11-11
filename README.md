@@ -24,6 +24,9 @@ Deux interfaces sur le même cœur :
 | **Marketplace**    | en préparation (voir plus bas) ; l'installation d'agents et de thèmes depuis un fichier marche déjà      |
 | **Paramètres**     | thèmes (installables), lumières, densité, voix de l'IA, sons de notification, notifications, raccourcis  |
 
+Icône MyIA dans la zone de notification (près de l'horloge) : clic gauche pour ramener la fenêtre, clic droit pour
+ouvrir directement Conversations, Agents, Équipes, Modèles ou Paramètres, ou quitter.
+
 Thème par défaut : sombre, lumières orange fusion → jaune foncé.
 
 ### Marketplace

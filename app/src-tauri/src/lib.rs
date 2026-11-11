@@ -1,12 +1,16 @@
 mod metrics;
 mod pty;
 mod sidecar;
+mod tray;
 mod update;
 
 use tauri::Manager;
 
+
 pub fn run() {
     tauri::Builder::default()
+        // Instance unique (doit être le premier plugin) : un second lancement ramène la fenêtre existante.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::focus_main(app)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -33,6 +37,9 @@ pub fn run() {
                 eprintln!("[myia] sidecar : {e}");
             }
             update::start(&handle);
+            if let Err(e) = tray::install(app) {
+                eprintln!("[myia] zone de notification : {e}");
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

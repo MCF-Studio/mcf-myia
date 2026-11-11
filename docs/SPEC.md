@@ -87,7 +87,8 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
 **Fenêtre (Tauri 2)** : CSP stricte (`script-src 'self'`, aucune connexion réseau depuis la page, `object-src 'none'`,
 images locales plus le seul CDN des avatars Discord),
 capacités limitées à : relais du sidecar, métriques, notifications, ouverture de liens **http/https**
-dans le navigateur système. La page n'ouvre jamais de lien elle-même ; les réponses sont rendues en Markdown avec le
+dans le navigateur système, et gestion de sa propre fenêtre (déplacer, réduire, agrandir, fermer : la barre de titre
+est dessinée par l'app). La page n'ouvre jamais de lien elle-même ; les réponses sont rendues en Markdown avec le
 HTML échappé. (`freezePrototype` est désactivé : incompatible avec xterm.js, le terminal des consoles.)
 
 **Consoles Claude Code** : seule la commande `claude` peut être lancée dans un pseudo-terminal (pas de shell
@@ -109,6 +110,10 @@ publique embarquée dans l'app avant de l'exécuter ; un fichier non signé par 
 n'intervient pas : elle n'a aucun accès réseau et ne peut ni choisir l'adresse ni fournir le fichier. Les releases sont
 construites et signées sur le poste du mainteneur (`npm run release`), la clé privée ne quitte jamais ce poste et
 n'est ni dans le dépôt ni dans GitHub.
+
+**Instance unique et zone de notification** : un second lancement ne rouvre pas l'app, il ramène la fenêtre existante
+au premier plan. L'icône près de l'horloge fait de même au clic gauche ; son menu (clic droit) ouvre une vue prise
+dans une liste fermée côté Rust, ou quitte l'app par la sortie normale (consoles et cœur arrêtés).
 
 **Compte mcfstudio.fr (Guilde)** : OAuth 2.0 + PKCE avec redirection loopback (RFC 8252) : le navigateur du système
 s'ouvre sur `<site>/autoriser`, le site renvoie vers `http://127.0.0.1:<port>/callback` où MyIA écoute le temps de
