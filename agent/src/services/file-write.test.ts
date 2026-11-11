@@ -72,6 +72,7 @@ describe("écriture de fichiers", () => {
   });
 
   it("refuse un lien cassé qui pointerait hors des dossiers autorisés", () => {
+    fs.mkdirSync(defaultWriteDir(), { recursive: true }); // absent sur une machine neuve (CI)
     const dir = fs.mkdtempSync(path.join(defaultWriteDir(), "lien-test-"));
     const link = path.join(dir, "piege.txt");
     try {
