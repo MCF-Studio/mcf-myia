@@ -1,29 +1,29 @@
 name: Release
 
 # Pousser un tag vX.Y.Z construit l'installateur Windows et publie une release GitHub.
+# Sécurité de la chaîne : actions figées sur des commits, pas de cache sur les builds de release,
+# construction en lecture seule ; seul le job de publication a le droit d'écrire.
 on:
   push:
     tags: ["v*.*.*"]
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  windows:
+  build:
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            app/package-lock.json
-            agent/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          workspaces: app/src-tauri
+          toolchain: stable
       - run: npm ci
         working-directory: agent
       - run: npm test
@@ -38,13 +38,33 @@ jobs:
           if [ "$v" != "$app_v" ]; then echo "Tag $v ≠ version de l'app $app_v (tauri.conf.json)"; exit 1; fi
       - run: npx tauri build
         working-directory: app
-      - name: Publier la release
+      - name: Empreinte
         shell: bash
+        run: |
+          mkdir out
+          cp app/src-tauri/target/release/bundle/nsis/*-setup.exe out/
+          (cd out && sha256sum *-setup.exe > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: installer
+          path: out/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: installer
+          path: out
+      - name: Publier la release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          exe=$(ls app/src-tauri/target/release/bundle/nsis/*-setup.exe)
-          (cd "$(dirname "$exe")" && sha256sum "$(basename "$exe")") > SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" "$exe" SHA256SUMS.txt \
+          gh release create "$GITHUB_REF_NAME" out/*-setup.exe out/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
             --title "MyIA $GITHUB_REF_NAME" \
             --notes "Installateur Windows (par utilisateur, sans droits admin). Prérequis : Ollama (https://ollama.com). L'installateur n'est pas encore signé : Windows SmartScreen peut afficher un avertissement (« Informations complémentaires » → « Exécuter quand même »). Vérifie l'empreinte avec SHA256SUMS.txt."
