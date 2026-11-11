@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -158,6 +158,35 @@ function apiKey(): string {
 
 let server: ChildProcess | undefined;
 
+/**
+ * Le programme qui écoute sur le port est-il bien NOTRE llama-server (un exécutable des builds de MyIA) ? Vérifié
+ * AVANT d'envoyer la clé ou un prompt : un autre programme qui aurait pris le port ne reçoit rien. Résultat gardé
+ * 30 s pour le même processus.
+ */
+let verified: { port: number; pid: number; at: number } | undefined;
+
+function run(cmd: string, args: string[]): Promise<string> {
+  return new Promise((resolve) => execFile(cmd, args, { timeout: 5000, windowsHide: true }, (err, out) => resolve(err ? "" : String(out))));
+}
+
+export async function listenerIsOurs(port: number): Promise<"ours" | "other" | "none"> {
+  if (process.platform !== "win32") return "other";
+  const out = await run("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    `$c = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort ${Math.trunc(port)} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
+      `if ($c) { $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; "$($c.OwningProcess)|$($p.Path)" }`,
+  ]);
+  const [pidText, exe] = out.trim().split("|");
+  const pid = Number(pidText);
+  if (!pid) return "none";
+  if (verified && verified.port === port && verified.pid === pid && Date.now() - verified.at < 30_000) return "ours";
+  const ok = !!exe && /^llama-server\.exe$/i.test(path.basename(exe)) && isInside(paths.llamacppRoot, path.resolve(exe));
+  if (ok) verified = { port, pid, at: Date.now() };
+  return ok ? "ours" : "other";
+}
+
 export function stopLlamaServer() {
   server?.kill();
   server = undefined;
@@ -248,8 +277,9 @@ export class LlamaCppClient implements LlmClient {
   }
 
   async ping(): Promise<boolean> {
+    // D'abord l'identité du serveur (exécutable de MyIA), ensuite seulement la clé.
+    if ((await listenerIsOurs(this.cfg.llamacpp.port)) !== "ours") return false;
     try {
-      // /models exige la clé : un autre programme sur ce port (ou un serveur d'une autre clé) ne passe pas pour le nôtre.
       return (await this.api("/models", { timeoutMs: 2000 })).ok;
     } catch {
       return false;
@@ -329,6 +359,9 @@ export class LlamaCppClient implements LlmClient {
 
   async ensureRunning(): Promise<void> {
     if (await this.ping()) return;
+    if ((await listenerIsOurs(this.cfg.llamacpp.port)) === "other") {
+      throw new Error(`le port ${this.cfg.llamacpp.port} est pris par un autre programme : rien ne lui est envoyé (change llm.llamacpp.port)`);
+    }
     if (!this.cfg.autoStart) throw new Error(`llama-server ne répond pas sur le port ${this.cfg.llamacpp.port}`);
     const build = activeBuild(this.cfg);
     const exe = build && findServer(buildDir(build));
