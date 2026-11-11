@@ -1,7 +1,7 @@
 # La Guilde : mutualiser les agents entre membres
 
-> Statut : **conception validée le 2026-11-11**, pas encore implémentée. L'app n'affichera rien de la Guilde comme
-> fonctionnel tant que le relais n'est pas en ligne.
+> Statut : conception validée le 2026-11-11. **Étape 1 faite** (partie locale, catégorie « Guilde » de l'app) ; le relais
+> n'existe pas encore : l'app l'affiche « hors ligne » et personne ne peut envoyer de demande.
 
 ## 1. Idée
 
@@ -118,7 +118,7 @@ Chaque demande traitée, auto ou non, est inscrite au journal d'audit avec le de
 
 ## 10. Étapes
 
-1. Côté app, sans réseau : offres (profils « guilde »), exécuteur bac à sable, moteur de règles du mode auto (liste
+1. ✅ Côté app, sans réseau (`agent/src/core/guild.ts`, testé) : offres (profils « guilde »), exécuteur bac à sable, moteur de règles du mode auto (liste
    blanche, horaires, quotas, seuil GPU, interrupteur), journal, catégorie « Guilde » avec état « relais hors ligne ».
 2. Relais : protocole, auth mcfstudio.fr, présence, mise en relation, quotas, signalements.
 3. Chiffrement de bout en bout (clés par appareil dans le coffre Windows), puis ouverture aux membres.

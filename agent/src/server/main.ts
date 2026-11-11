@@ -11,6 +11,7 @@ import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
 import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
 import { triageTask } from "../core/claude-coach.js";
+import { decide, journal, loadGuild, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
 import { MODEL_NAME, OllamaClient } from "../core/llm.js";
 import { makeTeamRoot } from "../core/team-runner.js";
@@ -455,6 +456,61 @@ function patchConfig(mutate: (raw: Record<string, any>) => void) {
   cfg = patchConfigFile(mutate);
   live.clear();
 }
+
+// ─── Guilde (partie locale : le relais n'existe pas encore) ──────────────────
+
+rpc.method("guild.get", () => ({ ...loadGuild(), relay: { online: false, reason: "relais MCF Studio pas encore en ligne" } }));
+
+rpc.method("guild.save", (params) => {
+  const { relay: _r, ...raw } = (params ?? {}) as Record<string, unknown>;
+  return saveGuild(raw);
+});
+
+/** Ce que la machine ferait d'une demande, sans rien exécuter (simulateur des règles). */
+rpc.method("guild.simulate", (params) => {
+  const p = parse(
+    z.object({
+      memberId: z.string().min(2).max(40),
+      certified: z.boolean(),
+      offerId: z.string(),
+      chars: z.number().int().min(1).max(100_000),
+      at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      gpuPct: z.number().min(0).max(100).optional(),
+      usageHour: z.number().int().min(0).default(0),
+      usageDay: z.number().int().min(0).default(0),
+    }),
+    params,
+  );
+  const [h, m] = p.at.split(":").map(Number) as [number, number];
+  const now = new Date();
+  now.setHours(h, m, 0, 0);
+  return decide(
+    loadGuild(),
+    { from: { id: p.memberId, certified: p.certified }, offerId: p.offerId, text: "x".repeat(p.chars) },
+    { memberLastHour: p.usageHour, today: p.usageDay },
+    now,
+    p.gpuPct,
+  );
+});
+
+/** Teste une offre en local, exactement comme une demande reçue serait traitée (bac à sable sans outils). */
+rpc.method("guild.test", async (params) => {
+  const p = parse(z.object({ offerId: z.string(), text: z.string().trim().min(3).max(20_000) }), params);
+  const g = loadGuild();
+  const offer = g.offers.find((o) => o.id === p.offerId);
+  if (!offer) throw new Error("offre introuvable");
+  const t0 = Date.now();
+  try {
+    const answer = await runSandboxed(cfg, offer, p.text, g.limits.maxSeconds);
+    journal({ kind: "test", offerId: offer.id, from: "toi (test)", decision: "auto", chars: p.text.length, ms: Date.now() - t0 });
+    return { answer, ms: Date.now() - t0 };
+  } catch (e) {
+    journal({ kind: "test", offerId: offer.id, from: "toi (test)", decision: "erreur", reason: (e as Error).message, chars: p.text.length });
+    throw e;
+  }
+});
+
+rpc.method("guild.journal", () => readJournal());
 
 // ─── dictée (whisper.cpp) ────────────────────────────────────────────────────
 

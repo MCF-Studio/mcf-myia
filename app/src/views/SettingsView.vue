@@ -230,7 +230,7 @@ onMounted(async () => {
 });
 
 const shortcuts: [string, string][] = [
-  ["Ctrl + 1 … 7", "Aller à une catégorie de la barre latérale"],
+  ["Ctrl + 1 … 8", "Aller à une catégorie de la barre latérale"],
   ["Ctrl + B", "Replier / déplier la barre latérale"],
   ["Ctrl + N", "Nouvelle conversation (vue Conversations)"],
   ["Ctrl + Tab", "Onglet de conversation suivant (Maj : précédent)"],

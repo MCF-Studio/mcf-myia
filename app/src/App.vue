@@ -13,6 +13,7 @@ import MarketplaceView from "./views/MarketplaceView.vue";
 import ModelsView from "./views/ModelsView.vue";
 import OverviewView from "./views/OverviewView.vue";
 import SettingsView from "./views/SettingsView.vue";
+import GuildView from "./views/GuildView.vue";
 import TeamsView from "./views/TeamsView.vue";
 
 const views = {
@@ -20,6 +21,7 @@ const views = {
   conversations: ConversationsView,
   agents: AgentsView,
   teams: TeamsView,
+  guild: GuildView,
   models: ModelsView,
   marketplace: MarketplaceView,
   settings: SettingsView,
@@ -44,7 +46,7 @@ watchEffect(() => {
   }
 });
 
-const order: View[] = ["overview", "conversations", "agents", "teams", "models", "marketplace", "settings"];
+const order: View[] = ["overview", "conversations", "agents", "teams", "guild", "models", "marketplace", "settings"];
 function onKey(e: KeyboardEvent) {
   if (!e.ctrlKey || e.altKey) return;
   const n = Number(e.key);

@@ -5,6 +5,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Gauge,
+  Handshake,
   MessagesSquare,
   Network,
   Settings,
@@ -20,9 +21,10 @@ const items: { id: View; label: string; icon: unknown; key: string }[] = [
   { id: "conversations", label: "Conversations", icon: MessagesSquare, key: "2" },
   { id: "agents", label: "Agents", icon: Bot, key: "3" },
   { id: "teams", label: "Équipes", icon: Network, key: "4" },
-  { id: "models", label: "Modèles", icon: Boxes, key: "5" },
-  { id: "marketplace", label: "Marketplace", icon: Store, key: "6" },
-  { id: "settings", label: "Paramètres", icon: Settings, key: "7" },
+  { id: "guild", label: "Guilde", icon: Handshake, key: "5" },
+  { id: "models", label: "Modèles", icon: Boxes, key: "6" },
+  { id: "marketplace", label: "Marketplace", icon: Store, key: "7" },
+  { id: "settings", label: "Paramètres", icon: Settings, key: "8" },
 ];
 
 const collapsed = computed(() => settings.appearance.sidebarCollapsed);

@@ -8,6 +8,7 @@ app/src-tauri/gen/
 config/agent.json
 config/agents.json
 config/teams.json
+config/guild.json
 data/
 runtime/
 ollama/

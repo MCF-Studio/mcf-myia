@@ -18,7 +18,7 @@ import type {
   Theme,
 } from "./types";
 
-export type View = "overview" | "conversations" | "agents" | "teams" | "models" | "marketplace" | "settings";
+export type View = "overview" | "conversations" | "agents" | "teams" | "guild" | "models" | "marketplace" | "settings";
 
 interface Toast {
   id: number;
