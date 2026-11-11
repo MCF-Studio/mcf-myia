@@ -478,6 +478,14 @@ function makeLink() {
     run: (offer, text, maxSeconds, signal) => runSandboxed(cfg, offer, text, maxSeconds, signal),
     emit: (event, data) => rpc.notify(event, data),
     appVersion: VERSION,
+    pinMember: (m) => {
+      const g = loadGuild();
+      const w = g.whitelist.find((x) => x.id === undefined && x.name.toLowerCase() === m.name.toLowerCase());
+      if (!w) return;
+      w.id = m.id;
+      saveGuild(g);
+      rpc.notify("guild.changed", {});
+    },
   });
 }
 let link: GuildLink | undefined;
@@ -505,6 +513,15 @@ rpc.method("guild.connect", async () => {
   return relayStatus();
 });
 rpc.method("guild.pending", () => link?.pendingList() ?? []);
+/** Ajoute (ou lie à son compte) un membre de la liste blanche, depuis une demande reçue : id garanti par le relais. */
+rpc.method("guild.trust", (params) => {
+  const { id, name } = parse(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(40) }), params);
+  const g = loadGuild();
+  const same = g.whitelist.find((w) => w.id === id) ?? g.whitelist.find((w) => w.id === undefined && w.name.toLowerCase() === name.toLowerCase());
+  if (same) Object.assign(same, { id, name });
+  else g.whitelist.push({ id, name });
+  return saveGuild(g);
+});
 rpc.method("guild.accept", async (params) => {
   const { id } = parse(z.object({ id: z.string().min(10).max(64) }), params);
   if (!link) throw new Error("pas connecté au relais");
@@ -603,7 +620,16 @@ rpc.method("guild.simulate", (params) => {
   now.setHours(h, m, 0, 0);
   return decide(
     loadGuild(),
-    { from: { id: p.memberId, certified: p.certified }, offerId: p.offerId, text: "x".repeat(p.chars) },
+    {
+      // Membre simulé : s'il est dans ta liste blanche et lié à son compte, on le traite comme tel.
+      from: {
+        name: p.memberId,
+        certified: p.certified,
+        id: loadGuild().whitelist.find((w) => w.id !== undefined && w.name.toLowerCase() === p.memberId.toLowerCase())?.id,
+      },
+      offerId: p.offerId,
+      text: "x".repeat(p.chars),
+    },
     { memberLastHour: p.usageHour, today: p.usageDay },
     now,
     p.gpuPct,

@@ -61,6 +61,8 @@ export interface GuildLinkDeps {
   /** Événements pour l'interface (état, demande à valider, demande traitée). */
   emit(event: string, data: unknown): void;
   connect?(url: string): SocketLike;
+  /** Lie au compte (id) l'entrée de liste blanche qui porte ce pseudo sans id. */
+  pinMember?(member: Member): void;
   gpu?(): Promise<number | undefined>;
   appVersion?: string;
   now?(): Date;
@@ -70,6 +72,9 @@ type Msg = Record<string, unknown> & { type: string; id?: string };
 
 const REAUTH_MS = 13 * 60_000;
 const OPEN = 1;
+/** Demandes traitées en même temps, et en attente de validation, au plus (en plus des limites du relais). */
+const MAX_RUNNING = 2;
+const MAX_PENDING = 10;
 
 /** Taux d'utilisation du GPU NVIDIA (nvidia-smi) ; undefined si inconnu (les règles du mode auto restent prudentes). */
 export function nvidiaGpu(): Promise<number | undefined> {
@@ -81,18 +86,28 @@ export function nvidiaGpu(): Promise<number | undefined> {
   });
 }
 
-/** Demandes traitées (auto ou validées) pour un membre dans l'heure, et aujourd'hui pour tous (quotas locaux). */
-function usage(member: string, now: Date) {
+/**
+ * Demandes traitées (auto ou validées) pour un membre dans l'heure, et aujourd'hui pour tous (quotas locaux), plus
+ * celles déjà acceptées mais pas encore journalisées (`inFlight` : en cours ou en attente de validation) : sinon une
+ * rafale de demandes passerait toute entière avant que le journal ne compte la première.
+ */
+function usage(member: number, now: Date, inFlight: number[] = []) {
   const hour = now.getTime() - 3_600_000;
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
   let memberLastHour = 0;
   let today = 0;
   for (const e of readJournal(1000)) {
-    if (e.kind !== "demande" || (e.decision !== "auto" && e.decision !== "ask")) continue;
+    // Une demande acceptée compte même si son traitement a échoué (« erreur ») : sinon des échecs provoqués
+    // permettraient de dépasser le quota.
+    if (e.kind !== "demande" || e.decision === "refuse") continue;
     const t = Date.parse(e.ts);
     if (t >= midnight.getTime()) today++;
-    if (t >= hour && e.from.toLowerCase() === member.toLowerCase()) memberLastHour++;
+    if (t >= hour && e.fromId === member) memberLastHour++;
+  }
+  for (const m of inFlight) {
+    today++;
+    if (m === member) memberLastHour++;
   }
   return { memberLastHour, today };
 }
@@ -109,6 +124,8 @@ export class GuildLink {
   /** Demandes pour lesquelles on s'est proposé, ou en cours de traitement. */
   private readonly offered = new Map<string, { from: Member; offerId: string }>();
   private readonly running = new Map<string, AbortController>();
+  /** Membre à l'origine de chaque demande acceptée et pas encore journalisée (quotas). */
+  private readonly inFlight = new Map<string, number>();
   /** Demandes envoyées par cette machine, en attente d'un événement du relais. */
   private readonly waiting = new Map<string, (m: Msg) => void>();
 
@@ -140,6 +157,7 @@ export class GuildLink {
     this.ws = undefined;
     this.pending.clear();
     this.offered.clear();
+    this.inFlight.clear();
     for (const w of this.waiting.values()) w({ type: "expired", reason: "connexion au relais coupée" });
     this.waiting.clear();
     this.setStatus({ state: "off", reason });
@@ -177,6 +195,7 @@ export class GuildLink {
       for (const c of this.running.values()) c.abort();
       this.offered.clear();
       this.pending.clear();
+      this.inFlight.clear();
       for (const w of this.waiting.values()) w({ type: "expired", reason: "connexion au relais coupée" });
       this.waiting.clear();
       if (this.stopped) return;
@@ -248,7 +267,10 @@ export class GuildLink {
         if (id && this.offered.has(id)) {
           this.offered.delete(id);
           this.running.get(id)?.abort();
-          if (this.pending.delete(id)) this.deps.emit("guild.pending", this.pendingList());
+          if (this.pending.delete(id)) {
+            this.inFlight.delete(id);
+            this.deps.emit("guild.pending", this.pendingList());
+          }
         }
         break;
     }
@@ -270,7 +292,11 @@ export class GuildLink {
     const from = m.from as Member;
     const offerId = m.offerId as string;
     const g = this.deps.loadGuild();
-    const d = decide(g, { from: { id: from.name, certified: from.certified }, offerId, text: "x".repeat(Number(m.size) || 0) }, usage(from.name, this.now()), this.now(), undefined);
+    if (this.running.size >= MAX_RUNNING && this.pending.size >= MAX_PENDING) return;
+    // Taille annoncée (bornée par le relais, mais revérifiée) : seule la longueur compte pour les règles.
+    const size = Number(m.size);
+    if (!Number.isSafeInteger(size) || size < 1 || size > g.limits.maxChars * 4) return;
+    const d = decide(g, { from, offerId, text: "x".repeat(Math.min(size, g.limits.maxChars + 1)) }, this.usageFor(from.id), this.now(), undefined);
     if (d.kind === "refuse") return;
     this.offered.set(id, { from, offerId });
     this.send({ type: "canDo", id, offerId });
@@ -291,13 +317,17 @@ export class GuildLink {
     }
     const g = this.deps.loadGuild();
     const gpu = await (this.deps.gpu ?? nvidiaGpu)();
-    const d = decide(g, { from: { id: from.name, certified: from.certified }, offerId, text }, usage(from.name, this.now()), this.now(), gpu);
+    let d = decide(g, { from, offerId, text }, this.usageFor(from.id), this.now(), gpu);
     const offer = g.offers.find((o) => o.id === offerId);
+    if (d.kind === "auto" && this.running.size >= MAX_RUNNING) d = { kind: "ask", reason: "déjà deux demandes en cours" };
+    if (d.kind === "ask" && this.pending.size >= MAX_PENDING) d = { kind: "refuse", reason: "trop de demandes en attente" };
     if (d.kind === "refuse" || !offer) {
       this.offered.delete(id);
-      journal({ kind: "demande", offerId, from: from.name, decision: "refuse", reason: d.reason, chars: text.length });
+      journal({ kind: "demande", offerId, from: from.name, fromId: from.id, decision: "refuse", reason: d.reason, chars: text.length });
       return this.send({ type: "refuse", id, reason: d.reason });
     }
+    // Place réservée dès l'acceptation (auto ou mise en attente), libérée à la journalisation ou à l'abandon.
+    this.inFlight.set(id, from.id);
     if (d.kind === "auto") return this.process(id, from, offer, text, deviceKey, "auto", d.reason);
     this.pending.set(id, {
       id,
@@ -322,19 +352,25 @@ export class GuildLink {
       const answer = await this.deps.run(offer, text, g.limits.maxSeconds, ctrl.signal);
       if (ctrl.signal.aborted) throw new Error("demande annulée ou expirée");
       this.send({ type: "answer", id, sealed: seal(answer, deviceKey, id, "answer") });
-      journal({ kind: "demande", offerId: offer.id, from: from.name, decision, reason, chars: text.length, ms: Date.now() - t0 });
+      journal({ kind: "demande", offerId: offer.id, from: from.name, fromId: from.id, decision, reason, chars: text.length, ms: Date.now() - t0 });
       this.deps.emit("guild.served", { id, from: from.name, offerId: offer.id, ms: Date.now() - t0 });
     } catch (e) {
+      // Détail de l'erreur dans le journal local seulement : le demandeur reçoit un motif générique.
       const msg = (e as Error).message;
-      this.send({ type: "refuse", id, reason: `traitement impossible : ${msg}`.slice(0, 200) });
-      journal({ kind: "demande", offerId: offer.id, from: from.name, decision: "erreur", reason: msg, chars: text.length });
+      this.send({ type: "refuse", id, reason: ctrl.signal.aborted ? "demande annulée ou expirée" : "traitement impossible chez ce membre" });
+      journal({ kind: "demande", offerId: offer.id, from: from.name, fromId: from.id, decision: "erreur", reason: msg, chars: text.length });
     } finally {
       this.running.delete(id);
       this.offered.delete(id);
+      this.inFlight.delete(id);
     }
   }
 
   // ─── validation par le propriétaire ────────────────────────────────────────
+
+  private usageFor(member: number) {
+    return usage(member, this.now(), [...this.inFlight.values()]);
+  }
 
   pendingList(): PendingRequest[] {
     return [...this.pending.values()].map(({ deviceKey: _k, ...p }) => p);
@@ -347,9 +383,12 @@ export class GuildLink {
     this.deps.emit("guild.pending", this.pendingList());
     const offer = this.deps.loadGuild().offers.find((o) => o.id === p.offerId);
     if (!offer) {
+      this.inFlight.delete(id);
       this.send({ type: "refuse", id, reason: "offre retirée" });
       throw new Error("cette offre n'existe plus");
     }
+    // Tu as vu ce membre et sa demande : son pseudo de ta liste blanche est désormais lié à son compte.
+    this.deps.pinMember?.(p.from);
     void this.process(id, p.from, offer, p.text, p.deviceKey, "ask", "acceptée par toi");
   }
 
@@ -358,8 +397,9 @@ export class GuildLink {
     if (!p) throw new Error("demande introuvable (expirée ou annulée)");
     this.pending.delete(id);
     this.offered.delete(id);
+    this.inFlight.delete(id);
     this.send({ type: "refuse", id, reason });
-    journal({ kind: "demande", offerId: p.offerId, from: p.from.name, decision: "refuse", reason, chars: p.text.length });
+    journal({ kind: "demande", offerId: p.offerId, from: p.from.name, fromId: p.from.id, decision: "refuse", reason, chars: p.text.length });
     this.deps.emit("guild.pending", this.pendingList());
   }
 

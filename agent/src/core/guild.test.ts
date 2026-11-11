@@ -5,7 +5,7 @@ const base = (over: Partial<Guild> = {}): Guild =>
   GuildSchema.parse({
     enabled: true,
     serve: "everyone",
-    whitelist: ["Lea"],
+    whitelist: [{ id: 42, name: "Lea" }],
     offers: [{ id: "redac", name: "Rédac'", model: "qwen3:8b" }],
     auto: { enabled: true, whitelistOnly: true, from: "23:00", to: "08:00", gpuMax: 50 },
     ...over,
@@ -16,7 +16,12 @@ const at = (h: number, m = 0) => {
   d.setHours(h, m, 0, 0);
   return d;
 };
-const req = (id = "Lea", certified = false, text = "résume ce texte") => ({ from: { id, certified }, offerId: "redac", text });
+const IDS: Record<string, number> = { lea: 42, inconnu: 7, bob: 8 };
+const req = (name = "Lea", certified = false, text = "résume ce texte") => ({
+  from: { id: IDS[name.toLowerCase()], name, certified },
+  offerId: "redac",
+  text,
+});
 const idle = { memberLastHour: 0, today: 0 };
 
 describe("Guilde : décision sur une demande", () => {
@@ -59,6 +64,19 @@ describe("Guilde : décision sur une demande", () => {
     g.offers[0]!.enabled = false;
     expect(decide(g, req(), idle, at(2), 10).kind).toBe("refuse");
     expect(decide(base(), { ...req(), offerId: "nope" }, idle, at(2), 10).kind).toBe("refuse");
+  });
+
+  it("liste blanche liée au compte : un autre membre qui prend le même pseudo n'en profite pas", () => {
+    const usurpateur = { from: { id: 999, name: "Lea", certified: true }, offerId: "redac", text: "x" };
+    expect(decide(base(), usurpateur, idle, at(2), 10)).toMatchObject({ kind: "ask", reason: "mode auto réservé à ta liste blanche" });
+    expect(decide(base({ serve: "whitelist" }), usurpateur, idle, at(2), 10).kind).toBe("refuse");
+  });
+
+  it("pseudo seul (ancien format) : filtre, mais jamais d'auto tant qu'il n'est pas lié au compte", () => {
+    const g = base({ whitelist: ["Lea"] as never });
+    expect(g.whitelist).toEqual([{ name: "Lea" }]);
+    expect(decide(g, req(), idle, at(2), 10)).toMatchObject({ kind: "ask", reason: expect.stringMatching(/pas encore associé/) });
+    expect(decide({ ...g, serve: "whitelist" }, req(), idle, at(2), 10).kind).toBe("ask");
   });
 
   it("par défaut (nouvelle installation) : coupé, certifiés seulement, pas d'auto", () => {

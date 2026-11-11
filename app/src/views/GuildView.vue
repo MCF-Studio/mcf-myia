@@ -20,7 +20,7 @@ import {
   WifiOff,
   X,
 } from "lucide-vue-next";
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import Toggle from "../components/Toggle.vue";
 import { relTime } from "../lib/format";
 import { call, on } from "../lib/rpc";
@@ -38,7 +38,7 @@ interface Offer {
 interface Guild {
   enabled: boolean;
   serve: "everyone" | "certified" | "whitelist";
-  whitelist: string[];
+  whitelist: { id?: number; name: string }[];
   offers: Offer[];
   limits: { maxChars: number; maxSeconds: number; perMemberPerHour: number; perDay: number };
   auto: { enabled: boolean; whitelistOnly: boolean; from: string; to: string; gpuMax: number };
@@ -140,9 +140,24 @@ async function save() {
 
 function addMember() {
   const m = newMember.value.trim();
-  if (!g.value || !m || g.value.whitelist.some((w) => w.toLowerCase() === m.toLowerCase())) return;
-  g.value.whitelist.push(m);
+  if (!g.value || !m || g.value.whitelist.some((w) => w.name.toLowerCase() === m.toLowerCase())) return;
+  g.value.whitelist.push({ name: m });
   newMember.value = "";
+}
+
+/** Depuis une demande reçue : membre ajouté à la liste blanche et lié à son compte (id garanti par le relais). */
+async function trustMember(m: Member) {
+  if (!g.value) return;
+  if (dirty.value) await save();
+  try {
+    const saved = await call<Guild>("guild.trust", { id: m.id, name: m.name });
+    g.value.whitelist = saved.whitelist;
+    await nextTick();
+    dirty.value = false;
+    toast(`${m.name} est dans ta liste blanche (lié à son compte)`, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
 }
 
 // ─── offres ───
@@ -300,6 +315,15 @@ async function askGuild() {
 
 const offStatus = on("guild.status", (s) => (relay.value = s as LinkState));
 const offPending = on("guild.pending", (list) => (pending.value = list as PendingRequest[]));
+// Liste blanche liée à un compte par le cœur (demande acceptée) : on reprend ses entrées sans toucher au reste.
+const offChanged = on("guild.changed", async () => {
+  const fresh = await call<Guild>("guild.get").catch(() => undefined);
+  if (!fresh || !g.value) return;
+  const wasDirty = dirty.value;
+  g.value.whitelist = fresh.whitelist;
+  await nextTick();
+  dirty.value = wasDirty;
+});
 const offServed = on("guild.served", (d) => {
   toast(`Demande de ${(d as { from: string }).from} traitée par ton agent`, "success");
   void call<JournalEntry[]>("guild.journal")
@@ -309,6 +333,7 @@ const offServed = on("guild.served", (d) => {
 onBeforeUnmount(() => {
   offStatus();
   offPending();
+  offChanged();
   offServed();
 });
 
@@ -407,6 +432,9 @@ onMounted(async () => {
         <pre class="pending-text">{{ p.text }}</pre>
         <div class="pending-actions">
           <span class="tiny muted">Empreinte de son appareil : <code>{{ p.fingerprint }}</code></span>
+          <button v-if="!g.whitelist.some((w) => w.id === p.from.id)" class="btn sm ghost" @click="trustMember(p.from)">
+            <ShieldCheck :size="14" /> Ajouter à ma liste blanche
+          </button>
           <button class="btn sm ghost" @click="rejectPending(p.id)"><X :size="14" /> Refuser</button>
           <button class="btn primary sm" :disabled="deciding === p.id" @click="acceptPending(p.id)"><Handshake :size="14" /> Accepter</button>
         </div>
@@ -508,9 +536,14 @@ onMounted(async () => {
           }}
         </p>
         <h4 class="sub">Liste blanche <span class="tiny muted">(pseudos mcfstudio.fr)</span></h4>
+        <p class="tiny muted">
+          Un pseudo se lie au compte du membre la première fois que tu acceptes une de ses demandes : seul un membre lié compte pour le
+          mode auto (un pseudo peut changer, un compte non).
+        </p>
         <div class="chips">
-          <span v-for="(w, i) in g.whitelist" :key="w" class="chip">
-            {{ w }} <button title="Retirer" @click="g.whitelist.splice(i, 1)"><X :size="11" /></button>
+          <span v-for="(w, i) in g.whitelist" :key="w.id ?? w.name" class="chip" :title="w.id ? 'Lié à son compte mcfstudio.fr' : 'Pas encore lié à un compte'">
+            <BadgeCheck v-if="w.id" :size="11" /> {{ w.name }}
+            <button title="Retirer" @click="g.whitelist.splice(i, 1)"><X :size="11" /></button>
           </span>
           <form class="chip-add" @submit.prevent="addMember">
             <input v-model="newMember" maxlength="40" placeholder="Ajouter un pseudo" />

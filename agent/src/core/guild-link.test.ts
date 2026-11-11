@@ -73,7 +73,7 @@ const guild = (over: Record<string, unknown> = {}): Guild =>
   GuildSchema.parse({
     enabled: true,
     serve: "everyone",
-    whitelist: ["aroun"],
+    whitelist: [{ id: 1, name: "aroun" }],
     offers: [{ id: "relecture", name: "Relecture", model: "qwen3:8b", tags: ["texte"] }],
     auto: { enabled: true, whitelistOnly: true, from: "00:00", to: "00:00", gpuMax: 50 },
     ...over,

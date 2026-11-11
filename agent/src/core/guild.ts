@@ -37,7 +37,20 @@ export const GuildSchema = z.object({
   enabled: z.boolean().default(false),
   /** Qui peut te solliciter. */
   serve: z.enum(["everyone", "certified", "whitelist"]).default("certified"),
-  whitelist: z.array(MemberId).max(200).default([]),
+  /**
+   * Membres de confiance. `id` = identifiant du compte mcfstudio.fr (immuable) : seule une entrée avec `id` vaut pour le
+   * mode auto ; un pseudo seul (modifiable sur le site, donc usurpable) ne sert qu'à filtrer, et prend l'`id` du membre
+   * la première fois que tu acceptes une de ses demandes.
+   */
+  whitelist: z
+    .array(
+      z.union([
+        MemberId.transform((name): { id?: number; name: string } => ({ name })),
+        z.object({ id: z.number().int().positive().optional(), name: MemberId }),
+      ]),
+    )
+    .max(200)
+    .default([]),
   offers: z.array(OfferSchema).max(20).default([]),
   limits: z
     .object({
@@ -86,7 +99,8 @@ export function saveGuild(raw: unknown): Guild {
 // ─── règles d'acceptation ────────────────────────────────────────────────────
 
 export interface IncomingRequest {
-  from: { id: string; certified: boolean };
+  /** `id` : compte mcfstudio.fr (garanti par le relais) ; absent dans le simulateur pour un membre non associé. */
+  from: { id?: number; name: string; certified: boolean };
   offerId: string;
   text: string;
 }
@@ -120,7 +134,9 @@ export function decide(g: Guild, req: IncomingRequest, usage: Usage, now: Date, 
   if (!g.enabled) return { kind: "refuse", reason: "Guilde coupée (interrupteur général)" };
   const offer = g.offers.find((o) => o.id === req.offerId);
   if (!offer || !offer.enabled) return { kind: "refuse", reason: "offre inexistante ou désactivée" };
-  const listed = g.whitelist.some((w) => w.toLowerCase() === req.from.id.toLowerCase());
+  // Une entrée avec id ne correspond qu'à ce compte (un autre membre qui prendrait le même pseudo n'y gagne rien).
+  const listed = g.whitelist.some((w) => (w.id !== undefined ? w.id === req.from.id : w.name.toLowerCase() === req.from.name.toLowerCase()));
+  const verified = req.from.id !== undefined && g.whitelist.some((w) => w.id === req.from.id);
   if (g.serve === "certified" && !req.from.certified && !listed) return { kind: "refuse", reason: "réservé aux membres certifiés" };
   if (g.serve === "whitelist" && !listed) return { kind: "refuse", reason: "membre hors de ta liste blanche" };
   if (req.text.length > g.limits.maxChars) return { kind: "refuse", reason: `demande trop longue (${req.text.length} > ${g.limits.maxChars} caractères)` };
@@ -129,7 +145,11 @@ export function decide(g: Guild, req: IncomingRequest, usage: Usage, now: Date, 
 
   const a = g.auto;
   if (!a.enabled) return { kind: "ask", reason: "mode auto désactivé : ta validation est nécessaire" };
-  if (a.whitelistOnly && !listed) return { kind: "ask", reason: "mode auto réservé à ta liste blanche" };
+  if (a.whitelistOnly && !verified) {
+    return listed
+      ? { kind: "ask", reason: "membre de ta liste blanche pas encore associé à son compte : accepte une de ses demandes" }
+      : { kind: "ask", reason: "mode auto réservé à ta liste blanche" };
+  }
   if (!inWindow(now, a.from, a.to)) return { kind: "ask", reason: `hors de la plage auto (${a.from}–${a.to})` };
   if (gpuPct === undefined) return { kind: "ask", reason: "charge GPU inconnue" };
   if (gpuPct > a.gpuMax) return { kind: "ask", reason: `GPU occupé (${Math.round(gpuPct)} % > ${a.gpuMax} %)` };
@@ -166,6 +186,8 @@ export interface JournalEntry {
   kind: "test" | "demande";
   offerId: string;
   from: string;
+  /** Compte mcfstudio.fr du demandeur (quotas : le pseudo peut changer, pas l'id). */
+  fromId?: number;
   decision: Decision["kind"] | "erreur";
   reason?: string;
   chars: number;
