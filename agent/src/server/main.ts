@@ -9,7 +9,10 @@ import { Agent } from "../core/agent.js";
 import { audit } from "../core/audit.js";
 import { loadConfig, type Config } from "../core/config.js";
 import { MODEL_NAME, OllamaClient } from "../core/llm.js";
+import { makeTeamRoot } from "../core/team-runner.js";
+import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
 import { paths } from "../core/paths.js";
+import { ProjectRegistry } from "../core/projects.js";
 import {
   AgentProfileSchema,
   DEFAULT_PROFILE,
@@ -50,6 +53,7 @@ process.on("unhandledRejection", (e) => {
 let cfg: Config = loadConfig();
 let services: Service[] = buildServices(cfg);
 let profiles: AgentProfile[] = loadProfiles();
+let teams: Team[] = loadTeams();
 const store = new ConversationStore();
 const ollama = () => new OllamaClient(cfg.llm);
 
@@ -57,6 +61,8 @@ interface Live {
   agent: Agent;
   signature: string;
   running?: AbortController;
+  /** Équipe : budget remis à zéro à chaque message de l'utilisateur. */
+  budget?: TeamBudget;
 }
 const live = new Map<string, Live>();
 const pulls = new Map<string, AbortController>();
@@ -65,14 +71,23 @@ const profileOf = (id: string) => profiles.find((p) => p.id === id) ?? profiles[
 
 /** Agent d'une conversation, recréé si son profil ou le modèle par défaut a changé (historique conservé). */
 async function agentFor(c: Conversation): Promise<Live> {
-  const profile = profileOf(c.agentId);
-  const signature = JSON.stringify([profile, cfg.llm.model]);
+  const team = c.teamId ? teams.find((t) => t.id === c.teamId) : undefined;
+  if (c.teamId && !team) throw new Error("cette équipe n'existe plus");
+  const profile = profileOf(team ? team.root.agentId : c.agentId);
+  const signature = JSON.stringify([profile, cfg.llm.model, team, team ? profiles : null]);
   let l = live.get(c.id);
   if (!l || l.signature !== signature) {
-    const agent = new Agent(cfg, services, profile);
+    let agent: Agent;
+    let budget: TeamBudget | undefined;
+    if (team) {
+      budget = new TeamBudget(team.maxCalls, team.maxDepth);
+      agent = makeTeamRoot({ cfg, services, team, profileOf, budget });
+    } else {
+      agent = new Agent(cfg, services, profile);
+    }
     agent.importHistory(c.history);
     await agent.refreshServices();
-    l = { agent, signature, running: l?.running };
+    l = { agent, signature, running: l?.running, budget };
     live.set(c.id, l);
   }
   return l;
@@ -129,6 +144,7 @@ rpc.method("overview", async () => {
       busy: busy.filter((id) => store.get(id).agentId === p.id).length,
     })),
     conversations: { total: convs.length, busy: busy.length },
+    teams: teams.map((t) => ({ id: t.id, name: t.name })),
     services: statuses,
   };
 });
@@ -150,6 +166,8 @@ rpc.method("agents.delete", (params) => {
   if (profiles.length <= 1) throw new Error("il faut garder au moins un agent");
   const used = store.list().filter((c) => c.agentId === id).length;
   if (used) throw new Error(`${used} conversation(s) utilisent encore cet agent`);
+  const inTeams = teams.filter((t) => JSON.stringify(t.root).includes(`"agentId":"${id}"`)).map((t) => t.name);
+  if (inTeams.length) throw new Error(`cet agent fait partie de : ${inTeams.join(", ")}`);
   profiles = profiles.filter((p) => p.id !== id);
   saveProfiles(profiles);
   return true;
@@ -170,6 +188,38 @@ rpc.method("agents.import", (params) => {
   return p;
 });
 
+// ─── équipes ─────────────────────────────────────────────────────────────────
+
+rpc.method("teams.list", () => teams);
+
+rpc.method("teams.save", (params) => {
+  const t = parseTeam(params, new Set(profiles.map((p) => p.id)));
+  teams = teams.some((x) => x.id === t.id) ? teams.map((x) => (x.id === t.id ? t : x)) : [...teams, t];
+  saveTeams(teams);
+  return t;
+});
+
+rpc.method("teams.delete", (params) => {
+  const { id } = parse(z.object({ id: z.string() }), params);
+  const used = store.list().filter((c) => c.teamId === id).length;
+  if (used) throw new Error(`${used} conversation(s) utilisent encore cette équipe`);
+  teams = teams.filter((t) => t.id !== id);
+  saveTeams(teams);
+  return true;
+});
+
+rpc.method("teams.newNodeId", () => newNodeId());
+
+/** Dossiers où ouvrir une console Claude Code : projets connus + workspace. */
+let registry: ProjectRegistry | undefined;
+rpc.method("projects.list", () => {
+  registry ??= new ProjectRegistry(cfg);
+  return {
+    workspace: paths.workspace,
+    projects: registry.all.map((p) => ({ name: p.name, path: p.path, kinds: p.kinds })),
+  };
+});
+
 rpc.method("services.list", () => services.map((s) => ({ id: s.id, label: s.label })));
 
 // ─── conversations ───────────────────────────────────────────────────────────
@@ -182,9 +232,18 @@ rpc.method("conversations.get", (params) => {
 });
 
 rpc.method("conversations.create", (params) => {
-  const { agentId, title } = parse(z.object({ agentId: z.string(), title: z.string().max(80).optional() }), params);
-  if (!profiles.some((p) => p.id === agentId)) throw new Error(`agent inconnu : ${agentId}`);
-  const { history: _h, ...c } = store.create(agentId, title);
+  const p = parse(
+    z.object({ agentId: z.string().optional(), teamId: z.string().optional(), title: z.string().max(80).optional() }),
+    params,
+  );
+  let agentId = p.agentId;
+  if (p.teamId) {
+    const team = teams.find((t) => t.id === p.teamId);
+    if (!team) throw new Error(`équipe inconnue : ${p.teamId}`);
+    agentId = team.root.agentId;
+  }
+  if (!agentId || !profiles.some((x) => x.id === agentId)) throw new Error(`agent inconnu : ${agentId ?? "—"}`);
+  const { history: _h, ...c } = store.create(agentId, p.title, p.teamId);
   return c;
 });
 
@@ -245,6 +304,7 @@ rpc.method("conversations.send", async (params) => {
 
   const running = new AbortController();
   l.running = running;
+  if (l.budget) l.budget.calls = 0;
   rpc.notify("conversation.busy", { conversationId: id, busy: true });
 
   const ui: AgentUI = {
@@ -378,6 +438,8 @@ rpc.method("config.reload", async () => {
   await Promise.allSettled(services.map((s) => s.close?.()));
   services = buildServices(cfg);
   profiles = loadProfiles();
+  teams = loadTeams();
+  registry = undefined;
   live.clear();
   return true;
 });

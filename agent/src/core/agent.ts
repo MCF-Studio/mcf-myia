@@ -3,7 +3,7 @@ import type { Config } from "./config.js";
 import { OllamaClient, type ChatMessage, type ToolSpec } from "./llm.js";
 import { DEFAULT_PROFILE, type AgentProfile } from "./profiles.js";
 import { truncate, type AgentUI, type Availability, type Service, type Tool } from "./types.js";
-import { clearTrustedUrls, trustUrlsIn } from "./urls.js";
+import { UrlTrust } from "./urls.js";
 
 const TOOL_RESULT_MAX = 4000;
 
@@ -13,9 +13,10 @@ export function needsConfirmation(
   project: string | undefined,
   cfg: Config,
   args?: unknown,
+  trust: UrlTrust = new UrlTrust(),
 ): boolean {
   if (tool.risk === "read") return false;
-  if (tool.risk === "launch") return tool.confirmIf?.(args) ?? false;
+  if (tool.risk === "launch") return tool.confirmIf?.(args, trust) ?? false;
   if (tool.risk === "external") return true;
   return !(project && cfg.projects[project]?.autoApprove === true);
 }
@@ -26,6 +27,18 @@ export function announcesAction(text: string): boolean {
   return /\b(je vais|je m'en occupe|je lance|je cherche|je relance|laisse-moi|je m'y mets)\b/i.test(text);
 }
 
+export interface AgentOptions {
+  /** Outils en plus des services (ex. team_ask pour une équipe). */
+  extraTools?: Tool[];
+  /** Paragraphe ajouté au prompt système (contexte d'équipe). */
+  teamNote?: string;
+  /**
+   * Faire confiance aux liens présents dans les messages reçus. Faux pour un sous-agent : sa « demande » vient
+   * d'un autre agent, qui a pu recopier un lien lu dans une page piégée.
+   */
+  trustInput?: boolean;
+}
+
 export interface ServiceStatus {
   service: Service;
   status: Availability;
@@ -34,6 +47,7 @@ export interface ServiceStatus {
 export class Agent {
   private readonly llm: OllamaClient;
   private history: ChatMessage[] = [];
+  private readonly trust = new UrlTrust();
   private tools = new Map<string, Tool>();
   statuses: ServiceStatus[] = [];
 
@@ -43,6 +57,7 @@ export class Agent {
     private readonly cfg: Config,
     services: Service[],
     readonly profile: AgentProfile = DEFAULT_PROFILE,
+    private readonly opts: AgentOptions = {},
   ) {
     this.llm = new OllamaClient({ ...cfg.llm, model: profile.model ?? cfg.llm.model });
     // Un profil peut restreindre les services auxquels l'agent a accès (liste blanche d'ids).
@@ -86,6 +101,10 @@ export class Agent {
         this.tools.set(tool.name, tool);
       }
     }
+    for (const tool of this.opts.extraTools ?? []) {
+      if (this.tools.has(tool.name)) throw new Error(`Outil en double : ${tool.name}`);
+      this.tools.set(tool.name, tool);
+    }
     return this.statuses;
   }
 
@@ -104,7 +123,7 @@ export class Agent {
 
   reset() {
     this.history = [];
-    clearTrustedUrls();
+    this.trust.clear();
   }
 
   private systemPrompt(): string {
@@ -114,6 +133,7 @@ export class Agent {
     return [
       `Tu es ${p.name}, un assistant local qui tourne sur la machine de ${u}. Tu tutoies ${u} et réponds en français, brièvement.`,
       ...(p.instructions ? ["", "Consignes propres à ce rôle :", p.instructions] : []),
+      ...(this.opts.teamNote ? ["", this.opts.teamNote] : []),
       "Ne te présente jamais, ne salue pas et ne rappelle pas ce que tu sais faire : réponds directement à la demande, comme dans une conversation déjà en cours.",
       `Nous sommes le ${now} (heure de Paris).`,
       "",
@@ -144,7 +164,7 @@ export class Agent {
 
   /** Traite un message utilisateur jusqu'à la réponse finale. */
   async handle(input: string, ui: AgentUI, signal?: AbortSignal): Promise<string> {
-    trustUrlsIn(input);
+    if (this.opts.trustInput !== false) this.trust.addFrom(input);
     this.history.push({ role: "user", content: input });
     const specs = this.toolSpecs();
     let nudged = false;
@@ -200,7 +220,7 @@ export class Agent {
     }
 
     let decision: "auto" | "approved" = "auto";
-    if (needsConfirmation(tool, tool.projectOf?.(args), this.cfg, args)) {
+    if (needsConfirmation(tool, tool.projectOf?.(args), this.cfg, args, this.trust)) {
       const details = await tool.preview(args);
       const ok = await ui.confirm(`${tool.name} (${tool.risk === "external" ? "sort de la machine" : "action locale"})`, details);
       if (!ok) {
@@ -212,7 +232,7 @@ export class Agent {
 
     const t0 = Date.now();
     try {
-      const out = await tool.run(args, { ui, signal });
+      const out = await tool.run(args, { ui, signal, trust: this.trust });
       audit({ event: "tool_call", tool: name, risk: tool.risk, args, decision, ok: true, durationMs: Date.now() - t0 });
       return out;
     } catch (e) {

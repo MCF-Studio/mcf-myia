@@ -1,9 +1,10 @@
 /**
- * Liens « de confiance » de la session : donnés par l'utilisateur dans ses messages ou renvoyés par web_search.
+ * Liens « de confiance » d'UNE conversation : donnés par l'utilisateur dans ses messages ou renvoyés par web_search.
  * browser_open les ouvre sans confirmation ; tout autre lien (ex. trouvé DANS une page lue) demande confirmation,
  * pour qu'une page piégée ne puisse pas faire ouvrir n'importe quoi dans le navigateur de l'utilisateur.
+ * Chaque agent (donc chaque conversation, chaque sous-agent) a son propre ensemble : rien ne fuit d'une
+ * conversation à l'autre.
  */
-const trusted = new Set<string>();
 
 const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/gi;
 
@@ -18,20 +19,24 @@ export function canonicalUrl(u: string): string | undefined {
   }
 }
 
-export function trustUrl(u: string) {
-  const c = canonicalUrl(u);
-  if (c) trusted.add(c);
-}
+export class UrlTrust {
+  private readonly set = new Set<string>();
 
-export function trustUrlsIn(text: string) {
-  for (const m of text.match(URL_RE) ?? []) trustUrl(m.replace(/[.,;:!?]+$/, ""));
-}
+  add(u: string) {
+    const c = canonicalUrl(u);
+    if (c) this.set.add(c);
+  }
 
-export function isTrustedUrl(u: string): boolean {
-  const c = canonicalUrl(u);
-  return !!c && trusted.has(c);
-}
+  addFrom(text: string) {
+    for (const m of text.match(URL_RE) ?? []) this.add(m.replace(/[.,;:!?]+$/, ""));
+  }
 
-export function clearTrustedUrls() {
-  trusted.clear();
+  has(u: string): boolean {
+    const c = canonicalUrl(u);
+    return !!c && this.set.has(c);
+  }
+
+  clear() {
+    this.set.clear();
+  }
 }

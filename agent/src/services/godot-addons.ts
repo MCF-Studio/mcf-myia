@@ -5,6 +5,9 @@ import { isInside } from "../core/paths.js";
 
 const ASSET_API = "https://godotengine.org/asset-library/api";
 const MAX_ZIP_BYTES = 300 * 1024 * 1024;
+/** Plafonds après décompression (protection « bombe zip ») : la taille déclarée ET la taille réellement écrite. */
+const MAX_UNPACKED_BYTES = 1024 * 1024 * 1024;
+const MAX_ENTRIES = 20_000;
 
 export interface AddonInfo {
   spec: string;
@@ -132,6 +135,10 @@ export function extractAddons(zip: Buffer, projectDir: string): ExtractResult {
   const depth = addonsDepth(entries.map((e) => e.entryName));
   if (depth < 0) throw new Error("l'archive ne contient pas de dossier addons/ (ce n'est peut-être pas un addon)");
 
+  if (entries.length > MAX_ENTRIES) throw new Error(`archive suspecte : ${entries.length} fichiers`);
+  const declared = entries.reduce((n, e) => n + e.header.size, 0);
+  if (declared > MAX_UNPACKED_BYTES) throw new Error("archive suspecte : plus de 1 Go une fois décompressée");
+
   const planned: { target: string; data: () => Buffer }[] = [];
   const folders = new Set<string>();
   for (const e of entries) {
@@ -145,9 +152,14 @@ export function extractAddons(zip: Buffer, projectDir: string): ExtractResult {
   for (const f of folders) {
     if (fs.existsSync(path.join(projectDir, "addons", f))) throw new Error(`addons/${f} existe déjà dans le projet`);
   }
+  let written = 0;
   for (const p of planned) {
+    const data = p.data();
+    written += data.length;
+    // La taille déclarée dans l'en-tête peut mentir : on vérifie aussi ce qui sort vraiment.
+    if (written > MAX_UNPACKED_BYTES) throw new Error("archive suspecte : plus de 1 Go une fois décompressée");
     fs.mkdirSync(path.dirname(p.target), { recursive: true });
-    fs.writeFileSync(p.target, p.data());
+    fs.writeFileSync(p.target, data);
   }
   const plugins = [...folders]
     .filter((f) => fs.existsSync(path.join(projectDir, "addons", f, "plugin.cfg")))

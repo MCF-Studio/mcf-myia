@@ -8,7 +8,7 @@ import { needsConfirmation } from "./agent.js";
 import { audit } from "./audit.js";
 import { parseConfig } from "./config.js";
 import { analyzeProject, godotVersionOf, parseExportPresets, ProjectRegistry } from "./projects.js";
-import { clearTrustedUrls, isTrustedUrl, trustUrlsIn } from "./urls.js";
+import { UrlTrust } from "./urls.js";
 import { htmlToText, isPublicAddress, parseDuckDuckGo } from "../services/web.js";
 import { redact } from "./secrets.js";
 
@@ -195,10 +195,12 @@ describe("web", () => {
     expect(r.text).toBe("Bonjour toi");
   });
   it("liens de confiance : ceux de l'utilisateur seulement", () => {
-    clearTrustedUrls();
-    trustUrlsIn("regarde https://exemple.fr/page. merci");
-    expect(isTrustedUrl("https://exemple.fr/page")).toBe(true);
-    expect(isTrustedUrl("https://autre.fr/")).toBe(false);
-    expect(isTrustedUrl("javascript:alert(1)")).toBe(false);
+    const trust = new UrlTrust();
+    trust.addFrom("regarde https://exemple.fr/page. merci");
+    expect(trust.has("https://exemple.fr/page")).toBe(true);
+    expect(trust.has("https://autre.fr/")).toBe(false);
+    expect(trust.has("javascript:alert(1)")).toBe(false);
+    // une autre conversation ne partage pas cette confiance
+    expect(new UrlTrust().has("https://exemple.fr/page")).toBe(false);
   });
 });

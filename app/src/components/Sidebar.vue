@@ -6,6 +6,7 @@ import {
   ChevronsRight,
   Gauge,
   MessagesSquare,
+  Network,
   Settings,
   Store,
 } from "lucide-vue-next";
@@ -18,9 +19,10 @@ const items: { id: View; label: string; icon: unknown; key: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: Gauge, key: "1" },
   { id: "conversations", label: "Conversations", icon: MessagesSquare, key: "2" },
   { id: "agents", label: "Agents", icon: Bot, key: "3" },
-  { id: "models", label: "Modèles", icon: Boxes, key: "4" },
-  { id: "marketplace", label: "Marketplace", icon: Store, key: "5" },
-  { id: "settings", label: "Paramètres", icon: Settings, key: "6" },
+  { id: "teams", label: "Équipes", icon: Network, key: "4" },
+  { id: "models", label: "Modèles", icon: Boxes, key: "5" },
+  { id: "marketplace", label: "Marketplace", icon: Store, key: "6" },
+  { id: "settings", label: "Paramètres", icon: Settings, key: "7" },
 ];
 
 const collapsed = computed(() => settings.appearance.sidebarCollapsed);

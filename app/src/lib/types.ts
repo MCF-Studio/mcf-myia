@@ -19,9 +19,26 @@ export interface DisplayMessage {
   decision?: "pending" | "approved" | "refused";
 }
 
+export interface TeamNode {
+  id: string;
+  agentId: string;
+  subagents: TeamNode[];
+  teammates: TeamNode[];
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description?: string;
+  root: TeamNode;
+  maxCalls: number;
+  maxDepth: number;
+}
+
 export interface ConversationSummary {
   id: string;
   agentId: string;
+  teamId?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -64,6 +81,7 @@ export interface Overview {
   defaultModel: string;
   agents: (AgentProfile & { model: string; conversations: number; busy: number })[];
   conversations: { total: number; busy: number };
+  teams: { id: string; name: string }[];
   services: ServiceStatus[];
 }
 

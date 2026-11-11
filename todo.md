@@ -1,0 +1,1 @@
+- [] faire un agent qui identifie les tâches et la difficulté et qui détermine quel model claude est adapté à la tâche et aide à optimiser les sessions en faisant des résumés et en nettoyant le contexte soit par /clear soit en fermant et ouvrant une nouvelle conversation et redonner 

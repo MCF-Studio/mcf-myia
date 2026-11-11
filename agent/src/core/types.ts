@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { UrlTrust } from "./urls.js";
 
 /**
  * Niveau de risque d'un outil (voir docs/SPEC.md §3).
@@ -20,6 +21,8 @@ export interface AgentUI {
 export interface ToolContext {
   ui: AgentUI;
   signal?: AbortSignal;
+  /** Liens de confiance de la conversation en cours. */
+  trust: UrlTrust;
 }
 
 export interface Tool {
@@ -34,7 +37,7 @@ export interface Tool {
   /** Projet concerné, pour la règle autoApprove. */
   projectOf?(args: unknown): string | undefined;
   /** Outils `launch` : vrai si ces arguments-là exigent quand même une confirmation. */
-  confirmIf?(args: unknown): boolean;
+  confirmIf?(args: unknown, trust: UrlTrust): boolean;
   /** Vérifications préalables (lève une erreur) : faites AVANT de demander une confirmation. */
   check?(args: unknown): void | Promise<void>;
   /** Texte exact montré à l'utilisateur avant confirmation. */
@@ -62,7 +65,7 @@ export function defineTool<S extends z.ZodType>(def: {
   schema: S;
   risk: Risk;
   projectOf?: (args: z.infer<S>) => string | undefined;
-  confirmIf?: (args: z.infer<S>) => boolean;
+  confirmIf?: (args: z.infer<S>, trust: UrlTrust) => boolean;
   check?: (args: z.infer<S>) => void | Promise<void>;
   preview: (args: z.infer<S>) => string | Promise<string>;
   run: (args: z.infer<S>, ctx: ToolContext) => Promise<string>;
@@ -84,7 +87,7 @@ export function defineTool<S extends z.ZodType>(def: {
       return res.data;
     },
     projectOf: def.projectOf ? (a) => def.projectOf!(a as z.infer<S>) : undefined,
-    confirmIf: def.confirmIf ? (a) => def.confirmIf!(a as z.infer<S>) : undefined,
+    confirmIf: def.confirmIf ? (a, t) => def.confirmIf!(a as z.infer<S>, t) : undefined,
     check: def.check ? (a) => def.check!(a as z.infer<S>) : undefined,
     preview: (a) => def.preview(a as z.infer<S>),
     run: (a, ctx) => def.run(a as z.infer<S>, ctx),

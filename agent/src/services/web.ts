@@ -4,7 +4,7 @@ import net from "node:net";
 import { z } from "zod";
 import type { Config } from "../core/config.js";
 import { defineTool, truncate, type Service } from "../core/types.js";
-import { canonicalUrl, isTrustedUrl, trustUrl } from "../core/urls.js";
+import { canonicalUrl } from "../core/urls.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140 Safari/537.36";
 const PAGE_TEXT_MAX = 6000;
@@ -228,10 +228,10 @@ export function webService(cfg: Config): Service {
           schema: z.object({ query: z.string().min(2).describe("Requête de recherche (mots-clés, en anglais pour un sujet technique)") }),
           risk: "read",
           preview: () => "",
-          async run(a) {
+          async run(a, ctx) {
             const res = await search(a.query, 6);
             if (!res.length) return `Aucun résultat pour "${a.query}". Utilise web_research.`;
-            for (const r of res) trustUrl(r.url);
+            for (const r of res) ctx.trust.add(r.url);
             const list = res.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n");
             return `${list}\n\n(Si ces résultats sont hors sujet, appelle web_research avec la question complète.)`;
           },
@@ -259,7 +259,7 @@ export function webService(cfg: Config): Service {
           }),
           risk: "launch",
           // Lien donné par l'utilisateur ou trouvé par web_search : direct. Sinon (ex. lien lu dans une page) : confirmation.
-          confirmIf: (a) => !isTrustedUrl(a.url),
+          confirmIf: (a, trust) => !trust.has(a.url),
           preview: (a) => `Ouvrir dans le navigateur :\n${a.url}\n(lien qui ne vient ni de toi ni d'une recherche)`,
           async run(a) {
             openInBrowser(canonicalUrl(a.url)!);

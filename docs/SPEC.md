@@ -64,9 +64,13 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
 ## 3 bis. App de bureau et contenus partagés
 
 **Fenêtre (Tauri 2)** : CSP stricte (`script-src 'self'`, aucune connexion réseau depuis la page, `object-src 'none'`),
-prototypes gelés, capacités limitées à : relais du sidecar, métriques, notifications, ouverture de liens **http/https**
+capacités limitées à : relais du sidecar, métriques, notifications, ouverture de liens **http/https**
 dans le navigateur système. La page n'ouvre jamais de lien elle-même ; les réponses sont rendues en Markdown avec le
-HTML échappé.
+HTML échappé. (`freezePrototype` est désactivé : incompatible avec xterm.js, le terminal des consoles.)
+
+**Consoles Claude Code** : seule la commande `claude` peut être lancée dans un pseudo-terminal (pas de shell
+libre), dans un dossier qui existe ; Claude Code y applique ses propres règles de permission. Les consoles meurent
+avec l'app.
 
 **Profils d'agents** : des données validées par schéma. Un profil peut seulement **restreindre** les services d'un agent ;
 ses consignes s'ajoutent au prompt système sans remplacer les règles (§3), qui sont de toute façon appliquées par le

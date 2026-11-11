@@ -7,6 +7,7 @@ app/src-tauri/gen/
 # Données propres à chaque machine : jamais publiées
 config/agent.json
 config/agents.json
+config/teams.json
 data/
 runtime/
 ollama/

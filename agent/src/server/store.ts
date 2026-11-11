@@ -19,6 +19,8 @@ export interface DisplayMessage {
 export interface Conversation {
   id: string;
   agentId: string;
+  /** Conversation avec une équipe : agentId est alors l'agent racine (le chef). */
+  teamId?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -69,11 +71,12 @@ export class ConversationStore {
     return c;
   }
 
-  create(agentId: string, title?: string): Conversation {
+  create(agentId: string, title?: string, teamId?: string): Conversation {
     const now = new Date().toISOString();
     const c: Conversation = {
       id: crypto.randomUUID(),
       agentId,
+      ...(teamId ? { teamId } : {}),
       title: title?.trim().slice(0, 80) || "Nouvelle conversation",
       createdAt: now,
       updatedAt: now,

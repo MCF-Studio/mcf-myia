@@ -4,6 +4,7 @@ import { reactive } from "vue";
 import { call, inTauri, on, onRequest, reply, startRpc } from "./rpc";
 import { settings } from "./settings";
 import { playSound, speak } from "./sound";
+import { startTerminals } from "./terminals";
 import type {
   AgentProfile,
   ConversationFull,
@@ -12,10 +13,11 @@ import type {
   Overview,
   SidecarStatus,
   SystemMetrics,
+  Team,
   Theme,
 } from "./types";
 
-export type View = "overview" | "conversations" | "agents" | "models" | "marketplace" | "settings";
+export type View = "overview" | "conversations" | "agents" | "teams" | "models" | "marketplace" | "settings";
 
 interface Toast {
   id: number;
@@ -36,6 +38,7 @@ export const state = reactive({
   conversations: [] as ConversationSummary[],
   open: {} as Record<string, ConversationFull>,
   agents: [] as AgentProfile[],
+  teams: [] as Team[],
   installedThemes: [] as Theme[],
   /** messageId de confirmation → id de la requête ui.confirm du sidecar */
   confirms: {} as Record<string, number>,
@@ -95,6 +98,10 @@ export async function refreshAgents() {
   state.agents = await call<AgentProfile[]>("agents.list");
 }
 
+export async function refreshTeams() {
+  state.teams = await call<Team[]>("teams.list");
+}
+
 export async function refreshThemes() {
   state.installedThemes = await call<Theme[]>("themes.list");
 }
@@ -122,8 +129,8 @@ export function closeTab(id: string) {
   if (settings.conversations.activeTab === id) settings.conversations.activeTab = tabs[Math.max(0, i - 1)] ?? "";
 }
 
-export async function createConversation(agentId: string) {
-  const c = await call<ConversationSummary>("conversations.create", { agentId });
+export async function createConversation(agentId: string, teamId?: string) {
+  const c = await call<ConversationSummary>("conversations.create", teamId ? { teamId } : { agentId });
   await refreshConversations();
   await openConversation(c.id);
   return c.id;
@@ -240,6 +247,7 @@ export async function boot() {
   });
 
   await startRpc();
+  await startTerminals();
   await refreshSidecar();
   if (state.sidecar.running) await afterReady();
 }
@@ -251,7 +259,7 @@ async function afterReady() {
     return; // le sidecar n'a pas encore fini de démarrer : on attend son « ready »
   }
   state.ready = true;
-  await Promise.all([refreshAgents(), refreshConversations(), refreshThemes(), refreshOverview()]);
+  await Promise.all([refreshAgents(), refreshTeams(), refreshConversations(), refreshThemes(), refreshOverview()]);
   // Les onglets restaurés doivent encore exister.
   settings.conversations.openTabs = settings.conversations.openTabs.filter((id) => state.conversations.some((c) => c.id === id));
   await Promise.all(settings.conversations.openTabs.map((id) => openConversation(id).catch(() => closeTab(id))));

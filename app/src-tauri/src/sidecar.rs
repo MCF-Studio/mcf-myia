@@ -30,14 +30,18 @@ pub struct SidecarStatus {
 }
 
 /// Dossier racine de MyIA (contient agent/, config/, data/).
-/// MYIA_HOME en priorité ; sinon, en développement, la racine du dépôt ; sinon le dossier de l'exécutable.
+/// MYIA_HOME en priorité ; sinon, en build debug, la racine du dépôt ; sinon le dossier de l'exécutable.
 pub fn home() -> PathBuf {
     if let Ok(h) = std::env::var("MYIA_HOME") {
         return PathBuf::from(h);
     }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
-    if dev.join("agent").exists() {
-        return dev.canonicalize().unwrap_or(dev);
+    // Racine du dépôt : en développement SEULEMENT (une release ne charge jamais de code depuis un chemin de build).
+    #[cfg(debug_assertions)]
+    {
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+        if dev.join("agent").exists() {
+            return dev.canonicalize().unwrap_or(dev);
+        }
     }
     std::env::current_exe()
         .ok()

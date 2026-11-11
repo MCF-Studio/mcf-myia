@@ -5,6 +5,7 @@ import {
   Copy,
   Eraser,
   Loader2,
+  Network,
   ShieldAlert,
   Square,
   Volume2,
@@ -24,6 +25,10 @@ const emit = defineEmits<{ close: [] }>();
 
 const conv = computed(() => state.open[props.id]);
 const agent = computed(() => (conv.value ? agentById(conv.value.agentId) : undefined));
+const team = computed(() => {
+  const tid = state.conversations.find((c) => c.id === props.id)?.teamId;
+  return tid ? state.teams.find((t) => t.id === tid) : undefined;
+});
 const model = computed(() => agent.value?.model ?? state.overview?.defaultModel ?? "");
 const messages = computed(() =>
   (conv.value?.messages ?? []).filter((m) => settings.conversations.showSteps || m.role !== "progress"),
@@ -111,7 +116,10 @@ defineExpose({ focus: () => input.value?.focus() });
           autofocus
         />
         <strong v-else @dblclick="startRename" title="Double-clic pour renommer">{{ conv.title }}</strong>
-        <span class="tiny muted">{{ agent?.name ?? "Agent supprimé" }} · <span class="mono">{{ model }}</span></span>
+        <span class="tiny muted">
+          <span v-if="team" class="team-tag"><Network :size="11" /> {{ team.name }} ·</span>
+          {{ agent?.name ?? "Agent supprimé" }}<template v-if="team"> (chef)</template> · <span class="mono">{{ model }}</span>
+        </span>
       </div>
       <button v-if="conv.busy" class="btn sm" @click="cancelConversation(id)" title="Interrompre"><Square :size="13" /> Stop</button>
       <button class="btn sm ghost icon" title="Effacer la conversation" :disabled="conv.busy" @click="clear"><Eraser :size="15" /></button>
@@ -228,6 +236,12 @@ defineExpose({ focus: () => input.value?.focus() });
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: text;
+}
+.team-tag {
+  color: var(--accent-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 .title-input {
   height: 28px;
