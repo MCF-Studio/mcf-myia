@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AlertTriangle, CheckCircle2, Info, RotateCw } from "lucide-vue-next";
+import { AlertTriangle, CheckCircle2, Download, Info, RotateCw } from "lucide-vue-next";
 import { computed, onMounted, onUnmounted, watchEffect } from "vue";
 import Sidebar from "./components/Sidebar.vue";
 import { inTauri } from "./lib/rpc";
 import { settings } from "./lib/settings";
 import { navigate, restartSidecar, startPolling, state, type View } from "./lib/store";
 import { applyTheme, BUILTIN_THEMES } from "./lib/themes";
+import { startUpdates, update } from "./lib/update";
 import AgentsView from "./views/AgentsView.vue";
 import ConversationsView from "./views/ConversationsView.vue";
 import MarketplaceView from "./views/MarketplaceView.vue";
@@ -69,6 +70,7 @@ function onClick(e: MouseEvent) {
 }
 
 onMounted(() => {
+  void startUpdates();
   window.addEventListener("keydown", onKey);
   document.addEventListener("click", onClick);
 });
@@ -101,6 +103,17 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
         </KeepAlive>
       </Transition>
     </main>
+
+    <!-- Mise à jour en cours : l'app va se fermer puis redémarrer, on bloque l'interface pendant ce temps. -->
+    <div v-if="update.state === 'downloading' || update.state === 'installing'" class="updating" role="alertdialog" aria-live="polite">
+      <div class="updating-card">
+        <Download :size="26" />
+        <h3>Mise à jour {{ update.version ? `v${update.version}` : "" }}</h3>
+        <p v-if="update.state === 'downloading'">Téléchargement… {{ update.percent ?? 0 }} %</p>
+        <p v-else>Installation… MyIA va redémarrer.</p>
+        <div class="updating-bar"><span :style="{ width: `${update.percent ?? 0}%` }" /></div>
+      </div>
+    </div>
 
     <div class="toasts">
       <TransitionGroup name="toast">
@@ -170,6 +183,48 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
 }
 .view-leave-to {
   opacity: 0;
+}
+.updating {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(6px);
+}
+.updating-card {
+  width: min(380px, 90vw);
+  padding: 26px 28px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.7);
+  text-align: center;
+}
+.updating-card svg {
+  color: var(--accent);
+}
+.updating-card h3 {
+  margin: 10px 0 4px;
+}
+.updating-card p {
+  margin: 0 0 14px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.updating-bar {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.updating-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.25s;
 }
 .toasts {
   position: fixed;

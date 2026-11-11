@@ -620,7 +620,14 @@ rpc.method("config.get", () => ({
   userName: cfg.user.name,
   projectRoots: cfg.projectRoots,
   configPath: paths.config,
+  claudeBypassPermissions: cfg.claude.bypassPermissions,
 }));
+
+rpc.method("config.setClaudeBypassPermissions", (params) => {
+  const { enabled } = parse(z.object({ enabled: z.boolean() }), params);
+  patchConfig((raw) => (raw.claude = { ...(raw.claude ?? {}), bypassPermissions: enabled }));
+  return true;
+});
 
 rpc.method("config.setUserName", (params) => {
   const { name } = parse(z.object({ name: z.string().trim().min(1).max(60) }), params);

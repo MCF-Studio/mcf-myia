@@ -63,6 +63,16 @@ fn allowed_roots() -> Vec<PathBuf> {
     roots.into_iter().filter_map(|r| r.canonicalize().ok()).collect()
 }
 
+/// Réglage `claude.bypassPermissions` de config/agent.json (Paramètres → Général). Lu ici, côté Rust, à chaque
+/// lancement : un appel venu de l'interface ne peut pas l'imposer pour une console. Absent ou illisible = désactivé.
+fn bypass_permissions() -> bool {
+    std::fs::read_to_string(crate::sidecar::home().join("config").join("agent.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|cfg| cfg.get("claude")?.get("bypassPermissions")?.as_bool())
+        .unwrap_or(false)
+}
+
 fn is_allowed(dir: &Path) -> bool {
     match dir.canonicalize() {
         Ok(d) => allowed_roots().iter().any(|r| d.starts_with(r)),
@@ -100,6 +110,10 @@ pub fn pty_spawn(
     let mut cmd = CommandBuilder::new(program);
     if resume {
         cmd.arg("--continue");
+    }
+    // Mode sans demande d'autorisation : seulement si l'utilisateur l'a activé dans les réglages.
+    if bypass_permissions() {
+        cmd.arg("--dangerously-skip-permissions");
     }
     // Modèle : liste fermée d'alias Claude Code.
     if let Some(m) = model.filter(|m| !m.is_empty()) {

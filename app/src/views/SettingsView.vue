@@ -34,6 +34,7 @@ import { playSound, SOUND_PACKS, speak, stopSpeaking, voices } from "../lib/soun
 import { refreshSidecar, refreshThemes, restartSidecar, state, toast } from "../lib/store";
 import { BUILTIN_THEMES, exportTheme } from "../lib/themes";
 import type { Theme } from "../lib/types";
+import { checkForUpdate, update } from "../lib/update";
 
 type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "system" | "about";
 const section = ref<Section>("appearance");
@@ -85,11 +86,49 @@ const roots = ref<{ path: string; depth: number }[]>([]);
 
 async function loadConfigBits() {
   try {
-    const c = await call<{ userName: string; projectRoots: { path: string; depth: number }[] }>("config.get");
+    const c = await call<{ userName: string; projectRoots: { path: string; depth: number }[]; claudeBypassPermissions?: boolean }>("config.get");
     userName.value = c.userName === "l'utilisateur" ? "" : c.userName;
     roots.value = c.projectRoots;
+    claudeBypass.value = c.claudeBypassPermissions === true;
   } catch {
     /* cœur arrêté */
+  }
+}
+
+// ─── Mises à jour : recherche manuelle (la recherche automatique se fait au démarrage) ───
+const updateBusy = ref(false);
+const updateHint = computed(() => {
+  if (update.state === "checking") return "Recherche en cours…";
+  if (update.state === "current") return "MyIA est à jour.";
+  if (update.state === "error") return `Recherche impossible : ${update.error ?? "erreur inconnue"}`;
+  return "Recherche automatique à chaque démarrage : une nouvelle version s'installe toute seule.";
+});
+
+async function checkUpdate() {
+  updateBusy.value = true;
+  try {
+    const st = await checkForUpdate();
+    if (st.state === "current") toast("MyIA est à jour", "success");
+    else if (st.state === "error") toast(`Mise à jour : ${st.error ?? "erreur"}`, "error");
+  } catch (e) {
+    toast(typeof e === "string" ? e : (e as Error).message, "error");
+  } finally {
+    updateBusy.value = false;
+  }
+}
+
+// ─── Consoles Claude Code : lancement sans demande d'autorisation ────────────
+const claudeBypass = ref(false);
+
+async function setClaudeBypass(enabled: boolean) {
+  const before = claudeBypass.value;
+  claudeBypass.value = enabled;
+  try {
+    await call("config.setClaudeBypassPermissions", { enabled });
+    toast(enabled ? "Mode bypass activé pour les prochaines consoles" : "Mode bypass désactivé", enabled ? "info" : "success");
+  } catch (e) {
+    claudeBypass.value = before;
+    toast((e as Error).message, "error");
   }
 }
 
@@ -301,6 +340,16 @@ const shortcuts: [string, string][] = [
         </SettingRow>
         <SettingRow label="Ton prénom" hint="Comment les agents t'appellent.">
           <input v-model="userName" class="input w-220" maxlength="60" placeholder="Ton prénom" @keydown.enter="saveName" @blur="saveName" />
+        </SettingRow>
+      </section>
+
+      <section class="card">
+        <h3 class="sec-title">Consoles Claude Code</h3>
+        <SettingRow
+          label="Lancer en mode bypass permissions"
+          hint="Claude Code ne demande plus ton accord avant de modifier des fichiers ou de lancer des commandes (--dangerously-skip-permissions). S'applique aux prochaines consoles ouvertes ; désactivé par défaut."
+        >
+          <Toggle :model-value="claudeBypass" @update:model-value="setClaudeBypass" />
         </SettingRow>
       </section>
 
@@ -628,6 +677,9 @@ const shortcuts: [string, string][] = [
             <span class="dot" :class="state.sidecar.running ? 'ok' : 'err'" /> {{ state.sidecar.running ? "en marche" : "arrêté" }}
           </span>
           <button class="btn sm" @click="restartSidecar"><RotateCw :size="14" /> Redémarrer</button>
+        </SettingRow>
+        <SettingRow label="Mises à jour" :hint="updateHint">
+          <button class="btn sm" :disabled="updateBusy" @click="checkUpdate"><RotateCw :size="14" /> Rechercher</button>
         </SettingRow>
         <SettingRow label="Recharger la configuration" hint="Après une modification à la main de config/agent.json.">
           <button class="btn sm" @click="call('config.reload').then(() => toast('Configuration rechargée', 'success')).catch((e) => toast(e.message, 'error'))">

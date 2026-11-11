@@ -73,5 +73,16 @@
         "type": "downloadBootstrapper"
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg2ODU2M0VCNjYzMzhEQUMKUldTc2pUTm02Mk9GaHNvYktHRi9MRVp4MEVReGJSckxhWWc4bTVRRldRSGRveUhKS0tvOTlSeFIK",
+      "endpoints": [
+        "https://github.com/MCF-Studio/mcf-myia/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

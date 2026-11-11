@@ -47,6 +47,10 @@ Les personnalités ne sont **pas** livrées avec le code : chacun crée les sien
 L'installateur n'est pas encore signé : Windows SmartScreen peut afficher un avertissement (« Informations
 complémentaires » → « Exécuter quand même »). L'empreinte SHA-256 est publiée avec chaque release.
 
+**Mises à jour** : à chaque démarrage, l'app regarde si une version plus récente est publiée ; si oui, elle la
+télécharge, vérifie sa signature, l'installe et redémarre. Rien à faire de ton côté (recherche manuelle :
+**Paramètres → Système**).
+
 Tes données (configuration, agents, conversations, journal) sont dans `%APPDATA%\fr.mcfstudio.myia`. Elles restent
 en place si tu désinstalles ou mets à jour l'app.
 
@@ -60,6 +64,7 @@ cd mcf-myia
 cd agent && npm install && npm run build && cd ..
 cd app && npm install
 npm run tauri dev        # développement (données dans le dossier du dépôt)
+npm run sidecar          # prépare le cœur embarqué (à refaire après une modification du cœur)
 npm run installer        # construit l'installateur dans app/src-tauri/target/release/bundle/nsis/
 ```
 
@@ -82,7 +87,7 @@ myia.cmd ask "…"    une seule demande
 | Discord     | `myia secret set discord_bot_token` + `discord.channels` (bot invité sur le serveur)          |
 | Builds      | `projects` ou `projectRoots` : projets Godot, Tauri, Rust, Node détectés automatiquement      |
 | Godot       | `godot.projectsRoot` + `godot.versionsDir` ou `godot.executables`                             |
-| Claude Code | la commande `claude` installée et connectée                                                  |
+| Claude Code | la commande `claude` installée et connectée (abonnement Claude, pas de clé API)               |
 | Autre (MCP) | une entrée `mcpServers` : n'importe quel serveur MCP stdio devient un service                 |
 
 Exemple complet : [`config/agent.example.json`](config/agent.example.json). Les jetons vont dans le Gestionnaire

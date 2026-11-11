@@ -77,6 +77,12 @@ export const ConfigSchema = z.object({
       model: z.string().optional(),
       /** Choisir Haiku/Sonnet/Opus selon la difficulté de chaque tâche (prioritaire sur `model`). */
       autoModel: z.boolean().default(true),
+      /**
+       * Consoles Claude Code de l'app lancées avec `--dangerously-skip-permissions` : Claude n'y demande plus
+       * d'accord avant de modifier des fichiers ou de lancer des commandes. Désactivé par défaut (SPEC §3 bis).
+       * Ne concerne pas `claude_delegate`, qui garde ses outils autorisés et sa confirmation.
+       */
+      bypassPermissions: z.boolean().default(false),
       maxTurns: z.number().int().min(1).max(200).default(40),
       timeoutMinutes: z.number().min(1).max(240).default(30),
       defaultAllowedTools: z

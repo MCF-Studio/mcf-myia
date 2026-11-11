@@ -93,9 +93,22 @@ HTML échappé. (`freezePrototype` est désactivé : incompatible avec xterm.js,
 **Consoles Claude Code** : seule la commande `claude` peut être lancée dans un pseudo-terminal (pas de shell
 libre), uniquement dans le workspace ou un dossier de `projectRoots`/`projects` (vérifié côté Rust à partir de la
 config, pas de l'interface) ; Claude Code y applique ses propres règles de permission. Les consoles meurent avec l'app.
+**Mode bypass permissions** (`claude.bypassPermissions`, Paramètres → Général, **désactivé par défaut**) : les consoles
+sont lancées avec `--dangerously-skip-permissions`, Claude Code n'y demande plus d'accord avant de modifier des
+fichiers ou de lancer des commandes. Le réglage est lu dans la config côté Rust à chaque lancement (un appel de
+l'interface ne peut pas l'imposer pour une console) ; il ne change ni les dossiers autorisés ni `claude_delegate`,
+qui garde ses outils listés et sa confirmation. Activé, il aggrave le compromis ci-dessous : ce qui est tapé dans
+une console s'exécute sans garde-fou de Claude Code.
 **Compromis assumé** : une page compromise pourrait taper dans une console ouverte, et Claude Code peut exécuter
 des commandes. La défense repose donc sur l'impossibilité d'injecter du script dans la page (CSP sans inline, HTML
 des réponses échappé, liens ouverts hors de l'app), et `freezePrototype` est désactivé à cause d'xterm.js.
+
+**Mises à jour automatiques** : au démarrage (jamais en développement), le Rust lit `latest.json` de la dernière
+release GitHub (https uniquement), télécharge l'installateur et **vérifie sa signature** (minisign) avec la clé
+publique embarquée dans l'app avant de l'exécuter ; un fichier non signé par la clé de MCF Studio est refusé. La page
+n'intervient pas : elle n'a aucun accès réseau et ne peut ni choisir l'adresse ni fournir le fichier. Les releases sont
+construites et signées sur le poste du mainteneur (`npm run release`), la clé privée ne quitte jamais ce poste et
+n'est ni dans le dépôt ni dans GitHub.
 
 **Compte mcfstudio.fr (Guilde)** : OAuth 2.0 + PKCE avec redirection loopback (RFC 8252) : le navigateur du système
 s'ouvre sur `<site>/autoriser`, le site renvoie vers `http://127.0.0.1:<port>/callback` où MyIA écoute le temps de
@@ -158,6 +171,8 @@ modèle.
 | Ouverture d'un fichier piégé (script, raccourci) proposée par une page lue           | Extensions exécutables refusées ; hors dossiers habituels, confirmation                |
 | Fuite de la mémoire (présentations, projets) vers un autre membre via la Guilde      | Le bac à sable de la Guilde est construit sans mémoire ni services ; test dédié          |
 | Écriture de fichier détournée (chemin « C:dossier », lien, flux alternatif)          | Chemins relatifs au lecteur refusés ; chemin réel contrôlé avant ET après écriture       |
+| Mise à jour piégée (release ou compte GitHub compromis, réseau détourné)             | Signature vérifiée avec la clé publique embarquée ; clé privée hors dépôt et hors GitHub ; https |
+| Mode bypass activé à l'insu de l'utilisateur                                         | Désactivé par défaut ; réglage dans la config, lu côté Rust ; consoles limitées aux dossiers autorisés |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

@@ -29,6 +29,19 @@ Un fichier dans `agent/src/services/` qui exporte un `Service` (voir `types.ts`)
 `services/index.ts`. Chaque outil déclare son niveau de risque (`read`, `launch`, `local`, `external`). Pour un outil
 externe sans code : une entrée `mcpServers` dans la config suffit.
 
+## Publier une version (mainteneurs)
+
+Les releases sont construites et publiées depuis le poste du mainteneur, pas par GitHub Actions :
+
+1. Monte la version dans `app/src-tauri/tauri.conf.json`, `app/src-tauri/Cargo.toml`, `app/package.json` et
+   `agent/package.json`, commit, pousse sur `main`.
+2. `cd app && npm run release` (ajoute `-- --dry-run` pour construire sans publier).
+
+Le script lance les tests, construit l'installateur, le signe avec la clé de mise à jour
+(`%USERPROFILE%\.tauri\myia-updater.key`, jamais dans le dépôt) et crée la release avec `latest.json` : les apps
+installées se mettent à jour au démarrage suivant. Sans cette clé, plus aucune mise à jour n'est acceptée par les
+apps déjà installées : garde-en une copie en lieu sûr.
+
 ## Licence
 
 En contribuant, tu acceptes que ta contribution soit publiée sous [AGPL-3.0](LICENSE).
