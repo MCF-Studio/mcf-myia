@@ -478,14 +478,6 @@ function makeLink() {
     run: (offer, text, maxSeconds, signal) => runSandboxed(cfg, offer, text, maxSeconds, signal),
     emit: (event, data) => rpc.notify(event, data),
     appVersion: VERSION,
-    pinMember: (m) => {
-      const g = loadGuild();
-      const w = g.whitelist.find((x) => x.id === undefined && x.name.toLowerCase() === m.name.toLowerCase());
-      if (!w) return;
-      w.id = m.id;
-      saveGuild(g);
-      rpc.notify("guild.changed", {});
-    },
   });
 }
 let link: GuildLink | undefined;

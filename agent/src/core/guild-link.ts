@@ -61,8 +61,6 @@ export interface GuildLinkDeps {
   /** Événements pour l'interface (état, demande à valider, demande traitée). */
   emit(event: string, data: unknown): void;
   connect?(url: string): SocketLike;
-  /** Lie au compte (id) l'entrée de liste blanche qui porte ce pseudo sans id. */
-  pinMember?(member: Member): void;
   gpu?(): Promise<number | undefined>;
   appVersion?: string;
   now?(): Date;
@@ -387,8 +385,6 @@ export class GuildLink {
       this.send({ type: "refuse", id, reason: "offre retirée" });
       throw new Error("cette offre n'existe plus");
     }
-    // Tu as vu ce membre et sa demande : son pseudo de ta liste blanche est désormais lié à son compte.
-    this.deps.pinMember?.(p.from);
     void this.process(id, p.from, offer, p.text, p.deviceKey, "ask", "acceptée par toi");
   }
 

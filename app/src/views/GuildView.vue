@@ -23,6 +23,7 @@ import {
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import Toggle from "../components/Toggle.vue";
 import { relTime } from "../lib/format";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { call, on } from "../lib/rpc";
 import { state, toast } from "../lib/store";
 
@@ -146,8 +147,18 @@ function addMember() {
 }
 
 /** Depuis une demande reçue : membre ajouté à la liste blanche et lié à son compte (id garanti par le relais). */
-async function trustMember(m: Member) {
+async function trustMember(m: Member, print: string) {
   if (!g.value) return;
+  const ok = await confirm(
+    `Lier « ${m.name} » (compte n° ${m.id}) à ta liste blanche ?
+
+Empreinte de son appareil : ${print}
+
+` +
+      "Vérifie avec lui (de vive voix ou sur Discord) que c'est bien son compte : un membre lié peut passer en mode auto.",
+    { title: "Liste blanche", kind: "warning" },
+  );
+  if (!ok) return;
   if (dirty.value) await save();
   try {
     const saved = await call<Guild>("guild.trust", { id: m.id, name: m.name });
@@ -432,7 +443,7 @@ onMounted(async () => {
         <pre class="pending-text">{{ p.text }}</pre>
         <div class="pending-actions">
           <span class="tiny muted">Empreinte de son appareil : <code>{{ p.fingerprint }}</code></span>
-          <button v-if="!g.whitelist.some((w) => w.id === p.from.id)" class="btn sm ghost" @click="trustMember(p.from)">
+          <button v-if="!g.whitelist.some((w) => w.id === p.from.id)" class="btn sm ghost" @click="trustMember(p.from, p.fingerprint)">
             <ShieldCheck :size="14" /> Ajouter à ma liste blanche
           </button>
           <button class="btn sm ghost" @click="rejectPending(p.id)"><X :size="14" /> Refuser</button>
@@ -537,8 +548,8 @@ onMounted(async () => {
         </p>
         <h4 class="sub">Liste blanche <span class="tiny muted">(pseudos mcfstudio.fr)</span></h4>
         <p class="tiny muted">
-          Un pseudo se lie au compte du membre la première fois que tu acceptes une de ses demandes : seul un membre lié compte pour le
-          mode auto (un pseudo peut changer, un compte non).
+          Seul un membre lié à son compte compte pour le mode auto (un pseudo peut changer, un compte non) : lie-le depuis une de ses
+          demandes, après avoir vérifié avec lui le numéro de compte et l'empreinte affichés.
         </p>
         <div class="chips">
           <span v-for="(w, i) in g.whitelist" :key="w.id ?? w.name" class="chip" :title="w.id ? 'Lié à son compte mcfstudio.fr' : 'Pas encore lié à un compte'">

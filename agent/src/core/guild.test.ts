@@ -75,7 +75,7 @@ describe("Guilde : décision sur une demande", () => {
   it("pseudo seul (ancien format) : filtre, mais jamais d'auto tant qu'il n'est pas lié au compte", () => {
     const g = base({ whitelist: ["Lea"] as never });
     expect(g.whitelist).toEqual([{ name: "Lea" }]);
-    expect(decide(g, req(), idle, at(2), 10)).toMatchObject({ kind: "ask", reason: expect.stringMatching(/pas encore associé/) });
+    expect(decide(g, req(), idle, at(2), 10)).toMatchObject({ kind: "ask", reason: expect.stringMatching(/pas encore lié/) });
     expect(decide({ ...g, serve: "whitelist" }, req(), idle, at(2), 10).kind).toBe("ask");
   });
 

@@ -39,8 +39,9 @@ export const GuildSchema = z.object({
   serve: z.enum(["everyone", "certified", "whitelist"]).default("certified"),
   /**
    * Membres de confiance. `id` = identifiant du compte mcfstudio.fr (immuable) : seule une entrée avec `id` vaut pour le
-   * mode auto ; un pseudo seul (modifiable sur le site, donc usurpable) ne sert qu'à filtrer, et prend l'`id` du membre
-   * la première fois que tu acceptes une de ses demandes.
+   * mode auto ; un pseudo seul (modifiable sur le site, donc usurpable) ne sert qu'à filtrer. La liaison au compte se
+   * fait seulement par une action explicite du propriétaire (« Ajouter à ma liste blanche », id et empreinte affichés),
+   * jamais en acceptant une demande : un usurpateur du pseudo serait sinon lié pour de bon.
    */
   whitelist: z
     .array(
@@ -147,7 +148,7 @@ export function decide(g: Guild, req: IncomingRequest, usage: Usage, now: Date, 
   if (!a.enabled) return { kind: "ask", reason: "mode auto désactivé : ta validation est nécessaire" };
   if (a.whitelistOnly && !verified) {
     return listed
-      ? { kind: "ask", reason: "membre de ta liste blanche pas encore associé à son compte : accepte une de ses demandes" }
+      ? { kind: "ask", reason: "pseudo de ta liste blanche, pas encore lié à un compte : vérifie que c'est bien lui avant de le lier" }
       : { kind: "ask", reason: "mode auto réservé à ta liste blanche" };
   }
   if (!inWindow(now, a.from, a.to)) return { kind: "ask", reason: `hors de la plage auto (${a.from}–${a.to})` };
