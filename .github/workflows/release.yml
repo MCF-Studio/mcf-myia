@@ -1,0 +1,50 @@
+name: Release
+
+# Pousser un tag vX.Y.Z construit l'installateur Windows et publie une release GitHub.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            agent/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: npm ci
+        working-directory: agent
+      - run: npm test
+        working-directory: agent
+      - run: npm ci
+        working-directory: app
+      - name: Version du tag = version de l'app
+        shell: bash
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          app_v=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          if [ "$v" != "$app_v" ]; then echo "Tag $v ≠ version de l'app $app_v (tauri.conf.json)"; exit 1; fi
+      - run: npx tauri build
+        working-directory: app
+      - name: Publier la release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          exe=$(ls app/src-tauri/target/release/bundle/nsis/*-setup.exe)
+          (cd "$(dirname "$exe")" && sha256sum "$(basename "$exe")") > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" "$exe" SHA256SUMS.txt \
+            --title "MyIA $GITHUB_REF_NAME" \
+            --notes "Installateur Windows (par utilisateur, sans droits admin). Prérequis : Ollama (https://ollama.com). L'installateur n'est pas encore signé : Windows SmartScreen peut afficher un avertissement (« Informations complémentaires » → « Exécuter quand même »). Vérifie l'empreinte avec SHA256SUMS.txt."

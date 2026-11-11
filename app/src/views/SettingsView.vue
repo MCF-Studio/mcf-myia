@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { getVersion } from "@tauri-apps/api/app";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Bell,
   Download,
+  FolderOpen,
+  FolderPlus,
   Info,
   Keyboard,
   MessagesSquare,
@@ -71,12 +74,56 @@ async function deleteTheme(id: string) {
   await refreshThemes();
 }
 
+// ─── Identité et dossiers (config/agent.json, via le cœur) ───────────────────
+const userName = ref("");
+const roots = ref<{ path: string; depth: number }[]>([]);
+
+async function loadConfigBits() {
+  try {
+    const c = await call<{ userName: string; projectRoots: { path: string; depth: number }[] }>("config.get");
+    userName.value = c.userName === "l'utilisateur" ? "" : c.userName;
+    roots.value = c.projectRoots;
+  } catch {
+    /* cœur arrêté */
+  }
+}
+
+async function saveName() {
+  const name = userName.value.trim();
+  if (!name || name === state.info?.userName) return;
+  try {
+    await call("config.setUserName", { name });
+    if (state.info) state.info.userName = name;
+    toast(`Enchanté, ${name} !`, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+async function saveRoots() {
+  try {
+    await call("config.setProjectRoots", { roots: roots.value });
+  } catch (e) {
+    toast((e as Error).message, "error");
+    await loadConfigBits();
+  }
+}
+
+async function addRoot() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier qui contient tes projets" });
+  if (typeof dir !== "string" || roots.value.some((r) => r.path === dir)) return;
+  roots.value.push({ path: dir, depth: 3 });
+  await saveRoots();
+  toast("Dossier ajouté : tes projets seront détectés", "success");
+}
+
 function loadVoices() {
   voiceList.value = voices();
 }
 
 onMounted(async () => {
   loadVoices();
+  void loadConfigBits();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = loadVoices;
   if (inTauri) appVersion.value = await getVersion();
   void refreshSidecar();
@@ -106,7 +153,8 @@ const shortcuts: [string, string][] = [
 
     <div class="content">
       <!-- Général -->
-      <section v-if="section === 'general'" class="card">
+      <template v-if="section === 'general'">
+      <section class="card">
         <h3 class="sec-title">Général</h3>
         <SettingRow label="Vue au démarrage">
           <select v-model="g.startView" class="input select w-220">
@@ -118,10 +166,32 @@ const shortcuts: [string, string][] = [
         <SettingRow label="Rafraîchissement des ressources" :hint="`Toutes les ${g.metricsInterval} s. Plus court = plus réactif, un peu plus de CPU.`">
           <input v-model.number="g.metricsInterval" type="range" min="1" max="10" class="w-220" :style="fill(g.metricsInterval, 1, 10)" />
         </SettingRow>
-        <SettingRow label="Nom utilisé par les agents" hint="Défini dans config/agent.json (user.name).">
-          <span class="badge">{{ state.info?.userName ?? "—" }}</span>
+        <SettingRow label="Ton prénom" hint="Comment les agents t'appellent.">
+          <input v-model="userName" class="input w-220" maxlength="60" placeholder="Ton prénom" @keydown.enter="saveName" @blur="saveName" />
         </SettingRow>
       </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h3 class="sec-title">Dossiers de projets</h3>
+          <button class="btn sm" @click="addRoot"><FolderPlus :size="14" /> Ajouter un dossier</button>
+        </div>
+        <p class="tiny muted">
+          MyIA y repère tes projets (Godot, Tauri, Rust, Node, dépôts git) pour les builds, la délégation à Claude Code et les consoles.
+        </p>
+        <div v-for="(r, i) in roots" :key="r.path" class="root-row">
+          <FolderOpen :size="16" />
+          <code class="path grow">{{ r.path }}</code>
+          <label class="tiny muted">profondeur
+            <select v-model.number="r.depth" class="input select depth" @change="saveRoots">
+              <option v-for="d in [1, 2, 3, 4, 5]" :key="d" :value="d">{{ d }}</option>
+            </select>
+          </label>
+          <button class="btn sm ghost icon danger" title="Retirer" @click="roots.splice(i, 1); saveRoots()"><Trash2 :size="14" /></button>
+        </div>
+        <div v-if="!roots.length" class="empty small">Aucun dossier : ajoute celui qui contient tes projets.</div>
+      </section>
+      </template>
 
       <!-- Apparence -->
       <template v-else-if="section === 'appearance'">
@@ -505,6 +575,32 @@ kbd {
   border-radius: 6px;
   background: var(--bg-elevated);
   user-select: text;
+}
+.root-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+.root-row > svg {
+  color: var(--accent);
+  flex: none;
+}
+.root-row .grow {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.root-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.depth {
+  width: 64px;
+  height: 30px;
 }
 .paths {
   display: grid;

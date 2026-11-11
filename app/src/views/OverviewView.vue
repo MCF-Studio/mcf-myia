@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, Bot, Boxes, Cpu, Flame, MemoryStick, MessageSquarePlus, Plug, Server, Zap } from "lucide-vue-next";
+import { Activity, Bot, Boxes, Cpu, Flame, MemoryStick, MessageSquarePlus, Plug, Server, Sparkles, Zap } from "lucide-vue-next";
 import { computed } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import Gauge from "../components/Gauge.vue";
@@ -56,6 +56,19 @@ async function talkTo(agentId: string) {
         <MessageSquarePlus :size="17" /> Nouvelle conversation
       </button>
     </header>
+
+    <div v-if="state.info?.userName === `l'utilisateur`" class="card welcome">
+      <Sparkles :size="22" />
+      <div>
+        <strong>Bienvenue dans MyIA !</strong>
+        <p class="small muted">
+          Deux minutes pour démarrer : ton prénom et le dossier de tes projets dans les Paramètres, puis un modèle dans l'onglet Modèles
+          (qwen3:8b est un bon début).
+        </p>
+      </div>
+      <button class="btn primary sm" @click="navigate('settings')">Configurer</button>
+      <button class="btn sm" @click="navigate('models')">Modèles</button>
+    </div>
 
     <!-- Ressources -->
     <section class="metrics">
@@ -237,6 +250,24 @@ async function talkTo(agentId: string) {
 }
 .page-head {
   margin-bottom: calc(var(--gap) * 0.5);
+}
+.card.welcome {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 40px -20px var(--glow);
+}
+.welcome > svg {
+  color: var(--accent);
+  flex: none;
+}
+.welcome div {
+  flex: 1;
+}
+.welcome p {
+  margin: 4px 0 0;
 }
 .metrics {
   display: grid;

@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MyIA",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "fr.mcfstudio.myia",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run sidecar && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -40,10 +40,38 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
     "category": "Productivity",
     "shortDescription": "Agent IA local",
-    "copyright": "MCF Studio — AGPL-3.0"
+    "copyright": "MCF Studio — AGPL-3.0",
+    "resources": [
+      "resources/sidecar/**/*"
+    ],
+    "publisher": "MCF Studio",
+    "homepage": "https://github.com/MCF-Studio/mcf-myia",
+    "license": "AGPL-3.0-only",
+    "licenseFile": "../../LICENSE",
+    "longDescription": "Agent IA local du quotidien : conversations, équipes d'agents, modèles Ollama, console Claude Code.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "French"
+        ],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
   }
 }

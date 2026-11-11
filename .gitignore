@@ -26,3 +26,6 @@ Thumbs.db
 
 # Notes de travail locales
 todo.md
+
+# Cœur empaqueté pour l'installateur (généré par npm run sidecar)
+app/src-tauri/resources/

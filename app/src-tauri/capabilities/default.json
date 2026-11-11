@@ -1,14 +1,24 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Fenêtre principale : sidecar, métriques, liens externes (http/https uniquement), notifications.",
-  "windows": ["main"],
+  "description": "Fenêtre principale : sidecar, métriques, consoles Claude, liens externes (http/https), notifications, choix de dossier.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "notification:default",
+    "dialog:allow-open",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://*" }, { "url": "http://*" }]
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "http://*"
+        }
+      ]
     }
   ]
 }

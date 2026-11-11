@@ -36,23 +36,35 @@ mcfstudio.fr. Le registre en ligne n'est **pas encore ouvert**. Les formats d'é
 
 Les personnalités ne sont **pas** livrées avec le code : chacun crée les siennes et choisit de les partager ou non.
 
-## Installation (depuis les sources)
+## Installation
 
-Prérequis : Windows 10/11, [Node.js](https://nodejs.org) 22+, [Rust](https://rustup.rs) stable,
-[Ollama](https://ollama.com) (ou son binaire autonome dans `runtime\ollama\ollama.exe`, lancé automatiquement).
+1. Installe [Ollama](https://ollama.com) (c'est lui qui fait tourner les modèles sur ta machine).
+2. Télécharge l'installateur `MyIA_x.y.z_x64-setup.exe` dans les
+   [Releases](https://github.com/MCF-Studio/mcf-myia/releases) et lance-le (pas besoin de droits administrateur).
+3. Au premier lancement : ton prénom et tes dossiers de projets dans **Paramètres → Général**, puis un modèle dans
+   **Modèles** (`qwen3:8b` est un bon début).
+
+L'installateur n'est pas encore signé : Windows SmartScreen peut afficher un avertissement (« Informations
+complémentaires » → « Exécuter quand même »). L'empreinte SHA-256 est publiée avec chaque release.
+
+Tes données (configuration, agents, conversations, journal) sont dans `%APPDATA%\fr.mcfstudio.myia`. Elles restent
+en place si tu désinstalles ou mets à jour l'app.
+
+## Depuis les sources
+
+Prérequis : Windows 10/11, [Node.js](https://nodejs.org) 22+, [Rust](https://rustup.rs) stable, Ollama.
 
 ```bash
 git clone https://github.com/MCF-Studio/mcf-myia
 cd mcf-myia
-copy config\agent.example.json config\agent.json   # puis adapte-le
 cd agent && npm install && npm run build && cd ..
-cd app && npm install && npm run tauri dev
+cd app && npm install
+npm run tauri dev        # développement (données dans le dossier du dépôt)
+npm run installer        # construit l'installateur dans app/src-tauri/target/release/bundle/nsis/
 ```
 
-Un modèle doit être installé : `ollama pull qwen3:8b` (ou depuis l'onglet Modèles de l'app).
-
-Pour l'instant l'app s'exécute depuis le dépôt (elle lance `agent/dist/server/main.js` avec le Node du système).
-Un installateur autonome viendra plus tard.
+En développement, `config\agent.json` est créé au premier lancement ; `config/agent.example.json` montre toutes les
+options.
 
 ### Console
 

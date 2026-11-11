@@ -5,7 +5,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -29,24 +29,45 @@ pub struct SidecarStatus {
     error: Option<String>,
 }
 
-/// Dossier racine de MyIA (contient agent/, config/, data/).
-/// MYIA_HOME en priorité ; sinon, en build debug, la racine du dépôt ; sinon le dossier de l'exécutable.
+/// Où trouver le cœur et où ranger les données.
+///
+/// Installé (release) : Node et le cœur sont embarqués dans les ressources de l'app, les données vont dans
+/// `%APPDATA%/fr.mcfstudio.myia`. En développement (debug) : `node` du PATH, cœur et données à la racine du dépôt.
+/// MYIA_HOME force le dossier de données dans les deux cas.
+struct Layout {
+    node: PathBuf,
+    script: PathBuf,
+    home: PathBuf,
+}
+
+static HOME: OnceLock<PathBuf> = OnceLock::new();
+
+/// Dossier de données de MyIA (config/, data/, workspace/…), fixé au premier démarrage du cœur.
 pub fn home() -> PathBuf {
-    if let Ok(h) = std::env::var("MYIA_HOME") {
-        return PathBuf::from(h);
-    }
+    HOME.get().cloned().unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[cfg(debug_assertions)]
+fn layout(_app: &AppHandle) -> Result<Layout, String> {
     // Racine du dépôt : en développement SEULEMENT (une release ne charge jamais de code depuis un chemin de build).
-    #[cfg(debug_assertions)]
-    {
-        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
-        if dev.join("agent").exists() {
-            return dev.canonicalize().unwrap_or(dev);
-        }
-    }
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    let dev = dev.canonicalize().unwrap_or(dev);
+    Ok(Layout {
+        node: std::env::var("MYIA_NODE").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("node")),
+        script: dev.join("agent").join("dist").join("server").join("main.js"),
+        home: std::env::var("MYIA_HOME").map(PathBuf::from).unwrap_or(dev),
+    })
+}
+
+#[cfg(not(debug_assertions))]
+fn layout(app: &AppHandle) -> Result<Layout, String> {
+    use tauri::Manager;
+    let res = app.path().resource_dir().map_err(|e| e.to_string())?.join("resources").join("sidecar");
+    let home = match std::env::var("MYIA_HOME") {
+        Ok(h) => PathBuf::from(h),
+        Err(_) => app.path().app_data_dir().map_err(|e| e.to_string())?,
+    };
+    Ok(Layout { node: res.join("node.exe"), script: res.join("main.mjs"), home })
 }
 
 /// canonicalize() renvoie des chemins \\?\C:\… sous Windows : Node les accepte mal.
@@ -57,18 +78,32 @@ fn plain(p: &Path) -> String {
 
 impl Sidecar {
     pub fn start(&self, app: &AppHandle) -> Result<(), String> {
-        let home = home();
-        let script = home.join("agent").join("dist").join("server").join("main.js");
-        if !script.exists() {
-            let msg = format!("{} introuvable : lance « npm run build » dans agent/", plain(&script));
+        let fail = |msg: String| {
             *self.last_error.lock().unwrap() = Some(msg.clone());
-            return Err(msg);
+            Err(msg)
+        };
+        let l = match layout(app) {
+            Ok(l) => l,
+            Err(e) => return fail(format!("emplacement du cœur introuvable : {e}")),
+        };
+        if !l.script.exists() {
+            return fail(if cfg!(debug_assertions) {
+                format!("{} introuvable : lance « npm run build » dans agent/", plain(&l.script))
+            } else {
+                "installation incomplète : le cœur de MyIA est absent, réinstalle l'application".into()
+            });
         }
-        let node = std::env::var("MYIA_NODE").unwrap_or_else(|_| "node".into());
-        let mut cmd = Command::new(node);
-        cmd.arg(plain(&script))
+        if let Err(e) = fs::create_dir_all(&l.home) {
+            return fail(format!("impossible de créer {} : {e}", plain(&l.home)));
+        }
+        let _ = HOME.set(l.home.clone());
+        let home = l.home.clone();
+        let version = app.package_info().version.to_string();
+        let mut cmd = Command::new(&l.node);
+        cmd.arg(plain(&l.script))
             .current_dir(plain(&home))
             .env("MYIA_HOME", plain(&home))
+            .env("MYIA_VERSION", version)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -78,11 +113,13 @@ impl Sidecar {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
-        let mut child = cmd.spawn().map_err(|e| {
-            let msg = format!("impossible de lancer Node ({e}). Node 22+ doit être dans le PATH, ou MYIA_NODE défini.");
-            *self.last_error.lock().unwrap() = Some(msg.clone());
-            msg
-        })?;
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) if cfg!(debug_assertions) => {
+                return fail(format!("impossible de lancer Node ({e}). Node 22+ doit être dans le PATH, ou MYIA_NODE défini."))
+            }
+            Err(e) => return fail(format!("impossible de lancer le cœur de MyIA ({e}) : réinstalle l'application")),
+        };
 
         let stdout = child.stdout.take().expect("stdout");
         let stderr = child.stderr.take().expect("stderr");

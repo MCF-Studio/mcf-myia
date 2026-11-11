@@ -7,7 +7,7 @@ import path from "node:path";
 import { z } from "zod";
 import { Agent } from "../core/agent.js";
 import { audit } from "../core/audit.js";
-import { loadConfig, type Config } from "../core/config.js";
+import { loadConfig, parseConfig as loadConfigFrom, type Config } from "../core/config.js";
 import { MODEL_NAME, OllamaClient } from "../core/llm.js";
 import { makeTeamRoot } from "../core/team-runner.js";
 import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
@@ -32,7 +32,20 @@ for (const k of ["log", "info", "warn", "debug"] as const) {
   console[k] = (...args: unknown[]) => process.stderr.write(args.map(String).join(" ") + "\n");
 }
 
-const VERSION = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version as string;
+/** Version : fournie par l'app (MYIA_VERSION), sinon lue dans package.json (développement). */
+const VERSION = ((): string => {
+  if (process.env.MYIA_VERSION) return process.env.MYIA_VERSION;
+  if (process.env.MYIA_BUNDLE_VERSION) return process.env.MYIA_BUNDLE_VERSION; // remplacé à l'empaquetage
+  try {
+    return JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version as string;
+  } catch {
+    return "?";
+  }
+})();
+
+/** Premier lancement (installateur) : dossiers et configuration minimale créés s'ils manquent. */
+for (const d of [path.dirname(paths.config), paths.audit, paths.workspace]) fs.mkdirSync(d, { recursive: true });
+if (!fs.existsSync(paths.config)) writeJsonAtomic(paths.config, { user: { name: "l'utilisateur" }, projectRoots: [] });
 
 const rpc = new RpcPeer();
 rpc.onClose = () => void shutdown();
@@ -430,6 +443,39 @@ rpc.method("themes.list", () => listThemes());
 rpc.method("themes.install", (params) => installTheme(parse(z.object({ json: z.string() }), params).json));
 rpc.method("themes.delete", (params) => {
   deleteTheme(parse(z.object({ id: z.string() }), params).id);
+  return true;
+});
+
+/** Modifie un réglage simple de config/agent.json sans toucher au reste du fichier. */
+function patchConfig(mutate: (raw: Record<string, any>) => void) {
+  const raw = JSON.parse(fs.readFileSync(paths.config, "utf8")) as Record<string, any>;
+  mutate(raw);
+  loadConfigFrom(raw); // valide avant d'écrire
+  writeJsonAtomic(paths.config, raw);
+  cfg = loadConfig();
+  live.clear();
+}
+
+rpc.method("config.get", () => ({
+  userName: cfg.user.name,
+  projectRoots: cfg.projectRoots,
+  configPath: paths.config,
+}));
+
+rpc.method("config.setUserName", (params) => {
+  const { name } = parse(z.object({ name: z.string().trim().min(1).max(60) }), params);
+  patchConfig((raw) => (raw.user = { ...(raw.user ?? {}), name }));
+  return true;
+});
+
+rpc.method("config.setProjectRoots", (params) => {
+  const { roots } = parse(
+    z.object({ roots: z.array(z.object({ path: z.string().min(1).max(500), depth: z.number().int().min(1).max(5) })).max(20) }),
+    params,
+  );
+  for (const r of roots) if (!fs.existsSync(r.path)) throw new Error(`dossier introuvable : ${r.path}`);
+  patchConfig((raw) => (raw.projectRoots = roots));
+  registry = undefined;
   return true;
 });
 

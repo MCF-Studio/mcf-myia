@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import type { Config } from "./config.js";
 import { paths } from "./paths.js";
 
@@ -43,6 +44,18 @@ export interface PullProgress {
 
 /** Nom de modèle Ollama accepté (ex. qwen3:8b, hf.co/org/repo:Q4_K_M). Bloque tout ce qui ressemble à une URL ou un chemin. */
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9._-]+)*(:[A-Za-z0-9._-]+)?$/;
+
+/** Ollama à lancer : celui de runtime\ollama s'il existe, sinon une installation standard (dossier par défaut ou PATH). */
+export function findOllama(): { exe: string; bundled: boolean } | undefined {
+  if (fs.existsSync(paths.ollamaExe)) return { exe: paths.ollamaExe, bundled: true };
+  const exe = process.platform === "win32" ? "ollama.exe" : "ollama";
+  const candidates = [
+    ...(process.env.LOCALAPPDATA ? [path.join(process.env.LOCALAPPDATA, "Programs", "Ollama", exe)] : []),
+    ...(process.env.PATH ?? "").split(path.delimiter).filter(Boolean).map((d) => path.join(d, exe)),
+  ];
+  const hit = candidates.find((c) => fs.existsSync(c));
+  return hit ? { exe: hit, bundled: false } : undefined;
+}
 
 /** Client minimal de l'API native d'Ollama (/api/chat). */
 export class OllamaClient {
@@ -150,14 +163,19 @@ export class OllamaClient {
   async ensureRunning(): Promise<void> {
     if (await this.ping()) return;
     if (!this.cfg.autoStart) throw new Error(`Ollama ne répond pas sur ${this.cfg.baseUrl}`);
-    if (!fs.existsSync(paths.ollamaExe)) throw new Error(`Ollama introuvable : ${paths.ollamaExe}`);
+    const found = findOllama();
+    if (!found) {
+      throw new Error("Ollama introuvable : installe-le depuis https://ollama.com (ou place ollama.exe dans runtime\ollama)");
+    }
     const host = new URL(this.cfg.baseUrl).host;
+    fs.mkdirSync(path.dirname(paths.ollamaLog), { recursive: true });
     const log = fs.openSync(paths.ollamaLog, "a");
-    const child = spawn(paths.ollamaExe, ["serve"], {
+    const child = spawn(found.exe, ["serve"], {
       detached: true,
       windowsHide: true,
       stdio: ["ignore", log, log],
-      env: { ...process.env, OLLAMA_HOST: host, OLLAMA_MODELS: paths.ollamaModels },
+      // Ollama autonome de MyIA : ses modèles dans ollama\models. Ollama installé : on garde ses réglages.
+      env: { ...process.env, OLLAMA_HOST: host, ...(found.bundled ? { OLLAMA_MODELS: paths.ollamaModels } : {}) },
     });
     child.unref();
     for (let i = 0; i < 40; i++) {
