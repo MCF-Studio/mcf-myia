@@ -60,6 +60,14 @@ export const ConfigSchema = z.object({
       keepAlive: z.string().default("30m"),
       /** Lance Ollama (runtime\ollama\ollama.exe) s'il ne répond pas. */
       autoStart: z.boolean().default(true),
+      /**
+       * Réglages du moteur llama.cpp sous Ollama, appliqués quand MyIA lance Ollama lui-même : flash attention (calcul
+       * de l'attention plus rapide et plus sobre) et mémoire de contexte compressée (q8_0 : environ moitié moins de
+       * VRAM pour le contexte, perte de qualité négligeable ; q4_0 : encore moins, perte sensible ; f16 : sans
+       * compression). La compression exige flash attention.
+       */
+      flashAttention: z.boolean().default(true),
+      kvCache: z.enum(["f16", "q8_0", "q4_0"]).default("q8_0"),
     })
     .prefault({}),
   maxSteps: z.number().int().min(1).max(20).default(8),

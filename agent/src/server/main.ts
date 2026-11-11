@@ -721,7 +721,15 @@ rpc.method("config.get", () => ({
   projectRoots: cfg.projectRoots,
   configPath: paths.config,
   claudeBypassPermissions: cfg.claude.bypassPermissions,
+  engine: { flashAttention: cfg.llm.flashAttention, kvCache: cfg.llm.kvCache },
 }));
+
+/** Moteur llama.cpp d'Ollama : appliqué au prochain démarrage d'Ollama par MyIA. */
+rpc.method("config.setEngine", (params) => {
+  const { flashAttention, kvCache } = parse(z.object({ flashAttention: z.boolean(), kvCache: z.enum(["f16", "q8_0", "q4_0"]) }), params);
+  patchConfig((raw) => (raw.llm = { ...(raw.llm ?? {}), flashAttention, kvCache }));
+  return true;
+});
 
 rpc.method("config.setClaudeBypassPermissions", (params) => {
   const { enabled } = parse(z.object({ enabled: z.boolean() }), params);

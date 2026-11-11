@@ -83,10 +83,29 @@ async function deleteTheme(id: string) {
 // ─── Identité et dossiers (config/agent.json, via le cœur) ───────────────────
 const userName = ref("");
 const roots = ref<{ path: string; depth: number }[]>([]);
+type Engine = { flashAttention: boolean; kvCache: "f16" | "q8_0" | "q4_0" };
+const engine = ref<Engine>({ flashAttention: true, kvCache: "q8_0" });
+
+/** Moteur llama.cpp d'Ollama : la compression du contexte exige flash attention. */
+async function saveEngine() {
+  if (engine.value.kvCache !== "f16") engine.value.flashAttention = true;
+  try {
+    await call("config.setEngine", engine.value);
+    toast("Réglage enregistré : appliqué au prochain démarrage d'Ollama", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
 
 async function loadConfigBits() {
   try {
-    const c = await call<{ userName: string; projectRoots: { path: string; depth: number }[]; claudeBypassPermissions?: boolean }>("config.get");
+    const c = await call<{
+      userName: string;
+      projectRoots: { path: string; depth: number }[];
+      claudeBypassPermissions?: boolean;
+      engine?: Engine;
+    }>("config.get");
+    if (c.engine) engine.value = c.engine;
     userName.value = c.userName === "l'utilisateur" ? "" : c.userName;
     roots.value = c.projectRoots;
     claudeBypass.value = c.claudeBypassPermissions === true;
@@ -689,6 +708,27 @@ const shortcuts: [string, string][] = [
         <SettingRow label="Ollama" :hint="state.overview?.ollama.baseUrl">
           <span class="badge" :class="state.overview?.ollama.ok ? 'ok' : 'warn'">{{ state.overview?.ollama.ok ? `v${state.overview.ollama.version}` : "hors ligne" }}</span>
         </SettingRow>
+        <SettingRow
+          label="Flash attention"
+          hint="Calcul de l'attention plus rapide et plus sobre en VRAM (moteur llama.cpp d'Ollama). Obligatoire si la mémoire de contexte est compressée."
+        >
+          <Toggle v-model="engine.flashAttention" label="Flash attention" @update:model-value="saveEngine" />
+        </SettingRow>
+        <SettingRow
+          label="Mémoire de contexte"
+          hint="Compressée, elle prend moins de VRAM : q8 ≈ moitié moins, qualité quasi identique (recommandé) ; q4 encore moins, qualité en baisse."
+        >
+          <select v-model="engine.kvCache" class="input select w-220" @change="saveEngine">
+            <option value="q8_0">Compressée q8 (recommandé)</option>
+            <option value="q4_0">Compressée q4 (VRAM minimale)</option>
+            <option value="f16">Non compressée (f16)</option>
+          </select>
+        </SettingRow>
+        <p class="tiny muted">
+          Ces deux réglages s'appliquent quand MyIA démarre Ollama. S'il tourne déjà (icône Ollama près de l'horloge, ou PC pas
+          redémarré), quitte-le puis relance MyIA. Une variable OLLAMA_FLASH_ATTENTION ou OLLAMA_KV_CACHE_TYPE posée dans Windows reste
+          prioritaire.
+        </p>
         <SettingRow label="Dossier MyIA" hint="Configuration, conversations, journal d'audit, thèmes.">
           <code class="path">{{ state.sidecar.home || state.info?.home }}</code>
         </SettingRow>

@@ -57,6 +57,18 @@ export function findOllama(): { exe: string; bundled: boolean } | undefined {
   return hit ? { exe: hit, bundled: false } : undefined;
 }
 
+/**
+ * Variables du moteur llama.cpp d'Ollama (flash attention, compression du cache de contexte). Une variable déjà posée
+ * dans l'environnement de Windows garde la priorité : c'est un choix explicite de l'utilisateur.
+ */
+export function engineEnv(cfg: Pick<Config["llm"], "flashAttention" | "kvCache">, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const out: Record<string, string> = {};
+  const flash = cfg.flashAttention || cfg.kvCache !== "f16";
+  if (env.OLLAMA_FLASH_ATTENTION === undefined) out.OLLAMA_FLASH_ATTENTION = flash ? "1" : "0";
+  if (env.OLLAMA_KV_CACHE_TYPE === undefined && flash) out.OLLAMA_KV_CACHE_TYPE = cfg.kvCache;
+  return out;
+}
+
 /** Client minimal de l'API native d'Ollama (/api/chat). */
 export class OllamaClient {
   constructor(private readonly cfg: Config["llm"]) {}
@@ -175,7 +187,7 @@ export class OllamaClient {
       windowsHide: true,
       stdio: ["ignore", log, log],
       // Ollama autonome de MyIA : ses modèles dans ollama\models. Ollama installé : on garde ses réglages.
-      env: { ...process.env, OLLAMA_HOST: host, ...(found.bundled ? { OLLAMA_MODELS: paths.ollamaModels } : {}) },
+      env: { ...process.env, OLLAMA_HOST: host, ...(found.bundled ? { OLLAMA_MODELS: paths.ollamaModels } : {}), ...engineEnv(this.cfg) },
     });
     child.unref();
     for (let i = 0; i < 40; i++) {
