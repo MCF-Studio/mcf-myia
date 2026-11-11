@@ -44,7 +44,7 @@ Chaque outil a un niveau de risque :
 | ---------- | ---------------------------------------------------- | ------------------------------------------------------ |
 | `read`     | lister les projets, chercher un addon, recherche web | exécuté sans demander                                  |
 | `launch`   | ouvrir l'éditeur Godot, ouvrir un lien               | sans demander ; `browser_open` demande si le lien ne vient ni d'l'utilisateur ni d'une recherche |
-| `local`    | build d'un projet, création de projet, délégation    | confirmation, sauf si le projet est en `autoApprove`   |
+| `local`    | build, création de projet, délégation, écriture de fichier | confirmation, sauf projet en `autoApprove` ou cas déclaré sans risque par l'outil (ex. nouveau fichier dans Documents\MyIA) |
 | `external` | message Telegram/Discord, tout outil MCP non déclaré | **confirmation toujours**, avec le contenu exact       |
 
 Limites dures, appliquées dans le code et pas seulement dans le prompt :
@@ -68,6 +68,11 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   Office sans macros), dans les dossiers habituels (Bureau, Documents, Musique, Images, Vidéos, projets) ; tout le reste,
   et tout fichier de Téléchargements, est confirmé.
   `music_play` lance une playlist, un morceau ou un dossier du dossier Musique (playlist générée dans `workspace\playlists`).
+- Écriture de fichiers : `file_write` crée, remplace ou complète des fichiers **texte** (pas d'exécutable ni de script),
+  uniquement dans les dossiers de l'utilisateur ; jamais dans un dossier qui exécute du code automatiquement
+  (`.git`, `.vscode`, `.claude`, `.github`…), ni via un lien qui en sortirait. Nouveau fichier dans `Documents\MyIA`
+  (dossier par défaut) ou le workspace : direct ; remplacer, compléter ou écrire ailleurs : confirmation avec aperçu.
+  `file_read` lit un fichier texte des mêmes dossiers (contenu traité comme une donnée).
 - Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,

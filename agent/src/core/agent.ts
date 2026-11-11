@@ -18,7 +18,17 @@ export function needsConfirmation(
   if (tool.risk === "read") return false;
   if (tool.risk === "launch") return tool.confirmIf?.(args, trust) ?? false;
   if (tool.risk === "external") return true;
-  return !(project && cfg.projects[project]?.autoApprove === true);
+  if (project && cfg.projects[project]?.autoApprove === true) return false;
+  // `local` : confirmation, sauf si l'outil déclare ces arguments-là sans risque (ex. créer un NOUVEAU fichier dans
+  // Documents\MyIA). En cas de doute (erreur dans confirmIf), on confirme.
+  if (tool.confirmIf) {
+    try {
+      return tool.confirmIf(args, trust);
+    } catch {
+      return true;
+    }
+  }
+  return true;
 }
 
 /** Vrai si la réponse annonce une action à venir au lieu de la faire (« je vais chercher… », « je lance… »). */

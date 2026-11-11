@@ -15,7 +15,7 @@ import { defineTool, type Service } from "../core/types.js";
  */
 
 /** Extensions qui exécutent du code quand on les « ouvre » : refusées. */
-const EXECUTABLE = new Set(
+export const EXECUTABLE = new Set(
   (
     "exe com bat cmd ps1 psm1 psd1 vbs vbe js jse wsf wsh hta msi msp mst scr lnk url reg cpl jar pif application " +
     "appref-ms gadget inf scf msc sh py pyw rb pl php ahk au3 dll sys ocx drv settingcontent-ms library-ms search-ms " +
