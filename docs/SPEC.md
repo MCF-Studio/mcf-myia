@@ -69,8 +69,11 @@ dans le navigateur système. La page n'ouvre jamais de lien elle-même ; les ré
 HTML échappé. (`freezePrototype` est désactivé : incompatible avec xterm.js, le terminal des consoles.)
 
 **Consoles Claude Code** : seule la commande `claude` peut être lancée dans un pseudo-terminal (pas de shell
-libre), dans un dossier qui existe ; Claude Code y applique ses propres règles de permission. Les consoles meurent
-avec l'app.
+libre), uniquement dans le workspace ou un dossier de `projectRoots`/`projects` (vérifié côté Rust à partir de la
+config, pas de l'interface) ; Claude Code y applique ses propres règles de permission. Les consoles meurent avec l'app.
+**Compromis assumé** : une page compromise pourrait taper dans une console ouverte, et Claude Code peut exécuter
+des commandes. La défense repose donc sur l'impossibilité d'injecter du script dans la page (CSP sans inline, HTML
+des réponses échappé, liens ouverts hors de l'app), et `freezePrototype` est désactivé à cause d'xterm.js.
 
 **Profils d'agents** : des données validées par schéma. Un profil peut seulement **restreindre** les services d'un agent ;
 ses consignes s'ajoutent au prompt système sans remplacer les règles (§3), qui sont de toute façon appliquées par le

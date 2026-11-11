@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
@@ -44,6 +44,32 @@ impl Ptys {
     }
 }
 
+/// Dossiers où une console peut s'ouvrir : workspace, `projectRoots` et `projects` de config/agent.json.
+/// Lu ici, côté Rust : l'interface ne peut pas imposer un dossier arbitraire.
+fn allowed_roots() -> Vec<PathBuf> {
+    let home = crate::sidecar::home();
+    let mut roots = vec![home.join("workspace")];
+    let cfg = std::fs::read_to_string(home.join("config").join("agent.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+    if let Some(cfg) = cfg {
+        if let Some(arr) = cfg.get("projectRoots").and_then(|v| v.as_array()) {
+            roots.extend(arr.iter().filter_map(|r| r.get("path")?.as_str().map(PathBuf::from)));
+        }
+        if let Some(map) = cfg.get("projects").and_then(|v| v.as_object()) {
+            roots.extend(map.values().filter_map(|p| p.get("path")?.as_str().map(PathBuf::from)));
+        }
+    }
+    roots.into_iter().filter_map(|r| r.canonicalize().ok()).collect()
+}
+
+fn is_allowed(dir: &Path) -> bool {
+    match dir.canonicalize() {
+        Ok(d) => allowed_roots().iter().any(|r| d.starts_with(r)),
+        Err(_) => false,
+    }
+}
+
 fn clamp_size(cols: u16, rows: u16) -> PtySize {
     PtySize { cols: cols.clamp(20, 500), rows: rows.clamp(5, 300), pixel_width: 0, pixel_height: 0 }
 }
@@ -54,6 +80,9 @@ pub fn pty_spawn(app: AppHandle, state: State<'_, Ptys>, cwd: String, resume: bo
     let dir = PathBuf::from(&cwd);
     if !dir.is_dir() {
         return Err(format!("dossier introuvable : {cwd}"));
+    }
+    if !is_allowed(&dir) {
+        return Err("dossier non autorisé : seuls le workspace et les projets de la configuration sont acceptés".into());
     }
     let pair = native_pty_system().openpty(clamp_size(cols, rows)).map_err(|e| format!("pty : {e}"))?;
 
