@@ -53,13 +53,30 @@ function writablePlaces(cfg: Config): string[] {
 function canonical(abs: string): string {
   let existing = abs;
   const rest: string[] = [];
-  while (!fs.existsSync(existing)) {
+  // lstat (ne suit PAS les liens) : un lien cassé « existe » pour lstat mais pas pour existsSync. Sans ça, il serait
+  // pris pour un emplacement libre et l'écriture suivrait le lien hors des dossiers autorisés.
+  for (;;) {
+    const st = fs.lstatSync(existing, { throwIfNoEntry: false });
+    if (st) {
+      if (st.isSymbolicLink() && rest.length === 0) throw new Error("la cible est un lien : écriture refusée");
+      if (st.isSymbolicLink() && !fs.existsSync(existing)) throw new Error("le chemin passe par un lien cassé : écriture refusée");
+      break;
+    }
     const parent = path.dirname(existing);
     if (parent === existing) break;
     rest.unshift(path.basename(existing));
     existing = parent;
   }
   return path.join(fs.realpathSync.native(existing), ...rest);
+}
+
+/** Après écriture : le fichier créé est bien un fichier ordinaire, à l'intérieur des dossiers autorisés. */
+function verifyWritten(cfg: Config, file: string) {
+  const st = fs.lstatSync(file);
+  const roots = writablePlaces(cfg).map((d) => (fs.existsSync(d) ? fs.realpathSync.native(d) : path.resolve(d)));
+  if (st.isSymbolicLink() || !st.isFile() || !roots.some((d) => isInside(d, fs.realpathSync.native(file)))) {
+    throw new Error("le fichier écrit n'est pas à l'endroit prévu : opération annulée");
+  }
 }
 
 /**
@@ -83,7 +100,6 @@ export function resolveWritable(cfg: Config, p: string, opts: { read?: boolean }
   }
 
   const real = canonical(abs);
-  if (fs.existsSync(real) && fs.lstatSync(real).isSymbolicLink()) throw new Error("la cible est un lien : écriture refusée");
   const roots = writablePlaces(cfg).map((d) => (fs.existsSync(d) ? fs.realpathSync.native(d) : path.resolve(d)));
   if (!roots.some((d) => isInside(d, real))) {
     throw new Error(`écriture refusée hors de tes dossiers (Documents, Bureau, projets…) : ${real}`);
@@ -150,8 +166,11 @@ export function fileWriteService(cfg: Config): Service {
           async run(a) {
             const p = resolveWritable(cfg, a.path);
             fs.mkdirSync(path.dirname(p), { recursive: true });
+            // Recontrôle juste avant d'écrire (un lien a pu apparaître entre-temps), puis après.
+            resolveWritable(cfg, p);
             if (a.mode === "append") fs.appendFileSync(p, (a.content.startsWith("\n") ? "" : "\n") + a.content, "utf8");
             else fs.writeFileSync(p, a.content, { encoding: "utf8", flag: a.mode === "create" ? "wx" : "w" });
+            verifyWritten(cfg, p);
             const verb = a.mode === "overwrite" ? "remplacé" : a.mode === "append" ? "complété" : "créé";
             return `Fichier ${verb} : ${p} (${fs.statSync(p).size.toLocaleString("fr-FR")} octets).`;
           },

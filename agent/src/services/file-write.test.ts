@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -68,5 +69,20 @@ describe("écriture de fichiers", () => {
   it("la lecture garde les contrôles de chemin mais accepte tout nom", () => {
     expect(() => resolveWritable(cfg, "projet/package.json", { read: true })).not.toThrow();
     expect(() => resolveWritable(cfg, String.raw`\\evil.example\share\x.txt`, { read: true })).toThrow(/réseau/);
+  });
+
+  it("refuse un lien cassé qui pointerait hors des dossiers autorisés", () => {
+    const dir = fs.mkdtempSync(path.join(defaultWriteDir(), "lien-test-"));
+    const link = path.join(dir, "piege.txt");
+    try {
+      try {
+        fs.symlinkSync(path.join(os.tmpdir(), "inexistant-myia", "cible.txt"), link, "file");
+      } catch {
+        return; // Windows sans le droit de créer des liens : test sans objet
+      }
+      expect(() => resolveWritable(cfg, link)).toThrow(/lien/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
