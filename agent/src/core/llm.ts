@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.js";
@@ -63,16 +63,49 @@ export interface LlmClient {
 /** Nom de modèle Ollama accepté (ex. qwen3:8b, hf.co/org/repo:Q4_K_M). Bloque tout ce qui ressemble à une URL ou un chemin. */
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9._-]+)*(:[A-Za-z0-9._-]+)?$/;
 
-/** Ollama à lancer : celui de runtime\ollama s'il existe, sinon une installation standard (dossier par défaut ou PATH). */
-export function findOllama(): { exe: string; bundled: boolean } | undefined {
-  if (fs.existsSync(paths.ollamaExe)) return { exe: paths.ollamaExe, bundled: true };
+/** Version minimale d'Ollama : en dessous, les modèles récents (Qwen3…) ne se chargent pas. */
+export const MIN_OLLAMA = "0.12.0";
+
+/** Compare deux versions « a.b.c » ; texte illisible = 0.0.0. */
+export function versionAtLeast(v: string, min: string): boolean {
+  const n = (x: string) => (/(\d+)\.(\d+)(?:\.(\d+))?/.exec(x)?.slice(1) ?? []).map((p) => Number(p ?? 0));
+  const [a, b] = [n(v), n(min)];
+  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  return true;
+}
+
+/** Version d'un exécutable Ollama (« ollama version is X » ; sans serveur lancé, « client version is X »). */
+function exeVersion(exe: string): string {
+  try {
+    const out = execFileSync(exe, ["--version"], { timeout: 5000, windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return /client version is ([\d.]+)/.exec(out)?.[1] ?? /version is ([\d.]+)/.exec(out)?.[1] ?? "0.0.0";
+  } catch (e) {
+    const out = String((e as { stdout?: string }).stdout ?? "") + String((e as { stderr?: string }).stderr ?? "");
+    return /client version is ([\d.]+)/.exec(out)?.[1] ?? /version is ([\d.]+)/.exec(out)?.[1] ?? "0.0.0";
+  }
+}
+
+/**
+ * Ollama à lancer : le PLUS RÉCENT parmi celui de runtime\ollama, l'installation standard et le PATH (un vieil Ollama
+ * installé sur le PC ne doit pas passer avant un récent). Undefined si aucun, ou si tous sont trop anciens.
+ */
+export function findOllama(): { exe: string; bundled: boolean; version: string } | undefined {
   const exe = process.platform === "win32" ? "ollama.exe" : "ollama";
   const candidates = [
+    paths.ollamaExe,
     ...(process.env.LOCALAPPDATA ? [path.join(process.env.LOCALAPPDATA, "Programs", "Ollama", exe)] : []),
     ...(process.env.PATH ?? "").split(path.delimiter).filter(Boolean).map((d) => path.join(d, exe)),
   ];
-  const hit = candidates.find((c) => fs.existsSync(c));
-  return hit ? { exe: hit, bundled: false } : undefined;
+  const seen = new Set<string>();
+  let best: { exe: string; bundled: boolean; version: string } | undefined;
+  for (const c of candidates) {
+    const key = path.resolve(c).toLowerCase();
+    if (seen.has(key) || !fs.existsSync(c)) continue;
+    seen.add(key);
+    const version = exeVersion(c);
+    if (!best || !versionAtLeast(best.version, version)) best = { exe: c, bundled: path.resolve(c) === path.resolve(paths.ollamaExe), version };
+  }
+  return best;
 }
 
 /**
@@ -85,6 +118,13 @@ export function engineEnv(cfg: Pick<Config["llm"], "flashAttention" | "kvCache">
   if (env.OLLAMA_FLASH_ATTENTION === undefined) out.OLLAMA_FLASH_ATTENTION = flash ? "1" : "0";
   if (env.OLLAMA_KV_CACHE_TYPE === undefined && flash) out.OLLAMA_KV_CACHE_TYPE = cfg.kvCache;
   return out;
+}
+
+function tooOld(version: string, exe?: string): string {
+  return (
+    `Ollama ${version} est trop ancien pour ce modèle (${MIN_OLLAMA} au moins)${exe ? ` : ${exe}` : ""}. ` +
+    "Mets-le à jour depuis https://ollama.com/download (puis relance MyIA), ou passe le moteur sur llama.cpp (Paramètres → Système)."
+  );
 }
 
 /** Client minimal de l'API native d'Ollama (/api/chat). */
@@ -196,12 +236,19 @@ export class OllamaClient implements LlmClient {
 
   /** Démarre l'Ollama autonome de G:\MyIALocal\runtime s'il ne répond pas. */
   async ensureRunning(): Promise<void> {
-    if (await this.ping()) return;
+    if (await this.ping()) {
+      // Un Ollama déjà lancé mais trop ancien (ex. une vieille installation) : message clair plutôt qu'une erreur au
+      // premier message (« model is not supported by your version of Ollama »).
+      const v = await this.version().catch(() => "0.0.0");
+      if (!versionAtLeast(v, MIN_OLLAMA)) throw new Error(tooOld(v));
+      return;
+    }
     if (!this.cfg.autoStart) throw new Error(`Ollama ne répond pas sur ${this.cfg.baseUrl}`);
     const found = findOllama();
     if (!found) {
       throw new Error("Ollama introuvable : installe-le depuis https://ollama.com (ou place ollama.exe dans runtime\ollama)");
     }
+    if (!versionAtLeast(found.version, MIN_OLLAMA)) throw new Error(tooOld(found.version, found.exe));
     const host = new URL(this.cfg.baseUrl).host;
     fs.mkdirSync(path.dirname(paths.ollamaLog), { recursive: true });
     const log = fs.openSync(paths.ollamaLog, "a");
@@ -247,7 +294,11 @@ export class OllamaClient implements LlmClient {
       }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
-    if (!r.ok) throw new Error(`Ollama ${r.status} : ${(await r.text()).slice(0, 500)}`);
+    if (!r.ok) {
+      const text = (await r.text()).slice(0, 500);
+      if (/not supported by your version of Ollama/i.test(text)) throw new Error(tooOld(await this.version().catch(() => "?")));
+      throw new Error(`Ollama ${r.status} : ${text}`);
+    }
     const data = (await r.json()) as { message?: ChatMessage };
     if (!data.message) throw new Error("Réponse Ollama sans message");
     return data.message;
