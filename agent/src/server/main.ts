@@ -13,6 +13,8 @@ import { addProgram, assertLocalPath, listPrograms, removeProgram, searchProgram
 import { triageTask } from "../core/claude-coach.js";
 import { decide, journal, loadGuild, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
+import { deviceKeys } from "../core/guild-crypto.js";
+import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
 import { openInBrowser } from "../services/web.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
@@ -460,13 +462,88 @@ function patchConfig(mutate: (raw: Record<string, any>) => void) {
   live.clear();
 }
 
-// ─── Guilde (partie locale : le relais n'existe pas encore) ──────────────────
-
-rpc.method("guild.get", () => ({ ...loadGuild(), relay: { online: false, reason: "relais MCF Studio pas encore en ligne" } }));
+// ─── Guilde ──────────────────────────────────────────────────────────────────
 
 // Compte mcfstudio.fr (OAuth + PKCE, boucle locale) : jeton de renouvellement dans le coffre Windows.
 let mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
 let mcfLogin: AbortController | undefined;
+
+// Lien avec le relais (wss://guilde.mcfstudio.fr) : clé d'appareil X25519 dans le coffre, contenu chiffré de bout en bout.
+function makeLink() {
+  return new GuildLink({
+    relayUrl: cfg.site.relayUrl,
+    keys: deviceKeys(),
+    token: () => mcf.accessToken(),
+    loadGuild,
+    run: (offer, text, maxSeconds, signal) => runSandboxed(cfg, offer, text, maxSeconds, signal),
+    emit: (event, data) => rpc.notify(event, data),
+    appVersion: VERSION,
+  });
+}
+let link: GuildLink | undefined;
+async function startLink() {
+  try {
+    if (!(await mcf.accessToken())) return;
+  } catch {
+    return;
+  }
+  link ??= makeLink();
+  link.start();
+}
+function stopLink(reason?: string) {
+  link?.stop(reason);
+  link = undefined;
+}
+void startLink();
+
+const relayStatus = () => link?.status ?? { state: "off", reason: "non connecté à mcfstudio.fr" };
+rpc.method("guild.get", () => ({ ...loadGuild(), relay: relayStatus() }));
+rpc.method("guild.status", () => relayStatus());
+rpc.method("guild.connect", async () => {
+  stopLink();
+  await startLink();
+  return relayStatus();
+});
+rpc.method("guild.pending", () => link?.pendingList() ?? []);
+rpc.method("guild.accept", async (params) => {
+  const { id } = parse(z.object({ id: z.string().min(10).max(64) }), params);
+  if (!link) throw new Error("pas connecté au relais");
+  await link.accept(id);
+  return true;
+});
+rpc.method("guild.reject", (params) => {
+  const { id, reason } = parse(z.object({ id: z.string().min(10).max(64), reason: z.string().trim().max(200).optional() }), params);
+  if (!link) throw new Error("pas connecté au relais");
+  link.reject(id, reason || undefined);
+  return true;
+});
+let asking: AbortController | undefined;
+rpc.method("guild.ask", async (params) => {
+  const p = parse(
+    z
+      .object({
+        tag: z.string().trim().min(2).max(24).optional(),
+        to: z.number().int().positive().optional(),
+        offerId: z.string().regex(/^[a-z0-9][a-z0-9-]{1,39}$/).optional(),
+        text: z.string().trim().min(3).max(20_000),
+      })
+      .refine((x) => (x.tag === undefined) !== (x.to === undefined), "une compétence (tag) OU un membre"),
+    params,
+  );
+  if (!link) throw new Error("connecte-toi d'abord à mcfstudio.fr");
+  if (asking) throw new Error("une demande à la Guilde est déjà en cours");
+  asking = new AbortController();
+  try {
+    const { text, ...target } = p;
+    return await link.ask(target, text, asking.signal);
+  } finally {
+    asking = undefined;
+  }
+});
+rpc.method("guild.cancelAsk", () => {
+  asking?.abort();
+  return true;
+});
 
 rpc.method("guild.account", async () => {
   try {
@@ -480,7 +557,9 @@ rpc.method("guild.login", async () => {
   if (mcfLogin) throw new Error("connexion déjà en cours dans le navigateur");
   mcfLogin = new AbortController();
   try {
-    return { site: cfg.site.url, account: await mcf.login(mcfLogin.signal) };
+    const account = await mcf.login(mcfLogin.signal);
+    void startLink();
+    return { site: cfg.site.url, account };
   } finally {
     mcfLogin = undefined;
   }
@@ -492,13 +571,16 @@ rpc.method("guild.cancelLogin", () => {
 });
 
 rpc.method("guild.logout", async () => {
+  stopLink("déconnecté de mcfstudio.fr");
   await mcf.logout();
   return true;
 });
 
 rpc.method("guild.save", (params) => {
   const { relay: _r, ...raw } = (params ?? {}) as Record<string, unknown>;
-  return saveGuild(raw);
+  const saved = saveGuild(raw);
+  link?.publishOffers();
+  return saved;
 });
 
 /** Ce que la machine ferait d'une demande, sans rien exécuter (simulateur des règles). */
@@ -670,6 +752,8 @@ rpc.method("config.reload", async () => {
   registry = undefined;
   live.clear();
   mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
+  stopLink();
+  void startLink();
   return true;
 });
 
@@ -680,6 +764,7 @@ async function shutdown() {
   if (closing) return;
   closing = true;
   for (const l of live.values()) l.running?.abort();
+  stopLink("arrêt de MyIA");
   for (const p of pulls.values()) p.abort();
   audit({ event: "session_end" });
   await Promise.race([Promise.allSettled(services.map((s) => s.close?.())), new Promise((r) => setTimeout(r, 3000))]);

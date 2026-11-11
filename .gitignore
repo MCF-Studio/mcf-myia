@@ -30,3 +30,7 @@ todo.md
 
 # Cœur empaqueté pour l'installateur (généré par npm run sidecar)
 app/src-tauri/resources/
+
+# Clés de signature (mise à jour automatique, etc.) : jamais dans le dépôt (CONTRIBUTING.md).
+*.key
+*.key.pub

@@ -39,6 +39,11 @@ export const ConfigSchema = z.object({
         .string()
         .regex(/^(https:\/\/[a-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/i, "adresse https du site attendue (sans / final)")
         .default("https://mcfstudio.fr"),
+      /** Relais de la Guilde (WebSocket). wss obligatoire, sauf boucle locale (relais de développement). */
+      relayUrl: z
+        .string()
+        .regex(/^(wss:\/\/[a-z0-9.-]+(\/[a-z0-9]+)*|ws:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/[a-z0-9]+)*)$/i, "adresse wss du relais attendue")
+        .default("wss://guilde.mcfstudio.fr/v1"),
     })
     .prefault({}),
   /** Comment l'agent appelle son utilisateur (prompts système). */

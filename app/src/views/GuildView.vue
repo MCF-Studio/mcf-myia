@@ -11,17 +11,19 @@ import {
   Power,
   Save,
   ScrollText,
+  Send,
   ShieldCheck,
   Trash2,
   UserRound,
   Users,
+  Wifi,
   WifiOff,
   X,
 } from "lucide-vue-next";
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import Toggle from "../components/Toggle.vue";
 import { relTime } from "../lib/format";
-import { call } from "../lib/rpc";
+import { call, on } from "../lib/rpc";
 import { state, toast } from "../lib/store";
 
 interface Offer {
@@ -40,7 +42,23 @@ interface Guild {
   offers: Offer[];
   limits: { maxChars: number; maxSeconds: number; perMemberPerHour: number; perDay: number };
   auto: { enabled: boolean; whitelistOnly: boolean; from: string; to: string; gpuMax: number };
-  relay?: { online: boolean; reason: string };
+  relay?: LinkState;
+}
+type Member = { id: number; name: string; certified: boolean };
+type LinkState =
+  | { state: "off"; reason: string }
+  | { state: "connecting" }
+  | { state: "online"; member: Member; device: number; fingerprint: string }
+  | { state: "error"; reason: string; retryAt?: string };
+interface PendingRequest {
+  id: string;
+  from: Member;
+  offerId: string;
+  offerName: string;
+  text: string;
+  reason: string;
+  receivedAt: string;
+  fingerprint: string;
 }
 interface JournalEntry {
   ts: string;
@@ -82,6 +100,7 @@ async function login() {
     const r = await call<{ account: McfAccountInfo }>("guild.login");
     account.value = r.account;
     toast(`Connecté en tant que ${r.account.name}`, "success");
+    void refreshRelay();
   } catch (e) {
     accountError.value = (e as Error).message;
   } finally {
@@ -226,12 +245,80 @@ async function simulate() {
   }
 }
 
+// ─── relais : état, demandes à valider, demander à la Guilde ───
+const relay = ref<LinkState>({ state: "off", reason: "non connecté à mcfstudio.fr" });
+const pending = ref<PendingRequest[]>([]);
+const deciding = ref<string>();
+
+async function refreshRelay() {
+  relay.value = await call<LinkState>("guild.status").catch(() => relay.value);
+  pending.value = await call<PendingRequest[]>("guild.pending").catch(() => []);
+}
+
+async function reconnect() {
+  try {
+    relay.value = await call<LinkState>("guild.connect");
+  } catch (e) {
+    relay.value = { state: "error", reason: (e as Error).message };
+  }
+}
+
+async function acceptPending(id: string) {
+  deciding.value = id;
+  try {
+    await call("guild.accept", { id });
+    toast("Demande acceptée : ton agent y répond", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    deciding.value = undefined;
+  }
+}
+
+async function rejectPending(id: string) {
+  await call("guild.reject", { id }).catch((e) => toast((e as Error).message, "error"));
+}
+
+const askForm = reactive({ tag: "", text: "" });
+const askingNow = ref(false);
+const askResult = ref<{ answer: string; provider: Member; offer: { name: string; model: string }; fingerprint: string }>();
+const askError = ref("");
+
+async function askGuild() {
+  if (!askForm.tag.trim() || askForm.text.trim().length < 3) return;
+  askingNow.value = true;
+  askResult.value = undefined;
+  askError.value = "";
+  try {
+    askResult.value = await call("guild.ask", { tag: askForm.tag.trim().toLowerCase(), text: askForm.text });
+  } catch (e) {
+    askError.value = (e as Error).message;
+  } finally {
+    askingNow.value = false;
+  }
+}
+
+const offStatus = on("guild.status", (s) => (relay.value = s as LinkState));
+const offPending = on("guild.pending", (list) => (pending.value = list as PendingRequest[]));
+const offServed = on("guild.served", (d) => {
+  toast(`Demande de ${(d as { from: string }).from} traitée par ton agent`, "success");
+  void call<JournalEntry[]>("guild.journal")
+    .then((j) => (journal.value = j))
+    .catch(() => undefined);
+});
+onBeforeUnmount(() => {
+  offStatus();
+  offPending();
+  offServed();
+});
+
 const gpuNow = computed(() => state.metrics?.gpus[0]?.utilization);
 const offersOn = computed(() => g.value?.offers.filter((o) => o.enabled).length ?? 0);
 const DECISION = { auto: "acceptée automatiquement", ask: "te sera demandée", refuse: "refusée", erreur: "erreur" } as const;
 
 onMounted(async () => {
   void loadAccount();
+  void refreshRelay();
   await load();
   const r = await call<{ installed: { name: string }[] }>("models.list").catch(() => ({ installed: [] }));
   models.value = r.installed.map((m) => m.name);
@@ -277,13 +364,24 @@ onMounted(async () => {
 
     <!-- État : relais + interrupteur -->
     <section class="status card">
-      <div class="relay">
-        <WifiOff :size="22" />
+      <div class="relay" :class="relay.state">
+        <Wifi v-if="relay.state === 'online'" :size="22" />
+        <WifiOff v-else :size="22" />
         <div>
-          <strong>Relais hors ligne</strong>
-          <span class="small muted">Le relais MCF Studio n'est pas encore ouvert : personne ne peut encore t'envoyer de demande. Tout ce qui est
-            ici se prépare et se teste déjà en local.</span>
+          <template v-if="relay.state === 'online'">
+            <strong>Connecté au relais</strong>
+            <span class="small muted">Contenu chiffré de bout en bout : MCF Studio ne lit rien. Empreinte de ta clé : <code>{{ relay.fingerprint }}</code></span>
+          </template>
+          <template v-else-if="relay.state === 'connecting'">
+            <strong>Connexion au relais…</strong>
+            <span class="small muted">guilde.mcfstudio.fr</span>
+          </template>
+          <template v-else>
+            <strong>Relais hors ligne</strong>
+            <span class="small muted">{{ relay.reason }}{{ relay.state === "error" && relay.retryAt ? " · nouvel essai automatique" : "" }}</span>
+          </template>
         </div>
+        <button v-if="account && relay.state !== 'online' && relay.state !== 'connecting'" class="btn sm" @click="reconnect">Reconnecter</button>
       </div>
       <div class="switch" :class="{ on: g.enabled }">
         <Power :size="20" />
@@ -292,6 +390,51 @@ onMounted(async () => {
           <span class="small muted">Interrupteur général : coupé, ta machine ne sert personne, quoi qu'il arrive.</span>
         </div>
         <Toggle v-model="g.enabled" label="Interrupteur général" />
+      </div>
+    </section>
+
+    <!-- Demandes reçues qui attendent ta décision -->
+    <section v-if="pending.length" class="card pending">
+      <div class="card-head">
+        <h3><ShieldCheck :size="17" /> À valider <span class="badge accent">{{ pending.length }}</span></h3>
+      </div>
+      <div v-for="p in pending" :key="p.id" class="pending-row">
+        <div class="pending-head">
+          <strong>{{ p.from.name }}</strong>
+          <span v-if="p.from.certified" class="badge accent"><BadgeCheck :size="12" /> certifié</span>
+          <span class="small muted">→ {{ p.offerName }} · {{ relTime(p.receivedAt) }} · {{ p.reason }}</span>
+        </div>
+        <pre class="pending-text">{{ p.text }}</pre>
+        <div class="pending-actions">
+          <span class="tiny muted">Empreinte de son appareil : <code>{{ p.fingerprint }}</code></span>
+          <button class="btn sm ghost" @click="rejectPending(p.id)"><X :size="14" /> Refuser</button>
+          <button class="btn primary sm" :disabled="deciding === p.id" @click="acceptPending(p.id)"><Handshake :size="14" /> Accepter</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Demander à la Guilde -->
+    <section v-if="relay.state === 'online'" class="card ask">
+      <div class="card-head"><h3><Send :size="17" /> Demander à la Guilde</h3></div>
+      <p class="tiny muted">
+        Le premier membre en ligne qui a une offre avec cette compétence, et qui accepte, te répond. Ton texte est chiffré pour son seul
+        appareil ; il ne voit ni tes fichiers ni tes conversations.
+      </p>
+      <form class="ask-form" @submit.prevent="askGuild">
+        <input v-model="askForm.tag" class="input" maxlength="24" placeholder="Compétence (ex. relecture, code, traduction)" required />
+        <textarea v-model="askForm.text" class="input" rows="4" maxlength="20000" placeholder="Ta demande, complète : l'autre membre ne voit rien d'autre." required />
+        <div class="ask-actions">
+          <button v-if="askingNow" type="button" class="btn sm" @click="call('guild.cancelAsk')">Annuler</button>
+          <button class="btn primary sm" :disabled="askingNow"><Send :size="14" /> {{ askingNow ? "En attente d'un membre…" : "Envoyer" }}</button>
+        </div>
+      </form>
+      <p v-if="askError" class="small acc-error">{{ askError }}</p>
+      <div v-if="askResult" class="ask-result">
+        <div class="small muted">
+          Réponse de <strong>{{ askResult.provider.name }}</strong> ({{ askResult.offer.name }}, {{ askResult.offer.model }}) · empreinte
+          <code>{{ askResult.fingerprint }}</code>
+        </div>
+        <pre class="pending-text">{{ askResult.answer }}</pre>
       </div>
     </section>
 
@@ -528,6 +671,52 @@ onMounted(async () => {
 .relay > svg {
   color: var(--warning);
   flex: none;
+}
+.relay.online > svg {
+  color: var(--success);
+}
+.pending-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--hairline);
+}
+.pending-head,
+.pending-actions,
+.ask-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pending-actions span {
+  flex: 1;
+}
+.ask-actions {
+  justify-content: flex-end;
+}
+.pending-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+  font: inherit;
+}
+.ask-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ask-result {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .relay div,
 .switch div {

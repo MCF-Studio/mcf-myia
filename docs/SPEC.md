@@ -120,6 +120,15 @@ s'ouvre sur `<site>/autoriser`, le site renvoie vers `http://127.0.0.1:<port>/ca
 l'échange ; l'état (`state`) est vérifié (un code injecté par un tiers est refusé). Jeton d'accès 15 min en mémoire
 seulement ; jeton de renouvellement (rotation) dans le coffre Windows ; déconnexion = révocation sur le site.
 
+**Relais de la Guilde** (`wss://guilde.mcfstudio.fr/v1`, `core/guild-link.ts`, spec du site
+`2026-11-11-guilde-relais-design.md`) : connexion dès que le compte est lié. Clé X25519 **par appareil** dans le coffre
+Windows (`guild_device_key`) ; tout contenu est scellé pour l'appareil destinataire (ECDH éphémère, HKDF-SHA256,
+AES-256-GCM, données associées = demande ‖ sens) : le relais ne lit rien. Fournisseur : seules les métadonnées des
+offres activées sont publiées (jamais les consignes) ; on ne se propose que si les règles locales l'autorisent, on les
+réapplique sur le texte déchiffré, puis bac à sable sans outils (mode auto) ou **validation du propriétaire** (onglet
+Guilde, texte affiché avant tout traitement). Demandeur : premier fournisseur qui se propose. Empreintes des clés
+affichées des deux côtés (parade v1 à un relais qui substituerait les clés).
+
 **Coach des sessions Claude** : le modèle local évalue la difficulté d'une tâche (1 à 5) et choisit Haiku, Sonnet ou
 Opus, pour `claude_delegate` (modèle affiché dans la confirmation) comme pour l'ouverture d'une console. Dans une
 console : changement de modèle (`/model`), `/compact`, et « résumer et repartir » (Claude écrit une passation dans
@@ -178,6 +187,8 @@ modèle.
 | Écriture de fichier détournée (chemin « C:dossier », lien, flux alternatif)          | Chemins relatifs au lecteur refusés ; chemin réel contrôlé avant ET après écriture       |
 | Mise à jour piégée (release ou compte GitHub compromis, réseau détourné)             | Signature vérifiée avec la clé publique embarquée ; clé privée hors dépôt et hors GitHub ; https |
 | Mode bypass activé à l'insu de l'utilisateur                                         | Désactivé par défaut ; réglage dans la config, lu côté Rust ; consoles limitées aux dossiers autorisés |
+| Le relais (ou MCF Studio) lit une demande de la Guilde                               | Chiffrement de bout en bout par appareil ; le relais ne voit que des métadonnées        |
+| Demande de la Guilde piégée (« lis mes fichiers », « envoie… »)                       | Bac à sable sans outils ni mémoire ; validation du propriétaire hors mode auto          |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation
