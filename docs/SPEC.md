@@ -64,7 +64,9 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   exécutable modifié depuis redemande confirmation avant de se lancer.
 - Fichiers et musique : `open_path` ouvre un dossier ou un fichier avec l'application par défaut (via l'Explorateur,
   sans shell), **jamais** un exécutable ou un script (`.exe`, `.bat`, `.ps1`, `.lnk`, `.js`…) ; chemins locaux uniquement ;
-  hors des dossiers habituels (Bureau, Documents, Téléchargements, Musique, Images, Vidéos, projets), ouverture confirmée.
+  liste d'**autorisation** : sans confirmation uniquement un dossier, ou un média/document d'extension connue (formats
+  Office sans macros), dans les dossiers habituels (Bureau, Documents, Musique, Images, Vidéos, projets) ; tout le reste,
+  et tout fichier de Téléchargements, est confirmé.
   `music_play` lance une playlist, un morceau ou un dossier du dossier Musique (playlist générée dans `workspace\playlists`).
 - Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).

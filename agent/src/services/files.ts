@@ -27,7 +27,10 @@ const AUDIO = new Set("mp3 flac wav ogg opus m4a aac wma aiff alac".split(" "));
 const PLAYLIST = new Set("m3u m3u8 wpl pls".split(" "));
 const VIDEO = new Set("mp4 mkv avi mov webm wmv m4v".split(" "));
 const IMAGE = new Set("png jpg jpeg gif webp bmp tif tiff heic svg".split(" "));
-const DOCUMENT = new Set("pdf txt md doc docx odt xls xlsx ods ppt pptx odp csv rtf epub".split(" "));
+// Formats Office sans macros uniquement (pas de .docm/.xlsm/.pptm ni de vieux .doc/.xls/.ppt qui peuvent en contenir).
+const DOCUMENT = new Set("pdf txt md log docx odt xlsx ods pptx odp csv rtf epub".split(" "));
+/** Ouverture sans confirmation possible (dans les dossiers habituels) : médias et documents connus seulement. */
+const SAFE_TO_OPEN = new Set([...AUDIO, ...PLAYLIST, ...VIDEO, ...IMAGE, ...DOCUMENT].filter((e) => e !== "svg"));
 
 const ext = (p: string) => path.extname(p).slice(1).toLowerCase();
 
@@ -158,6 +161,16 @@ function playlistFromDir(dir: string, shuffled: boolean): { file: string; count:
 export function filesService(cfg: Config): Service {
   const places = () => knownPlaces(cfg);
   const isKnown = (p: string) => places().some((k) => isInside(k, p));
+  const downloads = [path.join(os.homedir(), "Downloads"), path.join(os.homedir(), "OneDrive", "Downloads")];
+
+  /** Raison de demander confirmation, ou undefined si l'ouverture est sans risque. */
+  const openNeedsConfirmation = (real: string): string | undefined => {
+    if (!isKnown(real)) return "en dehors de tes dossiers habituels";
+    if (fs.statSync(real).isDirectory()) return undefined;
+    if (!SAFE_TO_OPEN.has(ext(real))) return `type de fichier .${ext(real) || "?"} non reconnu comme document ou média`;
+    if (downloads.some((d) => isInside(d, real))) return "fichier téléchargé";
+    return undefined;
+  };
 
   return {
     id: "files",
@@ -174,16 +187,21 @@ export function filesService(cfg: Config): Service {
             "Chemin complet requis : trouve-le d'abord avec files_find. Les programmes et scripts ne s'ouvrent pas ici (program_launch).",
           schema: z.object({ path: z.string().min(3).max(500).describe("Chemin complet du fichier ou du dossier") }),
           risk: "launch",
-          // Dans les dossiers habituels (Documents, Musique, projets…) : direct. Ailleurs : confirmation.
+          // Liste d'AUTORISATION : sans confirmation seulement un dossier, ou un média/document d'extension connue,
+          // dans les dossiers habituels et hors Téléchargements. Tout le reste est confirmé (une extension inconnue
+          // peut être associée à un programme qui exécute du code).
           confirmIf: (a) => {
             try {
-              return !isKnown(checkOpenable(a.path));
+              return openNeedsConfirmation(checkOpenable(a.path)) !== undefined;
             } catch {
               return true;
             }
           },
           check: (a) => void checkOpenable(a.path),
-          preview: (a) => `Ouvrir :\n${checkOpenable(a.path)}\n(en dehors de tes dossiers habituels)`,
+          preview: (a) => {
+            const p = checkOpenable(a.path);
+            return `Ouvrir :\n${p}\n(${openNeedsConfirmation(p) ?? "ouverture"})`;
+          },
           async run(a) {
             const p = checkOpenable(a.path);
             openWithDefault(p);
