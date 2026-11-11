@@ -84,7 +84,7 @@ export const ConfigSchema = z.object({
           /** Modèles chargés en même temps au plus (8 Go de VRAM : 1). */
           modelsMax: z.number().int().min(1).max(4).default(1),
           /**
-           * Contexte : « auto » = le plus grand qui tient en mémoire (16 k au moins, utile pour Claude Code en local,
+           * Contexte : « auto » = le plus grand qui tient en mémoire (32 k au moins, utile pour Claude Code en local,
            * dont le prompt est long), ou une taille fixe.
            */
           ctx: z.union([z.literal("auto"), z.number().int().min(2048).max(262_144)]).default("auto"),

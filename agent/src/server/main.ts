@@ -18,7 +18,7 @@ import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
 import { openInBrowser } from "../services/web.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
-import { MODEL_NAME } from "../core/llm.js";
+import { CLAUDE_LOCAL_CTX, claudeLocalOllamaModel, MODEL_NAME, OllamaClient } from "../core/llm.js";
 import { createLlm } from "../core/llm-factory.js";
 import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
 import { makeTeamRoot } from "../core/team-runner.js";
@@ -783,14 +783,29 @@ rpc.method("config.setEngine", async (params) => {
  * la console (qui lit elle-même adresse, modèle et clé côté Rust).
  */
 rpc.method("claude.localReady", async () => {
-  const model = cfg.llm.engine === "llamacpp" ? cfg.llm.model : cfg.llm.otherModels.llamacpp;
-  if (!model) throw new Error("aucun modèle llama.cpp par défaut : passe le moteur sur llama.cpp (Paramètres → Système) et installe un modèle");
-  if (!activeBuild(cfg.llm)) throw new Error("llama.cpp n'est pas installé : Paramètres → Système → Moteur");
-  const client = new LlamaCppClient(cfg.llm, model);
-  if (!(await client.hasModel(model))) throw new Error(`modèle ${model} absent : onglet Modèles (moteur llama.cpp)`);
+  const model = cfg.llm.model;
+  if (cfg.llm.engine === "llamacpp") {
+    if (!activeBuild(cfg.llm)) throw new Error("llama.cpp n'est pas installé : Paramètres → Système → Moteur");
+    const client = new LlamaCppClient(cfg.llm, model);
+    if (!(await client.hasModel(model))) throw new Error(`modèle ${model} absent : onglet Modèles`);
+    await client.ensureRunning();
+    await client.warmUp();
+    return { engine: "llamacpp", model };
+  }
+  // Ollama : variante du modèle par défaut avec un contexte assez grand pour Claude Code (mêmes poids, rien de copié).
+  const client = new OllamaClient(cfg.llm);
   await client.ensureRunning();
-  await client.warmUp();
-  return { model, sharedWithOllama: cfg.llm.engine !== "llamacpp" };
+  if (!(await client.hasModel(model))) throw new Error(`modèle ${model} absent : onglet Modèles`);
+  const variant = claudeLocalOllamaModel(model);
+  await client.createVariant(variant, model, { num_ctx: CLAUDE_LOCAL_CTX });
+  const loaded = await client.loadAndMeasure(variant, CLAUDE_LOCAL_CTX);
+  const onGpu = loaded && loaded.size ? loaded.sizeVram / loaded.size : 1;
+  const warning =
+    onGpu < 0.98
+      ? `${Math.round((1 - onGpu) * 100)} % du modèle ne tient pas en VRAM et tourne sur le processeur : Claude Code sera très lent. ` +
+        "Choisis un modèle plus petit (qwen3:4b), ou active la mémoire de contexte compressée (Paramètres → Système) en laissant MyIA démarrer Ollama."
+      : undefined;
+  return { engine: "ollama", model: variant, warning };
 });
 
 let buildInstall: AbortController | undefined;

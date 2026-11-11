@@ -63,6 +63,17 @@ export interface LlmClient {
 /** Nom de modèle Ollama accepté (ex. qwen3:8b, hf.co/org/repo:Q4_K_M). Bloque tout ce qui ressemble à une URL ou un chemin. */
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9._-]+)*(:[A-Za-z0-9._-]+)?$/;
 
+/** Contexte donné à Claude Code en local (son prompt seul fait ~15 k tokens). Même valeur côté Rust (pty.rs). */
+export const CLAUDE_LOCAL_CTX = 32_768;
+
+/**
+ * Variante Ollama d'un modèle pour Claude Code : même poids (rien n'est copié), contexte de CLAUDE_LOCAL_CTX.
+ * Même calcul côté Rust (pty.rs, local_model_name) : « myia-claude:<modèle, caractères hors [A-Za-z0-9._-] en -> ».
+ */
+export function claudeLocalOllamaModel(model: string): string {
+  return `myia-claude:${model.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 100)}`;
+}
+
 /** Version minimale d'Ollama : en dessous, les modèles récents (Qwen3…) ne se chargent pas. */
 export const MIN_OLLAMA = "0.12.0";
 
@@ -226,6 +237,26 @@ export class OllamaClient implements LlmClient {
   }
 
   /** Décharge un modèle de la mémoire. */
+  /** Crée (ou remplace) une variante d'un modèle installé avec d'autres paramètres, sans copier les poids. */
+  async createVariant(name: string, from: string, parameters: Record<string, number>): Promise<void> {
+    const r = await fetch(this.url("/api/create"), {
+      method: "POST",
+      body: JSON.stringify({ model: name, from, parameters, stream: false }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!r.ok) throw new Error(`Ollama : variante ${name} impossible (${(await r.text()).slice(0, 200)})`);
+  }
+
+  /** Charge un modèle et dit quelle part tient en VRAM (le reste tourne sur le processeur, bien plus lentement). */
+  async loadAndMeasure(model: string, numCtx: number): Promise<{ size: number; sizeVram: number } | undefined> {
+    await fetch(this.url("/api/generate"), {
+      method: "POST",
+      body: JSON.stringify({ model, keep_alive: this.cfg.keepAlive, options: { num_ctx: numCtx } }),
+      signal: AbortSignal.timeout(300_000),
+    });
+    return (await this.runningModels()).find((m) => m.name === model);
+  }
+
   async unload(model: string): Promise<void> {
     await fetch(this.url("/api/generate"), {
       method: "POST",

@@ -73,50 +73,94 @@ fn bypass_permissions() -> bool {
         .unwrap_or(false)
 }
 
-/// Claude Code sur un modèle local : llama-server (moteur llama.cpp de MyIA) expose l'API Messages d'Anthropic.
-/// Tout est lu ICI, côté Rust : adresse (toujours 127.0.0.1, port de la config), modèle (celui de llama.cpp dans la
-/// config) et clé d'API (coffre Windows). L'interface ne peut donc pas envoyer Claude Code vers un autre serveur.
-fn local_claude_env() -> Result<Vec<(&'static str, String)>, String> {
+/// Contexte donné à Claude Code en local : même valeur que CLAUDE_LOCAL_CTX côté cœur (llm.ts).
+const LOCAL_CTX: u32 = 32_768;
+
+/// Variante Ollama créée par le cœur pour Claude Code (même calcul que claudeLocalOllamaModel, llm.ts).
+fn local_model_name(model: &str) -> String {
+    let clean: String = model
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '-' })
+        .take(100)
+        .collect();
+    format!("myia-claude:{clean}")
+}
+
+fn valid_model(m: &str, extra: &[char]) -> bool {
+    !m.is_empty()
+        && m.len() <= 160
+        && m.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && m.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') || extra.contains(&c))
+}
+
+/// Claude Code sur le modèle local du moteur actif : llama-server et Ollama exposent l'API Messages d'Anthropic.
+/// Tout est lu ICI, côté Rust : adresse (toujours la machine elle-même), modèle (celui de la config) et clé (coffre
+/// Windows pour llama.cpp). L'interface ne peut donc pas envoyer Claude Code vers un autre serveur.
+/// Renvoie les variables d'environnement et l'identifiant du modèle (passé aussi en `--model`).
+/// Variables d'environnement d'une console Claude Code locale, et identifiant du modèle.
+type LocalEnv = (Vec<(&'static str, String)>, String);
+
+fn local_claude_env() -> Result<LocalEnv, String> {
     let cfg = std::fs::read_to_string(crate::sidecar::home().join("config").join("agent.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
         .unwrap_or(serde_json::Value::Null);
     let llm = cfg.get("llm");
     let engine = llm.and_then(|l| l.get("engine")).and_then(|v| v.as_str()).unwrap_or("ollama");
-    let model = if engine == "llamacpp" {
-        llm.and_then(|l| l.get("model")).and_then(|v| v.as_str())
+    let model = llm
+        .and_then(|l| l.get("model"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(if engine == "llamacpp" { "Qwen3-8B-Q4_K_M" } else { "qwen3:8b" })
+        .to_string();
+
+    let (base, token, id) = if engine == "llamacpp" {
+        if !valid_model(&model, &[]) {
+            return Err(format!("nom de modèle llama.cpp invalide : {model}"));
+        }
+        let port = llm.and_then(|l| l.get("llamacpp")?.get("port")?.as_u64()).unwrap_or(11435);
+        if !(1024..=65535).contains(&port) {
+            return Err("port llama.cpp invalide".into());
+        }
+        let token = keyring::Entry::new("MyIA", "llamacpp_api_key")
+            .and_then(|e| e.get_password())
+            .map_err(|_| "clé du serveur llama.cpp introuvable : démarre llama.cpp depuis MyIA une première fois".to_string())?;
+        (format!("http://127.0.0.1:{port}"), token, model)
     } else {
-        llm.and_then(|l| l.get("otherModels")?.get("llamacpp")?.as_str())
-    }
-    .ok_or("aucun modèle llama.cpp par défaut : choisis-en un dans l'onglet Modèles (moteur llama.cpp)")?
-    .to_string();
-    let valid = !model.is_empty()
-        && model.len() <= 151
-        && model.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && model.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-    if !valid {
-        return Err(format!("nom de modèle llama.cpp invalide : {model}"));
-    }
-    let port = llm
-        .and_then(|l| l.get("llamacpp")?.get("port")?.as_u64())
-        .unwrap_or(11435);
-    if !(1024..=65535).contains(&port) {
-        return Err("port llama.cpp invalide".into());
-    }
-    let token = keyring::Entry::new("MyIA", "llamacpp_api_key")
-        .and_then(|e| e.get_password())
-        .map_err(|_| "clé du serveur llama.cpp introuvable : démarre llama.cpp depuis MyIA une première fois".to_string())?;
-    Ok(vec![
-        ("ANTHROPIC_BASE_URL", format!("http://127.0.0.1:{port}")),
+        if !valid_model(&model, &[':', '/']) {
+            return Err(format!("nom de modèle Ollama invalide : {model}"));
+        }
+        // Ollama doit rester local (même règle que la config du cœur) : jamais une adresse distante.
+        let base = llm
+            .and_then(|l| l.get("baseUrl"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("http://127.0.0.1:11434")
+            .trim_end_matches('/')
+            .to_string();
+        let local = ["http://127.0.0.1:", "http://localhost:"].iter().any(|p| {
+            base.strip_prefix(p).is_some_and(|port| !port.is_empty() && port.len() <= 5 && port.chars().all(|c| c.is_ascii_digit()))
+        });
+        if !local {
+            return Err("adresse d'Ollama non locale : refusée pour Claude Code".into());
+        }
+        // Ollama n'a pas de clé : Claude Code en exige une, n'importe laquelle.
+        (base, "ollama".to_string(), local_model_name(&model))
+    };
+    let vars = vec![
+        ("ANTHROPIC_BASE_URL", base),
         ("ANTHROPIC_AUTH_TOKEN", token),
-        ("ANTHROPIC_MODEL", model.clone()),
-        ("ANTHROPIC_DEFAULT_OPUS_MODEL", model.clone()),
-        ("ANTHROPIC_DEFAULT_SONNET_MODEL", model.clone()),
-        ("ANTHROPIC_DEFAULT_HAIKU_MODEL", model.clone()),
-        ("ANTHROPIC_SMALL_FAST_MODEL", model),
+        ("ANTHROPIC_MODEL", id.clone()),
+        ("ANTHROPIC_DEFAULT_MODEL", id.clone()),
+        ("ANTHROPIC_DEFAULT_OPUS_MODEL", id.clone()),
+        ("ANTHROPIC_DEFAULT_SONNET_MODEL", id.clone()),
+        ("ANTHROPIC_DEFAULT_HAIKU_MODEL", id.clone()),
+        ("CLAUDE_CODE_SUBAGENT_MODEL", id.clone()),
+        // Vrai contexte du modèle local (Claude Code supposerait 200 k), pas de phase de réflexion.
+        ("CLAUDE_CODE_MAX_CONTEXT_TOKENS", LOCAL_CTX.to_string()),
+        ("MAX_THINKING_TOKENS", "0".into()),
         // Rien d'autre ne part vers Internet (télémétrie, rapports d'erreur, mises à jour automatiques).
         ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1".into()),
-    ])
+    ];
+    Ok((vars, id))
 }
 
 fn is_allowed(dir: &Path) -> bool {
@@ -165,7 +209,10 @@ pub fn pty_spawn(
     let mut local_env = None;
     if let Some(m) = model.filter(|m| !m.is_empty()) {
         if m == "local" {
-            local_env = Some(local_claude_env()?);
+            let (vars, id) = local_claude_env()?;
+            cmd.arg("--model");
+            cmd.arg(id);
+            local_env = Some(vars);
         } else {
             if !["haiku", "sonnet", "opus"].contains(&m.as_str()) {
                 return Err(format!("modèle inconnu : {m}"));

@@ -377,7 +377,7 @@ export class LlamaCppClient implements LlmClient {
       "--port", String(this.cfg.llamacpp.port),
       "--no-webui",
       "--jinja",
-      ...(this.cfg.llamacpp.ctx === "auto" ? ["--fit-ctx", "16384"] : ["-c", String(this.cfg.llamacpp.ctx)]),
+      ...(this.cfg.llamacpp.ctx === "auto" ? ["--fit-ctx", "32768"] : ["-c", String(this.cfg.llamacpp.ctx)]),
       "-fa", flash ? "on" : "off",
       ...(flash ? ["-ctk", this.cfg.kvCache, "-ctv", this.cfg.kvCache] : []),
     ];

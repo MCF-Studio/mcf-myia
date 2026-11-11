@@ -137,9 +137,13 @@ coffre Windows, passée par variable d'environnement (jamais en argument). Chang
 défaut avec celui gardé pour l'autre moteur. Flash attention et cache de contexte compressé (q8 par défaut) pour les
 deux moteurs.
 
-**Claude Code en local** (console, modèle « Local ») : `llama-server` expose aussi l'API Messages d'Anthropic ; la
-console lance `claude` avec `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`, la clé du serveur et le modèle llama.cpp par
-défaut, tous lus **côté Rust** (config + coffre) : l'interface ne peut pas rediriger Claude Code vers un autre serveur.
+**Claude Code en local** (console, modèle « Local ») : `llama-server` et Ollama (0.40+) exposent l'API Messages
+d'Anthropic ; la console lance `claude` sur le moteur actif (`ANTHROPIC_BASE_URL` local, modèle par défaut, clé du
+coffre pour llama.cpp), tout étant lu **côté Rust** (config + coffre) : l'interface ne peut pas rediriger Claude Code
+vers un autre serveur. Contexte fixé à 32 k (le prompt de Claude Code fait ~15 k tokens) : variante Ollama
+`myia-claude:<modèle>` (mêmes poids, `num_ctx` 32 768), `--fit-ctx 32768` pour llama.cpp, et
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` pour que Claude Code compacte à temps ; réflexion coupée. Si le modèle déborde de la VRAM,
+la console prévient (très lent).
 `ANTHROPIC_API_KEY` est retirée de l'environnement de la console, le trafic non essentiel coupé.
 
 **Coach des sessions Claude** : le modèle local évalue la difficulté d'une tâche (1 à 5) et choisit Haiku, Sonnet ou

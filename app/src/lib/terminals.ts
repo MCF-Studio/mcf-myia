@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { reactive } from "vue";
 import { call, inTauri } from "./rpc";
+import { toast } from "./store";
 
 /** Consoles Claude Code ouvertes dans l'app. Elles vivent tant que l'app est ouverte (pas de persistance). */
 export interface TerminalInfo {
@@ -72,7 +73,10 @@ export async function startTerminals() {
 
 export async function openClaude(cwd: string, title: string, resume: boolean, model?: string, prompt?: string): Promise<string> {
   // Modèle local : serveur llama.cpp démarré et modèle chargé avant l'ouverture (le premier chargement prend du temps).
-  if (model === "local") await call("claude.localReady");
+  if (model === "local") {
+    const r = await call<{ warning?: string }>("claude.localReady");
+    if (r.warning) toast(r.warning, "error");
+  }
   const id = await invoke<number>("pty_spawn", { cwd, resume, cols: 120, rows: 32, model: model || null, prompt: prompt || null });
   const key = `pty:${id}`;
   terminals[key] = { key, id, title, cwd, model, startedAt: Date.now(), outBytes: 0 };
