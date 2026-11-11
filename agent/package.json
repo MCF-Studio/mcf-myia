@@ -21,6 +21,7 @@
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@napi-rs/keyring": "^2.1.2",
     "adm-zip": "^0.6.1",
+    "undici": "8.12.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {

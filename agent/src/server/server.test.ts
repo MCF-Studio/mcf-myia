@@ -76,3 +76,11 @@ describe("RPC sur stdio", () => {
     await expect(p).rejects.toThrow();
   });
 });
+
+describe("lecture web : verrou anti DNS rebinding", () => {
+  it("refuse à la connexion un nom qui résout vers une adresse locale", async () => {
+    const { publicOnlyLookup } = await import("../services/web.js");
+    const err = await new Promise<Error | null>((resolve) => publicOnlyLookup("localhost", { all: true }, (e) => resolve(e)));
+    expect(err?.message).toMatch(/non publique/);
+  });
+});

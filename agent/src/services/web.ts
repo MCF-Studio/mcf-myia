@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
+import dnsCb from "node:dns";
 import dns from "node:dns/promises";
 import net from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
 import { z } from "zod";
 import type { Config } from "../core/config.js";
 import { defineTool, truncate, type Service } from "../core/types.js";
@@ -40,12 +42,32 @@ async function assertPublicUrl(raw: string): Promise<URL> {
   return url;
 }
 
-/** GET avec redirections vérifiées une à une et taille plafonnée. */
+/**
+ * Résolution DNS faite AU MOMENT DE LA CONNEXION, et refusée si une adresse n'est pas publique. Sans ça, un domaine
+ * piégé (« DNS rebinding ») pourrait répondre une IP publique à la vérification puis 127.0.0.1 à la connexion.
+ */
+export const publicOnlyLookup: net.LookupFunction = (hostname, options, callback) => {
+  dnsCb.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+    const cb = callback as (e: NodeJS.ErrnoException | null, a: string | dnsCb.LookupAddress[], f?: number) => void;
+    if (err) return cb(err, "", 0);
+    const list = addresses as unknown as dnsCb.LookupAddress[];
+    if (!list.length || !list.every((a) => isPublicAddress(a.address))) {
+      return cb(Object.assign(new Error(`adresse non publique refusée : ${hostname}`), { code: "EADDRNOTPUBLIC" }), "", 0);
+    }
+    if ((options as dnsCb.LookupOptions).all) cb(null, list);
+    else cb(null, list[0]!.address, list[0]!.family);
+  });
+};
+
+const publicAgent = new Agent({ connect: { lookup: publicOnlyLookup }, headersTimeout: 20_000, bodyTimeout: 20_000 });
+
+/** GET avec redirections vérifiées une à une, connexion épinglée sur une IP publique, taille plafonnée. */
 async function fetchPublic(raw: string, maxBytes: number): Promise<{ url: string; type: string; body: string }> {
   let current = raw;
   for (let hop = 0; hop < 5; hop++) {
-    const url = await assertPublicUrl(current);
-    const r = await fetch(url, {
+    const url = await assertPublicUrl(current); // contrôle rapide (IP littérales, schéma) ; le vrai verrou est publicAgent
+    const r = await undiciFetch(url, {
+      dispatcher: publicAgent,
       redirect: "manual",
       headers: { "user-agent": UA, accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5", "accept-language": "fr,en;q=0.8" },
       signal: AbortSignal.timeout(20_000),
