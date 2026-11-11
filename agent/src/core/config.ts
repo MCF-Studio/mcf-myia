@@ -68,6 +68,28 @@ export const ConfigSchema = z.object({
        */
       flashAttention: z.boolean().default(true),
       kvCache: z.enum(["f16", "q8_0", "q4_0"]).default("q8_0"),
+      /**
+       * Moteur local : Ollama (gestion des modèles intégrée) ou llama.cpp directement (llama-server en mode routeur,
+       * modèles GGUF dans llamacpp\models). `model` est le modèle par défaut du moteur actif ; celui de l'autre moteur
+       * est gardé dans `otherModels` pour revenir en arrière sans rien perdre.
+       */
+      engine: z.enum(["ollama", "llamacpp"]).default("ollama"),
+      otherModels: z.object({ ollama: z.string().optional(), llamacpp: z.string().optional() }).default({}),
+      llamacpp: z
+        .object({
+          /** Port de llama-server, sur 127.0.0.1 seulement. */
+          port: z.number().int().min(1024).max(65535).default(11435),
+          /** Build installée et utilisée (GPU NVIDIA, tout GPU, ou processeur). */
+          backend: z.enum(["cuda", "vulkan", "cpu"]).optional(),
+          /** Modèles chargés en même temps au plus (8 Go de VRAM : 1). */
+          modelsMax: z.number().int().min(1).max(4).default(1),
+          /**
+           * Contexte : « auto » = le plus grand qui tient en mémoire (16 k au moins, utile pour Claude Code en local,
+           * dont le prompt est long), ou une taille fixe.
+           */
+          ctx: z.union([z.literal("auto"), z.number().int().min(2048).max(262_144)]).default("auto"),
+        })
+        .prefault({}),
     })
     .prefault({}),
   maxSteps: z.number().int().min(1).max(20).default(8),

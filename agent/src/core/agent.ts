@@ -1,6 +1,7 @@
 import { audit } from "./audit.js";
 import type { Config } from "./config.js";
-import { OllamaClient, type ChatMessage, type ToolSpec } from "./llm.js";
+import { createLlm } from "./llm-factory.js";
+import type { ChatMessage, LlmClient, ToolSpec } from "./llm.js";
 import { DEFAULT_PROFILE, type AgentProfile } from "./profiles.js";
 import { truncate, type AgentUI, type Availability, type Service, type Tool } from "./types.js";
 import type { Memory } from "./memory.js";
@@ -61,7 +62,7 @@ export interface ServiceStatus {
 }
 
 export class Agent {
-  private readonly llm: OllamaClient;
+  private readonly llm: LlmClient;
   private history: ChatMessage[] = [];
   private readonly trust = new UrlTrust();
   private tools = new Map<string, Tool>();
@@ -75,15 +76,15 @@ export class Agent {
     readonly profile: AgentProfile = DEFAULT_PROFILE,
     private readonly opts: AgentOptions = {},
   ) {
-    this.llm = new OllamaClient({ ...cfg.llm, model: profile.model ?? cfg.llm.model });
+    this.llm = createLlm(cfg.llm, profile.model ?? cfg.llm.model);
     // Un profil peut restreindre les services auxquels l'agent a accès (liste blanche d'ids).
     const allow = profile.services;
     this.services = allow ? services.filter((s) => allow.includes(s.id)) : services;
   }
 
-  /** Modèle Ollama utilisé par cet agent. */
+  /** Modèle utilisé par cet agent (avec llama.cpp, un nom Ollama non installé revient au modèle par défaut). */
   get model(): string {
-    return this.profile.model ?? this.cfg.llm.model;
+    return this.llm.model;
   }
 
   /** Historique brut (pour la persistance des conversations). */

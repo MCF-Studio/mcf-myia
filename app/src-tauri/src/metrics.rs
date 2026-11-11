@@ -116,7 +116,9 @@ pub fn system_metrics(state: State<'_, Metrics>, sidecar: State<'_, Sidecar>) ->
         .iter()
         .filter_map(|(pid, p)| {
             let name = p.name().to_string_lossy().to_string();
-            let is_ollama = name.to_lowercase().starts_with("ollama");
+            // Moteurs locaux : Ollama, ou llama.cpp direct (llama-server, routeur et ses processus de modèle).
+            let lower = name.to_lowercase();
+            let is_ollama = lower.starts_with("ollama") || lower.starts_with("llama-server");
             let is_sidecar = Some(pid.as_u32()) == sidecar_pid;
             if !is_ollama && !is_sidecar {
                 return None;

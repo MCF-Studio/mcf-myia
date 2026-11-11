@@ -26,6 +26,13 @@ export const CLAUDE_MODELS = [
   { id: "opus", label: "Opus", hint: "raisonnement profond" },
 ] as const;
 
+/** Claude Code sur le modèle llama.cpp de MyIA (API Anthropic de llama-server, sur 127.0.0.1). */
+export const LOCAL_MODEL = {
+  id: "local",
+  label: "Local",
+  hint: "ton modèle llama.cpp : gratuit et hors ligne, mais bien moins capable que Claude (petites tâches)",
+} as const;
+
 export interface Triage {
   model: "haiku" | "sonnet" | "opus";
   difficulty: number;
@@ -64,6 +71,8 @@ export async function startTerminals() {
 }
 
 export async function openClaude(cwd: string, title: string, resume: boolean, model?: string, prompt?: string): Promise<string> {
+  // Modèle local : serveur llama.cpp démarré et modèle chargé avant l'ouverture (le premier chargement prend du temps).
+  if (model === "local") await call("claude.localReady");
   const id = await invoke<number>("pty_spawn", { cwd, resume, cols: 120, rows: 32, model: model || null, prompt: prompt || null });
   const key = `pty:${id}`;
   terminals[key] = { key, id, title, cwd, model, startedAt: Date.now(), outBytes: 0 };

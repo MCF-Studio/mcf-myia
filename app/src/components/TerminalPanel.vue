@@ -151,7 +151,8 @@ async function restart() {
           <Loader2 v-if="busyHandoff" :size="11" class="spin" /> passation : {{ info.handoff.step }}
         </span>
         <span v-if="!compact" class="tiny muted session-time" title="Durée de la session"><Gauge :size="12" /> {{ elapsed }}</span>
-        <select class="model-pick" :value="info?.model ?? ''" title="Changer le modèle Claude (/model)" @change="onModel">
+        <span v-if="info?.model === 'local'" class="badge" title="Claude Code sur ton modèle llama.cpp">local</span>
+        <select v-else class="model-pick" :value="info?.model ?? ''" title="Changer le modèle Claude (/model)" @change="onModel">
           <option value="" disabled>modèle</option>
           <option v-for="m in CLAUDE_MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
         </select>

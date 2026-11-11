@@ -172,9 +172,13 @@ async function doctor() {
   try {
     await agent.client.ensureRunning();
     const v = await agent.client.version();
-    const [maj = 0, min = 0] = v.split(".").map(Number);
-    const recent = maj > 0 || min >= 12;
-    line(recent, `Ollama ${v}`, recent ? cfg.llm.baseUrl : `trop ancien : un autre Ollama occupe le port ? Utilise ${paths.ollamaExe}`);
+    if (agent.client.engine === "llamacpp") {
+      line(true, v, `127.0.0.1:${cfg.llm.llamacpp.port}`);
+    } else {
+      const [maj = 0, min = 0] = v.split(".").map(Number);
+      const recent = maj > 0 || min >= 12;
+      line(recent, `Ollama ${v}`, recent ? cfg.llm.baseUrl : `trop ancien : un autre Ollama occupe le port ? Utilise ${paths.ollamaExe}`);
+    }
     const has = await agent.client.hasModel();
     line(has, `modèle ${cfg.llm.model}`, has ? "" : `${paths.ollamaExe} pull ${cfg.llm.model}`);
   } catch (e) {

@@ -14,6 +14,10 @@ export const paths = {
   ollamaExe: path.join(MYIA_HOME, "runtime", "ollama", "ollama.exe"),
   ollamaModels: path.join(MYIA_HOME, "ollama", "models"),
   ollamaLog: path.join(MYIA_HOME, "runtime", "ollama-serve.log"),
+  /** llama.cpp : builds dans runtime\llamacpp\<build>, modèles GGUF dans llamacpp\models (hors git). */
+  llamacppRoot: path.join(MYIA_HOME, "runtime", "llamacpp"),
+  llamacppModels: path.join(MYIA_HOME, "llamacpp", "models"),
+  llamacppLog: path.join(MYIA_HOME, "runtime", "llamacpp-server.log"),
 };
 
 /** Vrai si `child` est `parent` ou à l'intérieur (après normalisation). */

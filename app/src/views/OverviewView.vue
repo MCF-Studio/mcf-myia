@@ -130,7 +130,7 @@ async function talkTo(agentId: string) {
           <h3><Boxes :size="17" /> Modèles en mémoire</h3>
           <span class="badge" :class="ollama?.ok ? 'ok' : 'warn'">
             <span class="dot" :class="ollama?.ok ? 'ok' : 'err'" />
-            Ollama {{ ollama?.ok ? ollama.version : "hors ligne" }}
+            {{ ollama?.engine === "llamacpp" ? (ollama?.ok ? ollama.version : "llama.cpp hors ligne") : `Ollama ${ollama?.ok ? ollama.version : "hors ligne"}` }}
           </span>
         </div>
         <div v-if="running.length" class="model-list">

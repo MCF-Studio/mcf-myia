@@ -32,6 +32,7 @@ const busyCount = computed(() => state.overview?.conversations.busy ?? 0);
 const pendingConfirms = computed(() => Object.keys(state.confirms).length);
 const loadedModel = computed(() => state.overview?.ollama.running?.[0]?.name);
 const ollamaOk = computed(() => state.overview?.ollama.ok);
+const engineName = computed(() => (state.overview?.ollama.engine === "llamacpp" ? "llama.cpp" : "Ollama"));
 </script>
 
 <template>
@@ -65,7 +66,7 @@ const ollamaOk = computed(() => state.overview?.ollama.ok);
     <div class="status" :title="state.overview?.ollama.error ?? ''">
       <span class="dot" :class="!state.ready ? 'err' : loadedModel ? 'busy' : ollamaOk ? 'ok' : 'off'" />
       <div v-if="!collapsed" class="status-text">
-        <span>{{ !state.ready ? "Cœur arrêté" : ollamaOk ? "Ollama prêt" : "Ollama arrêté" }}</span>
+        <span>{{ !state.ready ? "Cœur arrêté" : ollamaOk ? `${engineName} prêt` : `${engineName} arrêté` }}</span>
         <small class="mono">{{ loadedModel ?? state.overview?.defaultModel ?? "—" }}</small>
       </div>
     </div>

@@ -79,7 +79,7 @@ export interface ServiceStatus {
 }
 
 export interface Overview {
-  ollama: { ok: boolean; baseUrl: string; version?: string; running?: RunningModel[]; installedCount?: number; error?: string };
+  ollama: { ok: boolean; baseUrl: string; engine?: "ollama" | "llamacpp"; version?: string; running?: RunningModel[]; installedCount?: number; error?: string };
   defaultModel: string;
   agents: (AgentProfile & { model: string; conversations: number; busy: number })[];
   conversations: { total: number; busy: number };

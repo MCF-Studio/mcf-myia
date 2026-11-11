@@ -31,7 +31,7 @@ import { call, inTauri, on } from "../lib/rpc";
 import { refreshDictation } from "../lib/dictation";
 import { resetSettings, settings } from "../lib/settings";
 import { playSound, SOUND_PACKS, speak, stopSpeaking, voices } from "../lib/sound";
-import { refreshSidecar, refreshThemes, restartSidecar, state, toast } from "../lib/store";
+import { refreshOverview, refreshSidecar, refreshThemes, restartSidecar, state, toast } from "../lib/store";
 import { BUILTIN_THEMES, exportTheme } from "../lib/themes";
 import type { Theme } from "../lib/types";
 import { checkForUpdate, update } from "../lib/update";
@@ -83,15 +83,65 @@ async function deleteTheme(id: string) {
 // ─── Identité et dossiers (config/agent.json, via le cœur) ───────────────────
 const userName = ref("");
 const roots = ref<{ path: string; depth: number }[]>([]);
-type Engine = { flashAttention: boolean; kvCache: "f16" | "q8_0" | "q4_0" };
-const engine = ref<Engine>({ flashAttention: true, kvCache: "q8_0" });
+type Build = "cuda" | "vulkan" | "cpu";
+type Engine = { flashAttention: boolean; kvCache: "f16" | "q8_0" | "q4_0"; engine?: "ollama" | "llamacpp"; backend?: Build };
+const engine = ref<Engine>({ flashAttention: true, kvCache: "q8_0", engine: "ollama" });
 
-/** Moteur llama.cpp d'Ollama : la compression du contexte exige flash attention. */
+// ─── llama.cpp : builds (téléchargées à la demande, empreintes vérifiées par le cœur) ───
+interface LlamaStatus {
+  builds: { id: Build; label: string; sizeMb: number; installed: boolean }[];
+  active: Build | null;
+  installing: boolean;
+}
+const llama = ref<LlamaStatus>();
+const llamaInstalling = ref<Build>();
+const llamaProgress = ref<{ what: string; received: number; total?: number }>();
+const offLlamaProgress = on("llamacpp.progress", (p) => (llamaProgress.value = p as typeof llamaProgress.value));
+onBeforeUnmount(offLlamaProgress);
+
+async function loadLlama() {
+  llama.value = await call<LlamaStatus>("llamacpp.status").catch(() => undefined);
+}
+
+async function installLlama(build: Build) {
+  llamaInstalling.value = build;
+  llamaProgress.value = undefined;
+  try {
+    await call("llamacpp.install", { build });
+    toast("llama.cpp installé", "success");
+  } catch (e) {
+    if (!/abort|annul/i.test((e as Error).message)) toast((e as Error).message, "error");
+  } finally {
+    llamaInstalling.value = undefined;
+    await loadLlama();
+  }
+}
+
+async function uninstallLlama(build: Build) {
+  await call("llamacpp.uninstall", { build }).catch((e) => toast((e as Error).message, "error"));
+  await loadLlama();
+}
+
+async function switchEngine(next: "ollama" | "llamacpp") {
+  const before = engine.value.engine;
+  engine.value.engine = next;
+  if (next === "llamacpp" && !engine.value.backend) engine.value.backend = llama.value?.active ?? undefined;
+  try {
+    await call("config.setEngine", engine.value);
+    toast(next === "llamacpp" ? "Moteur : llama.cpp (le modèle par défaut est celui de llama.cpp)" : "Moteur : Ollama", "success");
+    await refreshOverview();
+  } catch (e) {
+    engine.value.engine = before;
+    toast((e as Error).message, "error");
+  }
+}
+
+/** Réglages du moteur (llama.cpp, direct ou sous Ollama) : la compression du contexte exige flash attention. */
 async function saveEngine() {
   if (engine.value.kvCache !== "f16") engine.value.flashAttention = true;
   try {
     await call("config.setEngine", engine.value);
-    toast("Réglage enregistré : appliqué au prochain démarrage d'Ollama", "success");
+    toast(engine.value.engine === "llamacpp" ? "Réglage appliqué : llama.cpp redémarre" : "Réglage enregistré : appliqué au prochain démarrage d'Ollama", "success");
   } catch (e) {
     toast((e as Error).message, "error");
   }
@@ -314,6 +364,7 @@ onMounted(async () => {
   void loadConfigBits();
   void loadPrograms();
   void loadMemory();
+  void loadLlama();
   void loadWhisper();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = loadVoices;
   if (inTauri) appVersion.value = await getVersion();
@@ -705,12 +756,37 @@ const shortcuts: [string, string][] = [
             <RotateCw :size="14" /> Recharger
           </button>
         </SettingRow>
-        <SettingRow label="Ollama" :hint="state.overview?.ollama.baseUrl">
-          <span class="badge" :class="state.overview?.ollama.ok ? 'ok' : 'warn'">{{ state.overview?.ollama.ok ? `v${state.overview.ollama.version}` : "hors ligne" }}</span>
+        <SettingRow :label="state.overview?.ollama.engine === 'llamacpp' ? 'llama.cpp' : 'Ollama'" :hint="state.overview?.ollama.baseUrl">
+          <span class="badge" :class="state.overview?.ollama.ok ? 'ok' : 'warn'">{{
+            state.overview?.ollama.ok ? (state.overview.ollama.engine === "llamacpp" ? state.overview.ollama.version : `v${state.overview.ollama.version}`) : "hors ligne"
+          }}</span>
         </SettingRow>
+        <SettingRow label="Moteur" hint="Ollama gère les modèles tout seul ; llama.cpp direct donne plus de réglages et souvent un peu plus de vitesse.">
+          <div class="segmented">
+            <button :class="{ on: engine.engine !== 'llamacpp' }" @click="switchEngine('ollama')">Ollama</button>
+            <button :class="{ on: engine.engine === 'llamacpp' }" :disabled="!llama?.active" @click="switchEngine('llamacpp')">llama.cpp</button>
+          </div>
+        </SettingRow>
+        <div class="llama-builds">
+          <div v-for="b in llama?.builds ?? []" :key="b.id" class="root-row">
+            <strong class="prog-name">{{ b.label }}</strong>
+            <span class="tiny muted grow">{{ b.installed ? (llama?.active === b.id ? "installée · utilisée" : "installée") : `${b.sizeMb} Mo` }}</span>
+            <button v-if="b.installed && engine.backend !== b.id && engine.engine === 'llamacpp'" class="btn sm" @click="engine.backend = b.id; saveEngine()">Utiliser</button>
+            <button v-if="b.installed" class="btn sm ghost icon danger" title="Désinstaller" @click="uninstallLlama(b.id)"><Trash2 :size="14" /></button>
+            <button v-else class="btn sm" :disabled="!!llamaInstalling" @click="installLlama(b.id)"><Download :size="14" /> Installer</button>
+          </div>
+          <div v-if="llamaInstalling" class="row small">
+            <span class="muted grow">{{ llamaProgress?.what ?? "démarrage" }}{{ llamaProgress?.total ? ` · ${Math.round((llamaProgress.received / llamaProgress.total) * 100)} %` : "" }}</span>
+            <button class="btn sm" @click="call('llamacpp.cancelInstall')">Annuler</button>
+          </div>
+          <p class="tiny muted">
+            llama.cpp b11808, téléchargé depuis GitHub (ggml-org) et vérifié par empreinte SHA-256. GPU NVIDIA récent : CUDA (le plus
+            rapide) ; sinon Vulkan. Ses modèles (GGUF) se téléchargent dans l'onglet Modèles, séparément de ceux d'Ollama.
+          </p>
+        </div>
         <SettingRow
           label="Flash attention"
-          hint="Calcul de l'attention plus rapide et plus sobre en VRAM (moteur llama.cpp d'Ollama). Obligatoire si la mémoire de contexte est compressée."
+          hint="Calcul de l'attention plus rapide et plus sobre en VRAM. Obligatoire si la mémoire de contexte est compressée."
         >
           <Toggle v-model="engine.flashAttention" label="Flash attention" @update:model-value="saveEngine" />
         </SettingRow>
@@ -725,9 +801,9 @@ const shortcuts: [string, string][] = [
           </select>
         </SettingRow>
         <p class="tiny muted">
-          Ces deux réglages s'appliquent quand MyIA démarre Ollama. S'il tourne déjà (icône Ollama près de l'horloge, ou PC pas
-          redémarré), quitte-le puis relance MyIA. Une variable OLLAMA_FLASH_ATTENTION ou OLLAMA_KV_CACHE_TYPE posée dans Windows reste
-          prioritaire.
+          Avec llama.cpp, ces deux réglages s'appliquent tout de suite (le serveur redémarre). Avec Ollama, quand MyIA le démarre : s'il
+          tourne déjà (icône Ollama près de l'horloge, ou PC pas redémarré), quitte-le puis relance MyIA. Une variable
+          OLLAMA_FLASH_ATTENTION ou OLLAMA_KV_CACHE_TYPE posée dans Windows reste prioritaire.
         </p>
         <SettingRow label="Dossier MyIA" hint="Configuration, conversations, journal d'audit, thèmes.">
           <code class="path">{{ state.sidecar.home || state.info?.home }}</code>

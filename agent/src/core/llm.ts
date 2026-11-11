@@ -42,6 +42,24 @@ export interface PullProgress {
   completed?: number;
 }
 
+/** Ce que MyIA attend d'un moteur local (Ollama ou llama.cpp) : mêmes messages, mêmes outils, même gestion des modèles. */
+export interface LlmClient {
+  readonly engine: "ollama" | "llamacpp";
+  /** Modèle effectivement utilisé par ce client. */
+  readonly model: string;
+  ping(): Promise<boolean>;
+  version(): Promise<string>;
+  hasModel(model?: string): Promise<boolean>;
+  listModels(): Promise<ModelInfo[]>;
+  runningModels(): Promise<RunningModel[]>;
+  pull(model: string, onProgress: (p: PullProgress) => void, signal?: AbortSignal): Promise<void>;
+  deleteModel(model: string): Promise<void>;
+  unload(model: string): Promise<void>;
+  ensureRunning(): Promise<void>;
+  warmUp(): Promise<void>;
+  chat(messages: ChatMessage[], tools: ToolSpec[], signal?: AbortSignal, opts?: { format?: "json"; temperature?: number }): Promise<ChatMessage>;
+}
+
 /** Nom de modèle Ollama accepté (ex. qwen3:8b, hf.co/org/repo:Q4_K_M). Bloque tout ce qui ressemble à une URL ou un chemin. */
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9._-]+)*(:[A-Za-z0-9._-]+)?$/;
 
@@ -70,8 +88,13 @@ export function engineEnv(cfg: Pick<Config["llm"], "flashAttention" | "kvCache">
 }
 
 /** Client minimal de l'API native d'Ollama (/api/chat). */
-export class OllamaClient {
+export class OllamaClient implements LlmClient {
+  readonly engine = "ollama" as const;
   constructor(private readonly cfg: Config["llm"]) {}
+
+  get model() {
+    return this.cfg.model;
+  }
 
   private url(p: string) {
     return this.cfg.baseUrl.replace(/\/$/, "") + p;

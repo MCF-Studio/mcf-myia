@@ -235,7 +235,7 @@ export async function boot() {
       toast(`${p.name} installé`, "success");
     }
   });
-  on("ollama.error", (p) => toast(`Ollama : ${p.message}`, "error"));
+  on("ollama.error", (p) => toast(`${state.overview?.ollama.engine === "llamacpp" ? "llama.cpp" : "Ollama"} : ${p.message}`, "error"));
   on("ollama.ready", () => void refreshOverview());
   on("sidecar.exit", () => {
     state.ready = false;

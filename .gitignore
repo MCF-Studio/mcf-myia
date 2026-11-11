@@ -12,6 +12,7 @@ config/guild.json
 data/
 runtime/
 ollama/
+llamacpp/
 workspace/
 
 # Notes personnelles hors projet

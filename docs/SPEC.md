@@ -129,6 +129,19 @@ réapplique sur le texte déchiffré, puis bac à sable sans outils (mode auto) 
 Guilde, texte affiché avant tout traitement). Demandeur : premier fournisseur qui se propose. Empreintes des clés
 affichées des deux côtés (parade v1 à un relais qui substituerait les clés).
 
+**Moteur local** (Paramètres → Système) : Ollama, ou llama.cpp directement (`core/llamacpp.ts`) : `llama-server` en
+mode routeur (`--models-dir llamacpp\models`, modèles chargés à la demande), API compatible OpenAI. Build figée
+(b11808, CUDA 13 / Vulkan / processeur) et modèles du catalogue vérifiés par SHA-256 ; un GGUF Hugging Face hors
+catalogue est vérifié avec l'empreinte LFS publiée par Hugging Face. Écoute sur 127.0.0.1, clé d'API aléatoire dans le
+coffre Windows, passée par variable d'environnement (jamais en argument). Changer de moteur échange le modèle par
+défaut avec celui gardé pour l'autre moteur. Flash attention et cache de contexte compressé (q8 par défaut) pour les
+deux moteurs.
+
+**Claude Code en local** (console, modèle « Local ») : `llama-server` expose aussi l'API Messages d'Anthropic ; la
+console lance `claude` avec `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`, la clé du serveur et le modèle llama.cpp par
+défaut, tous lus **côté Rust** (config + coffre) : l'interface ne peut pas rediriger Claude Code vers un autre serveur.
+`ANTHROPIC_API_KEY` est retirée de l'environnement de la console, le trafic non essentiel coupé.
+
 **Coach des sessions Claude** : le modèle local évalue la difficulté d'une tâche (1 à 5) et choisit Haiku, Sonnet ou
 Opus, pour `claude_delegate` (modèle affiché dans la confirmation) comme pour l'ouverture d'une console. Dans une
 console : changement de modèle (`/model`), `/compact`, et « résumer et repartir » (Claude écrit une passation dans
@@ -189,6 +202,9 @@ modèle.
 | Mode bypass activé à l'insu de l'utilisateur                                         | Désactivé par défaut ; réglage dans la config, lu côté Rust ; consoles limitées aux dossiers autorisés |
 | Le relais (ou MCF Studio) lit une demande de la Guilde                               | Chiffrement de bout en bout par appareil ; le relais ne voit que des métadonnées        |
 | Demande de la Guilde piégée (« lis mes fichiers », « envoie… »)                       | Bac à sable sans outils ni mémoire ; validation du propriétaire hors mode auto          |
+| Moteur ou modèle local piégé (build ou GGUF modifié)                                 | Build figée et empreintes SHA-256 ; GGUF hors catalogue vérifié par l'empreinte Hugging Face |
+| Page web ou programme local qui appelle le serveur llama.cpp                          | 127.0.0.1 seulement ; clé d'API aléatoire (coffre), hors ligne de commande              |
+| Console « Local » détournée vers un serveur tiers (fuite du code du projet)           | Adresse, modèle et clé lus côté Rust ; jamais fournis par l'interface                   |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

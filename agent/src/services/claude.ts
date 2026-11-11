@@ -5,7 +5,7 @@ import { paths } from "../core/paths.js";
 import { commandWorks, runProcess } from "../core/proc.js";
 import type { ProjectRegistry } from "../core/projects.js";
 import { CLAUDE_MODELS, MODEL_LABEL, triageTask, type Triage } from "../core/claude-coach.js";
-import { OllamaClient } from "../core/llm.js";
+import { createLlm } from "../core/llm-factory.js";
 import { defineTool, truncate, type Service, type ToolContext } from "../core/types.js";
 
 const APPEND_PROMPT =
@@ -106,7 +106,7 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
   });
 
   // Choix du modèle fait une fois, avant la confirmation, et réutilisé à l'exécution.
-  const llm = new OllamaClient(cfg.llm);
+  const llm = createLlm(cfg.llm);
   const choices = new WeakMap<object, Triage>();
   const choose = async (a: z.infer<typeof schema>): Promise<Triage | undefined> => {
     if (a.model !== "auto") return { model: a.model, difficulty: 3, reason: "modèle demandé explicitement", by: "local" };

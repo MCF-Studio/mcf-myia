@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import ChatPanel from "../components/ChatPanel.vue";
 import TerminalPanel from "../components/TerminalPanel.vue";
-import { CLAUDE_MODELS, isTerminalKey, killTerminal, openClaude, terminals, triage, type Triage } from "../lib/terminals";
+import { CLAUDE_MODELS, isTerminalKey, killTerminal, LOCAL_MODEL, openClaude, terminals, triage, type Triage } from "../lib/terminals";
 import { relTime } from "../lib/format";
 import { call } from "../lib/rpc";
 import { settings } from "../lib/settings";
@@ -58,7 +58,7 @@ const consoleResume = ref(false);
 const launching = ref(false);
 const consoleTask = ref("");
 /** "auto" = le modèle local choisit selon la difficulté ; "" = modèle par défaut de Claude Code. */
-const consoleModel = ref<"auto" | "" | "haiku" | "sonnet" | "opus">("auto");
+const consoleModel = ref<"auto" | "" | "haiku" | "sonnet" | "opus" | "local">("auto");
 const advice = ref<Triage>();
 const advising = ref(false);
 
@@ -373,6 +373,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
                 {{ m.label }}
               </button>
               <button type="button" :class="{ on: consoleModel === '' }" title="Le modèle configuré dans Claude Code" @click="consoleModel = ''">Défaut</button>
+              <button type="button" :class="{ on: consoleModel === 'local' }" :title="LOCAL_MODEL.hint" @click="consoleModel = 'local'">{{ LOCAL_MODEL.label }}</button>
+            </div>
+            <div v-if="consoleModel === 'local'" class="advice small">
+              <span class="muted">
+                Claude Code avec ton modèle llama.cpp : rien ne part chez Anthropic, aucun coût. Expérimental : un modèle local de 8 Go se perd
+                vite sur de grosses tâches, et le premier chargement prend une minute.
+              </span>
             </div>
             <div v-if="consoleModel === 'auto'" class="advice small">
               <template v-if="advice">

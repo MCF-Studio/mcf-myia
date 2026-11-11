@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { OllamaClient } from "./llm.js";
+import type { LlmClient } from "./llm.js";
 
 /**
  * Coach des sessions Claude : choisit le modèle Claude adapté à une tâche (Haiku, Sonnet, Opus) d'après sa difficulté.
@@ -50,7 +50,7 @@ export function heuristicTriage(task: string): Triage {
   return { model: modelForDifficulty(difficulty), difficulty, reason: "estimation par mots-clés (modèle local indisponible)", by: "heuristique" };
 }
 
-export async function triageTask(llm: OllamaClient, task: string, signal?: AbortSignal): Promise<Triage> {
+export async function triageTask(llm: LlmClient, task: string, signal?: AbortSignal): Promise<Triage> {
   const text = task.trim().slice(0, 6000);
   if (!text) throw new Error("tâche vide");
   try {

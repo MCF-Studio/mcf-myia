@@ -73,6 +73,52 @@ fn bypass_permissions() -> bool {
         .unwrap_or(false)
 }
 
+/// Claude Code sur un modèle local : llama-server (moteur llama.cpp de MyIA) expose l'API Messages d'Anthropic.
+/// Tout est lu ICI, côté Rust : adresse (toujours 127.0.0.1, port de la config), modèle (celui de llama.cpp dans la
+/// config) et clé d'API (coffre Windows). L'interface ne peut donc pas envoyer Claude Code vers un autre serveur.
+fn local_claude_env() -> Result<Vec<(&'static str, String)>, String> {
+    let cfg = std::fs::read_to_string(crate::sidecar::home().join("config").join("agent.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let llm = cfg.get("llm");
+    let engine = llm.and_then(|l| l.get("engine")).and_then(|v| v.as_str()).unwrap_or("ollama");
+    let model = if engine == "llamacpp" {
+        llm.and_then(|l| l.get("model")).and_then(|v| v.as_str())
+    } else {
+        llm.and_then(|l| l.get("otherModels")?.get("llamacpp")?.as_str())
+    }
+    .ok_or("aucun modèle llama.cpp par défaut : choisis-en un dans l'onglet Modèles (moteur llama.cpp)")?
+    .to_string();
+    let valid = !model.is_empty()
+        && model.len() <= 151
+        && model.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && model.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if !valid {
+        return Err(format!("nom de modèle llama.cpp invalide : {model}"));
+    }
+    let port = llm
+        .and_then(|l| l.get("llamacpp")?.get("port")?.as_u64())
+        .unwrap_or(11435);
+    if !(1024..=65535).contains(&port) {
+        return Err("port llama.cpp invalide".into());
+    }
+    let token = keyring::Entry::new("MyIA", "llamacpp_api_key")
+        .and_then(|e| e.get_password())
+        .map_err(|_| "clé du serveur llama.cpp introuvable : démarre llama.cpp depuis MyIA une première fois".to_string())?;
+    Ok(vec![
+        ("ANTHROPIC_BASE_URL", format!("http://127.0.0.1:{port}")),
+        ("ANTHROPIC_AUTH_TOKEN", token),
+        ("ANTHROPIC_MODEL", model.clone()),
+        ("ANTHROPIC_DEFAULT_OPUS_MODEL", model.clone()),
+        ("ANTHROPIC_DEFAULT_SONNET_MODEL", model.clone()),
+        ("ANTHROPIC_DEFAULT_HAIKU_MODEL", model.clone()),
+        ("ANTHROPIC_SMALL_FAST_MODEL", model),
+        // Rien d'autre ne part vers Internet (télémétrie, rapports d'erreur, mises à jour automatiques).
+        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1".into()),
+    ])
+}
+
 fn is_allowed(dir: &Path) -> bool {
     match dir.canonicalize() {
         Ok(d) => allowed_roots().iter().any(|r| d.starts_with(r)),
@@ -115,13 +161,18 @@ pub fn pty_spawn(
     if bypass_permissions() {
         cmd.arg("--dangerously-skip-permissions");
     }
-    // Modèle : liste fermée d'alias Claude Code.
+    // Modèle : liste fermée d'alias Claude Code, ou « local » (modèle llama.cpp de MyIA, voir local_claude_env).
+    let mut local_env = None;
     if let Some(m) = model.filter(|m| !m.is_empty()) {
-        if !["haiku", "sonnet", "opus"].contains(&m.as_str()) {
-            return Err(format!("modèle inconnu : {m}"));
+        if m == "local" {
+            local_env = Some(local_claude_env()?);
+        } else {
+            if !["haiku", "sonnet", "opus"].contains(&m.as_str()) {
+                return Err(format!("modèle inconnu : {m}"));
+            }
+            cmd.arg("--model");
+            cmd.arg(m);
         }
-        cmd.arg("--model");
-        cmd.arg(m);
     }
     // Tâche de départ : un seul argument (pas de shell), une seule ligne, bornée.
     if let Some(p) = prompt.map(|p| p.replace(['\r', '\n'], " ").trim().to_string()).filter(|p| !p.is_empty()) {
@@ -136,6 +187,13 @@ pub fn pty_spawn(
     cmd.cwd(&dir);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    if let Some(vars) = local_env {
+        // Une clé Anthropic de l'environnement ne doit pas partir vers le serveur local (ni passer avant lui).
+        cmd.env_remove("ANTHROPIC_API_KEY");
+        for (k, v) in vars {
+            cmd.env(k, v);
+        }
+    }
 
     let child = pair
         .slave

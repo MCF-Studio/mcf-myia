@@ -7,6 +7,10 @@ import { navigate, refreshOverview, state, toast } from "../lib/store";
 import type { ModelInfo, RunningModel } from "../lib/types";
 
 const installed = ref<ModelInfo[]>([]);
+const engine = ref<"ollama" | "llamacpp">("ollama");
+/** Catalogue llama.cpp (GGUF officiels, empreintes vérifiées par le cœur). */
+const catalog = ref<{ id: string; label: string; note: string; size: number; installed: boolean }[]>([]);
+const isLlama = computed(() => engine.value === "llamacpp");
 const running = ref<RunningModel[]>([]);
 const defaultModel = ref("");
 const loading = ref(false);
@@ -30,12 +34,16 @@ const pulls = computed(() => Object.entries(state.pullProgress));
 async function refresh() {
   loading.value = true;
   try {
-    const r = await call<{ installed: ModelInfo[]; running: RunningModel[]; defaultModel: string }>("models.list");
+    const r = await call<{ installed: ModelInfo[]; running: RunningModel[]; defaultModel: string; engine?: "ollama" | "llamacpp" }>("models.list");
+    engine.value = r.engine ?? "ollama";
+    if (engine.value === "llamacpp") {
+      catalog.value = (await call<{ catalog: typeof catalog.value }>("llamacpp.status").catch(() => ({ catalog: [] }))).catalog;
+    }
     installed.value = r.installed.sort((a, b) => a.name.localeCompare(b.name));
     running.value = r.running;
     defaultModel.value = r.defaultModel;
   } catch (e) {
-    toast(`Ollama : ${(e as Error).message}`, "error");
+    toast(`${engine.value === "llamacpp" ? "llama.cpp" : "Ollama"} : ${(e as Error).message}`, "error");
   } finally {
     loading.value = false;
   }
@@ -88,7 +96,7 @@ onMounted(refresh);
       <div>
         <div class="eyebrow">Modèles</div>
         <h1>Gestion des modèles</h1>
-        <p>Modèles locaux servis par Ollama : rien ne quitte ta machine.</p>
+        <p>Modèles locaux servis par {{ isLlama ? "llama.cpp" : "Ollama" }} : rien ne quitte ta machine. Moteur : Paramètres → Système.</p>
       </div>
       <button class="btn" :disabled="loading" @click="refresh"><RefreshCw :size="15" :class="{ spin: loading }" /> Actualiser</button>
     </header>
@@ -103,13 +111,35 @@ onMounted(refresh);
     <section class="card pull">
       <div class="card-head">
         <h3><Download :size="17" /> Télécharger un modèle</h3>
-        <a href="https://ollama.com/library" class="small">Catalogue Ollama ↗</a>
+        <a v-if="isLlama" href="https://huggingface.co/models?library=gguf" class="small">Modèles GGUF sur Hugging Face ↗</a>
+        <a v-else href="https://ollama.com/library" class="small">Catalogue Ollama ↗</a>
       </div>
       <form class="row" @submit.prevent="pull()">
-        <input v-model="pullName" class="input mono" placeholder="nom:taille, ex. qwen3:14b" spellcheck="false" />
+        <input
+          v-model="pullName"
+          class="input mono"
+          :placeholder="isLlama ? 'hf.co/organisation/dépôt/fichier.gguf' : 'nom:taille, ex. qwen3:14b'"
+          spellcheck="false"
+        />
         <button class="btn primary" :disabled="!pullName.trim()">Télécharger</button>
       </form>
-      <div class="chips">
+      <p v-if="isLlama" class="tiny muted">
+        Fichier vérifié avec l'empreinte publiée par Hugging Face. Choisis une quantification qui tient dans ta VRAM (Q4_K_M pour un
+        8B avec 8 Go).
+      </p>
+      <div v-if="isLlama" class="chips">
+        <button
+          v-for="c in catalog"
+          :key="c.id"
+          class="chip"
+          :title="c.note"
+          :disabled="c.installed || installed.some((m) => m.name === c.id) || !!state.pullProgress[c.id]"
+          @click="pull(c.id)"
+        >
+          <span class="mono">{{ c.label }}</span><span class="muted">{{ bytes(c.size) }} · {{ c.note }}</span>
+        </button>
+      </div>
+      <div v-else class="chips">
         <button
           v-for="s in SUGGESTIONS"
           :key="s.name"
@@ -179,7 +209,7 @@ onMounted(refresh);
           </tr>
         </tbody>
       </table>
-      <div v-else class="empty small">Aucun modèle installé (ou Ollama ne répond pas).</div>
+      <div v-else class="empty small">Aucun modèle installé (ou {{ isLlama ? "llama.cpp" : "Ollama" }} ne répond pas).</div>
     </section>
 
     <button class="card market-teaser" @click="navigate('marketplace')">

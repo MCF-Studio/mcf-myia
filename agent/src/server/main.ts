@@ -18,7 +18,9 @@ import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
 import { openInBrowser } from "../services/web.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
-import { MODEL_NAME, OllamaClient } from "../core/llm.js";
+import { MODEL_NAME } from "../core/llm.js";
+import { createLlm } from "../core/llm-factory.js";
+import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
 import { makeTeamRoot } from "../core/team-runner.js";
 import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
 import { isInside, paths } from "../core/paths.js";
@@ -78,7 +80,8 @@ let services: Service[] = buildServices(cfg);
 let profiles: AgentProfile[] = loadProfiles();
 let teams: Team[] = loadTeams();
 const store = new ConversationStore();
-const ollama = () => new OllamaClient(cfg.llm);
+/** Client du moteur local actif (Ollama ou llama.cpp). */
+const engine = () => createLlm(cfg.llm);
 
 interface Live {
   agent: Agent;
@@ -137,11 +140,12 @@ rpc.method("app.info", () => ({
 }));
 
 rpc.method("overview", async () => {
-  const client = ollama();
-  let ollamaInfo: Record<string, unknown> = { ok: false, baseUrl: cfg.llm.baseUrl };
+  const client = engine();
+  const baseUrl = cfg.llm.engine === "llamacpp" ? `http://127.0.0.1:${cfg.llm.llamacpp.port}` : cfg.llm.baseUrl;
+  let ollamaInfo: Record<string, unknown> = { ok: false, baseUrl, engine: cfg.llm.engine };
   try {
     const [version, running, installed] = await Promise.all([client.version(), client.runningModels(), client.listModels()]);
-    ollamaInfo = { ok: true, baseUrl: cfg.llm.baseUrl, version, running, installedCount: installed.length };
+    ollamaInfo = { ok: true, baseUrl, engine: cfg.llm.engine, version, running, installedCount: installed.length };
   } catch (e) {
     ollamaInfo.error = (e as Error).message;
   }
@@ -371,9 +375,9 @@ rpc.method("conversations.send", async (params) => {
 // ─── modèles ─────────────────────────────────────────────────────────────────
 
 rpc.method("models.list", async () => {
-  const client = ollama();
+  const client = engine();
   const [installed, running] = await Promise.all([client.listModels(), client.runningModels()]);
-  return { installed, running, defaultModel: cfg.llm.model, pulling: [...pulls.keys()] };
+  return { installed, running, defaultModel: cfg.llm.model, pulling: [...pulls.keys()], engine: cfg.llm.engine };
 });
 
 rpc.method("models.pull", async (params) => {
@@ -383,7 +387,7 @@ rpc.method("models.pull", async (params) => {
   pulls.set(name, ac);
   let last = 0;
   try {
-    await ollama().pull(
+    await engine().pull(
       name,
       (p) => {
         const now = Date.now();
@@ -410,19 +414,19 @@ rpc.method("models.delete", async (params) => {
   if (name === cfg.llm.model) throw new Error("c'est le modèle par défaut : choisis-en un autre avant de le supprimer");
   const users = profiles.filter((p) => p.model === name).map((p) => p.name);
   if (users.length) throw new Error(`utilisé par : ${users.join(", ")}`);
-  await ollama().deleteModel(name);
+  await engine().deleteModel(name);
   return true;
 });
 
 rpc.method("models.unload", async (params) => {
-  await ollama().unload(parse(ModelParam, params).name);
+  await engine().unload(parse(ModelParam, params).name);
   return true;
 });
 
 /** Change llm.model dans config/agent.json (seul champ modifié, le reste du fichier est conservé). */
 rpc.method("models.setDefault", async (params) => {
   const { name } = parse(ModelParam, params);
-  if (!(await ollama().hasModel(name))) throw new Error(`modèle non installé : ${name}`);
+  if (!(await engine().hasModel(name))) throw new Error(`modèle non installé : ${name}`);
   const raw = JSON.parse(fs.readFileSync(paths.config, "utf8")) as { llm?: Record<string, unknown> };
   raw.llm = { ...(raw.llm ?? {}), model: name };
   writeJsonAtomic(paths.config, raw);
@@ -682,7 +686,7 @@ rpc.method("whisper.transcribe", async (params) => {
 
 rpc.method("claude.triage", async (params) => {
   const { task } = parse(z.object({ task: z.string().trim().min(3).max(6000) }), params);
-  return triageTask(ollama(), task);
+  return triageTask(engine(), task);
 });
 
 /** Passation d'une console : le fichier existe-t-il (et a-t-il fini d'être écrit) ? Dossiers autorisés uniquement. */
@@ -721,13 +725,105 @@ rpc.method("config.get", () => ({
   projectRoots: cfg.projectRoots,
   configPath: paths.config,
   claudeBypassPermissions: cfg.claude.bypassPermissions,
-  engine: { flashAttention: cfg.llm.flashAttention, kvCache: cfg.llm.kvCache },
+  engine: {
+    flashAttention: cfg.llm.flashAttention,
+    kvCache: cfg.llm.kvCache,
+    engine: cfg.llm.engine,
+    backend: cfg.llm.llamacpp.backend,
+  },
 }));
 
-/** Moteur llama.cpp d'Ollama : appliqué au prochain démarrage d'Ollama par MyIA. */
-rpc.method("config.setEngine", (params) => {
-  const { flashAttention, kvCache } = parse(z.object({ flashAttention: z.boolean(), kvCache: z.enum(["f16", "q8_0", "q4_0"]) }), params);
-  patchConfig((raw) => (raw.llm = { ...(raw.llm ?? {}), flashAttention, kvCache }));
+const DEFAULT_MODEL = { ollama: "qwen3:8b", llamacpp: "Qwen3-8B-Q4_K_M" } as const;
+
+/**
+ * Moteur local et ses réglages. Changer de moteur échange le modèle par défaut avec celui gardé pour l'autre moteur
+ * (rien n'est perdu) ; le serveur llama.cpp est arrêté pour repartir avec les nouveaux réglages.
+ */
+rpc.method("config.setEngine", async (params) => {
+  const p = parse(
+    z.object({
+      flashAttention: z.boolean(),
+      kvCache: z.enum(["f16", "q8_0", "q4_0"]),
+      engine: z.enum(["ollama", "llamacpp"]).optional(),
+      backend: z.enum(["cuda", "vulkan", "cpu"]).optional(),
+    }),
+    params,
+  );
+  const next = p.engine ?? cfg.llm.engine;
+  if (next === "llamacpp" && !activeBuild({ ...cfg.llm, llamacpp: { ...cfg.llm.llamacpp, backend: p.backend ?? cfg.llm.llamacpp.backend } })) {
+    throw new Error("installe d'abord une build de llama.cpp (ci-dessous)");
+  }
+  patchConfig((raw) => {
+    const llm = { ...(raw.llm ?? {}) } as Record<string, any>;
+    llm.flashAttention = p.flashAttention;
+    llm.kvCache = p.kvCache;
+    if (p.backend) llm.llamacpp = { ...(llm.llamacpp ?? {}), backend: p.backend };
+    if (next !== cfg.llm.engine) {
+      const others = { ...(llm.otherModels ?? {}) };
+      others[cfg.llm.engine] = cfg.llm.model;
+      llm.model = others[next] ?? DEFAULT_MODEL[next];
+      delete others[next];
+      llm.otherModels = others;
+      llm.engine = next;
+    }
+    raw.llm = llm;
+  });
+  stopLlamaServer();
+  void engine()
+    .ensureRunning()
+    .then(() => rpc.notify("ollama.ready", {}))
+    .catch((e) => rpc.notify("ollama.error", { message: (e as Error).message }));
+  return true;
+});
+
+// ─── llama.cpp : builds et catalogue de modèles ──────────────────────────────
+
+/**
+ * Claude Code sur le modèle local : démarre llama-server et charge le modèle llama.cpp par défaut avant l'ouverture de
+ * la console (qui lit elle-même adresse, modèle et clé côté Rust).
+ */
+rpc.method("claude.localReady", async () => {
+  const model = cfg.llm.engine === "llamacpp" ? cfg.llm.model : cfg.llm.otherModels.llamacpp;
+  if (!model) throw new Error("aucun modèle llama.cpp par défaut : passe le moteur sur llama.cpp (Paramètres → Système) et installe un modèle");
+  if (!activeBuild(cfg.llm)) throw new Error("llama.cpp n'est pas installé : Paramètres → Système → Moteur");
+  const client = new LlamaCppClient(cfg.llm, model);
+  if (!(await client.hasModel(model))) throw new Error(`modèle ${model} absent : onglet Modèles (moteur llama.cpp)`);
+  await client.ensureRunning();
+  await client.warmUp();
+  return { model, sharedWithOllama: cfg.llm.engine !== "llamacpp" };
+});
+
+let buildInstall: AbortController | undefined;
+rpc.method("llamacpp.status", () => {
+  const local = new Set(fs.existsSync(paths.llamacppModels) ? fs.readdirSync(paths.llamacppModels).filter((f) => f.endsWith(".gguf")).map((f) => f.slice(0, -5)) : []);
+  return {
+    builds: Object.entries(BUILDS).map(([id, b]) => ({ id, label: b.label, sizeMb: b.sizeMb, installed: installedBuilds()[id as Build] })),
+    active: activeBuild(cfg.llm) ?? null,
+    catalog: Object.entries(CATALOG).map(([id, m]) => ({ id, label: m.label, note: m.note, size: m.size, installed: local.has(id) })),
+    installing: !!buildInstall,
+  };
+});
+rpc.method("llamacpp.install", async (params) => {
+  const { build } = parse(z.object({ build: z.enum(["cuda", "vulkan", "cpu"]) }), params);
+  if (buildInstall) throw new Error("installation déjà en cours");
+  buildInstall = new AbortController();
+  try {
+    await installBuild(build, (p) => rpc.notify("llamacpp.progress", p), buildInstall.signal);
+    return true;
+  } finally {
+    buildInstall = undefined;
+  }
+});
+rpc.method("llamacpp.cancelInstall", () => {
+  buildInstall?.abort();
+  return true;
+});
+rpc.method("llamacpp.uninstall", (params) => {
+  const { build } = parse(z.object({ build: z.enum(["cuda", "vulkan", "cpu"]) }), params);
+  if (cfg.llm.engine === "llamacpp" && activeBuild(cfg.llm) === build && Object.values(installedBuilds()).filter(Boolean).length === 1) {
+    throw new Error("c'est la seule build du moteur actif : repasse sur Ollama avant de la désinstaller");
+  }
+  uninstallBuild(build);
   return true;
 });
 
@@ -791,6 +887,7 @@ async function shutdown() {
   closing = true;
   for (const l of live.values()) l.running?.abort();
   stopLink("arrêt de MyIA");
+  stopLlamaServer();
   for (const p of pulls.values()) p.abort();
   audit({ event: "session_end" });
   await Promise.race([Promise.allSettled(services.map((s) => s.close?.())), new Promise((r) => setTimeout(r, 3000))]);
@@ -799,7 +896,7 @@ async function shutdown() {
 
 audit({ event: "session_start" });
 rpc.notify("ready", { version: VERSION });
-ollama()
+engine()
   .ensureRunning()
   .then(() => rpc.notify("ollama.ready", {}))
   .catch((e) => rpc.notify("ollama.error", { message: (e as Error).message }));

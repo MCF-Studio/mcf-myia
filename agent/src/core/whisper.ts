@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import AdmZip from "adm-zip";
-import { isInside, paths } from "./paths.js";
+import { download, extractZip, type Progress } from "./fetch-verified.js";
+import { paths } from "./paths.js";
+
+export type { Progress };
 
 /**
  * Dictée locale avec whisper.cpp (MIT). Rien n'est livré avec l'app : moteur et modèle se téléchargent à la demande.
@@ -83,64 +84,6 @@ export function whisperStatus(): WhisperStatus {
   const engine: Engine | undefined = engines.cuda ? "cuda" : engines.cpu ? "cpu" : undefined;
   const model: WhisperModel | undefined = models["large-v3-turbo"] ? "large-v3-turbo" : models.small ? "small" : undefined;
   return { engines, models, ready: !!engine && !!model, active: engine && model ? { engine, model } : undefined };
-}
-
-export interface Progress {
-  what: string;
-  received: number;
-  total?: number;
-}
-
-/** Téléchargement en flux, empreinte calculée au vol ; le fichier n'est gardé que si l'empreinte correspond. */
-async function download(url: string, dest: string, sha256: string, onProgress: (p: Progress) => void, what: string, signal?: AbortSignal) {
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  const tmp = `${dest}.part`;
-  const r = await fetch(url, { signal, redirect: "follow" });
-  if (!r.ok || !r.body) throw new Error(`téléchargement impossible (${r.status}) : ${url}`);
-  const total = Number(r.headers.get("content-length")) || undefined;
-  const hash = crypto.createHash("sha256");
-  const out = fs.createWriteStream(tmp);
-  let received = 0;
-  let last = 0;
-  try {
-    for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
-      hash.update(chunk);
-      received += chunk.length;
-      if (!out.write(chunk)) await new Promise((res) => out.once("drain", res));
-      if (Date.now() - last > 250) {
-        last = Date.now();
-        onProgress({ what, received, total });
-      }
-    }
-    await new Promise<void>((res, rej) => out.end((err?: Error | null) => (err ? rej(err) : res())));
-  } catch (e) {
-    out.destroy();
-    fs.rmSync(tmp, { force: true });
-    throw e;
-  }
-  const got = hash.digest("hex");
-  if (got !== sha256) {
-    fs.rmSync(tmp, { force: true });
-    throw new Error(`empreinte invalide pour ${path.basename(dest)} : fichier rejeté (attendu ${sha256.slice(0, 12)}…, reçu ${got.slice(0, 12)}…)`);
-  }
-  fs.renameSync(tmp, dest);
-  onProgress({ what, received, total: received });
-}
-
-function extractZip(zipFile: string, dir: string) {
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
-  const zip = new AdmZip(zipFile);
-  let total = 0;
-  for (const e of zip.getEntries()) {
-    if (e.isDirectory) continue;
-    const target = path.resolve(dir, e.entryName);
-    if (!isInside(dir, target)) throw new Error(`chemin suspect dans l'archive : ${e.entryName}`);
-    total += e.header.size;
-    if (total > 4 * 1024 * 1024 * 1024) throw new Error("archive suspecte (plus de 4 Go décompressés)");
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, e.getData());
-  }
 }
 
 export async function installWhisper(engine: Engine, model: WhisperModel, onProgress: (p: Progress) => void, signal?: AbortSignal) {
