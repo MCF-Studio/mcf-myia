@@ -95,6 +95,10 @@ console : changement de modèle (`/model`), `/compact`, et « résumer et repart
 ce fichier que dans le workspace et les dossiers de projets). L'alerte « session longue » est une **estimation** (durée,
 volume affiché), pas une mesure du contexte réel.
 
+**Dictée** : whisper.cpp (MIT) et son modèle se téléchargent à la demande, en versions figées dont l'empreinte SHA-256
+est vérifiée avant usage (fichier rejeté sinon) ; archives extraites avec protection « zip slip » et plafond de taille.
+L'audio (WAV 16 kHz) est transcrit localement dans un fichier temporaire supprimé ensuite ; rien ne sort de la machine.
+
 **Photos d'agents** : PNG, JPEG ou WebP en data URL, recadrées et réduites à 256 px par l'app (le passage par un canvas
 retire les métadonnées). Pas de SVG ni d'URL : une image ne peut ni exécuter de script ni appeler un serveur.
 

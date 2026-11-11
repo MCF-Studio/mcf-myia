@@ -22,11 +22,12 @@ import {
   Upload,
   Volume2,
 } from "lucide-vue-next";
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import SettingRow from "../components/SettingRow.vue";
 import Toggle from "../components/Toggle.vue";
 import { downloadText, pickTextFile } from "../lib/files";
-import { call, inTauri } from "../lib/rpc";
+import { call, inTauri, on } from "../lib/rpc";
+import { refreshDictation } from "../lib/dictation";
 import { resetSettings, settings } from "../lib/settings";
 import { playSound, SOUND_PACKS, speak, stopSpeaking, voices } from "../lib/sound";
 import { refreshSidecar, refreshThemes, restartSidecar, state, toast } from "../lib/store";
@@ -171,6 +172,49 @@ async function searchProg() {
   }
 }
 
+// ─── Dictée (whisper.cpp) ─────────────────────────────────────────────────────
+interface WhisperSt {
+  ready: boolean;
+  engines: Record<"cpu" | "cuda", boolean>;
+  models: Record<"large-v3-turbo" | "small", boolean>;
+}
+const whisper = ref<WhisperSt>();
+const wEngine = ref<"cpu" | "cuda">("cuda");
+const wModel = ref<"large-v3-turbo" | "small">("large-v3-turbo");
+const wInstalling = ref(false);
+const wProgress = ref<{ what: string; received: number; total?: number }>();
+const wPct = computed(() => (wProgress.value?.total ? Math.round((wProgress.value.received / wProgress.value.total) * 100) : 0));
+const offProgress = on("whisper.progress", (p) => (wProgress.value = p));
+onBeforeUnmount(offProgress);
+
+async function loadWhisper() {
+  whisper.value = await call<WhisperSt>("whisper.status").catch(() => undefined);
+  // Pas de GPU NVIDIA détecté : le CPU par défaut.
+  if (!state.metrics?.gpus.length) wEngine.value = "cpu";
+}
+
+async function installWhisper() {
+  wInstalling.value = true;
+  try {
+    await call("whisper.install", { engine: wEngine.value, model: wModel.value });
+    toast("Dictée installée : bouton micro dans les conversations", "success");
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (!/abort/i.test(msg)) toast(msg, "error");
+  } finally {
+    wInstalling.value = false;
+    wProgress.value = undefined;
+    await loadWhisper();
+    await refreshDictation();
+  }
+}
+
+async function uninstallWhisper() {
+  await call("whisper.uninstall").catch((e) => toast(e.message, "error"));
+  await loadWhisper();
+  await refreshDictation();
+}
+
 function loadVoices() {
   voiceList.value = voices();
 }
@@ -179,6 +223,7 @@ onMounted(async () => {
   loadVoices();
   void loadConfigBits();
   void loadPrograms();
+  void loadWhisper();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = loadVoices;
   if (inTauri) appVersion.value = await getVersion();
   void refreshSidecar();
@@ -390,6 +435,56 @@ const shortcuts: [string, string][] = [
           <div class="row test-row">
             <button class="btn sm" @click="speak('Salut ! Je suis prête. Dis-moi ce que tu veux faire.', true)"><Play :size="14" /> Tester la voix</button>
             <button class="btn sm ghost" @click="stopSpeaking">Arrêter</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <h3 class="sec-title">Dictée (reconnaissance vocale)</h3>
+            <span class="badge" :class="whisper?.ready ? 'ok' : ''">{{ whisper?.ready ? "installée" : "non installée" }}</span>
+          </div>
+          <p class="tiny muted">
+            whisper.cpp tourne sur ta machine : ta voix ne quitte jamais le PC. Bouton micro dans chaque conversation. Les fichiers sont
+            téléchargés depuis les sources officielles et vérifiés (empreinte SHA-256) avant usage.
+          </p>
+          <SettingRow label="Moteur" hint="Le GPU transcrit en 1 à 3 s ; le CPU est 5 à 10 fois plus lent.">
+            <div class="segmented">
+              <button :class="{ on: wEngine === 'cuda' }" @click="wEngine = 'cuda'">GPU NVIDIA · 653 Mo</button>
+              <button :class="{ on: wEngine === 'cpu' }" @click="wEngine = 'cpu'">CPU · 8 Mo</button>
+            </div>
+          </SettingRow>
+          <SettingRow label="Modèle" hint="large-v3-turbo : le plus précis en français. small : plus léger.">
+            <div class="segmented">
+              <button :class="{ on: wModel === 'large-v3-turbo' }" @click="wModel = 'large-v3-turbo'">large-v3-turbo · 834 Mo</button>
+              <button :class="{ on: wModel === 'small' }" @click="wModel = 'small'">small · 466 Mo</button>
+            </div>
+          </SettingRow>
+          <SettingRow label="Langue">
+            <select v-model="s.dictationLang" class="input select w-220">
+              <option value="fr">Français</option>
+              <option value="en">Anglais</option>
+              <option value="auto">Détection automatique</option>
+            </select>
+          </SettingRow>
+          <div v-if="wProgress" class="w-progress">
+            <div class="row small">
+              <span>{{ wProgress.what }}</span>
+              <span class="spacer" />
+              <span class="mono muted">{{ wPct }} %</span>
+            </div>
+            <div class="bar"><i :style="{ width: `${wPct}%` }" /></div>
+          </div>
+          <div class="row test-row">
+            <span class="tiny muted">
+              Installé :
+              {{ whisper ? [whisper.engines.cuda && "GPU", whisper.engines.cpu && "CPU", whisper.models["large-v3-turbo"] && "large-v3-turbo", whisper.models.small && "small"].filter(Boolean).join(", ") || "rien" : "—" }}
+            </span>
+            <span class="spacer" />
+            <button v-if="wInstalling" class="btn sm" @click="call('whisper.cancelInstall')">Annuler</button>
+            <button v-else-if="whisper?.ready" class="btn sm danger" @click="uninstallWhisper">Désinstaller</button>
+            <button class="btn sm primary" :disabled="wInstalling || (whisper?.engines[wEngine] && whisper?.models[wModel])" @click="installWhisper">
+              <Download :size="14" /> {{ whisper?.engines[wEngine] && whisper?.models[wModel] ? "Déjà installé" : "Installer" }}
+            </button>
           </div>
         </section>
 
@@ -670,6 +765,12 @@ kbd {
   border-radius: 6px;
   background: var(--bg-elevated);
   user-select: text;
+}
+.w-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0 4px;
 }
 .root-row {
   display: flex;

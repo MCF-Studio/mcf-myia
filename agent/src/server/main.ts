@@ -11,6 +11,7 @@ import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
 import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
 import { triageTask } from "../core/claude-coach.js";
+import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
 import { MODEL_NAME, OllamaClient } from "../core/llm.js";
 import { makeTeamRoot } from "../core/team-runner.js";
 import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
@@ -454,6 +455,39 @@ function patchConfig(mutate: (raw: Record<string, any>) => void) {
   cfg = patchConfigFile(mutate);
   live.clear();
 }
+
+// ─── dictée (whisper.cpp) ────────────────────────────────────────────────────
+
+let whisperInstall: AbortController | undefined;
+
+rpc.method("whisper.status", () => ({ ...whisperStatus(), engines_info: ENGINES, models_info: MODELS }));
+
+rpc.method("whisper.install", async (params) => {
+  const p = parse(z.object({ engine: z.enum(["cpu", "cuda"]), model: z.enum(["large-v3-turbo", "small"]) }), params);
+  if (whisperInstall) throw new Error("installation déjà en cours");
+  whisperInstall = new AbortController();
+  try {
+    return await installWhisper(p.engine, p.model, (pr) => rpc.notify("whisper.progress", pr), whisperInstall.signal);
+  } finally {
+    whisperInstall = undefined;
+  }
+});
+
+rpc.method("whisper.cancelInstall", () => {
+  whisperInstall?.abort();
+  return true;
+});
+
+rpc.method("whisper.uninstall", () => {
+  if (whisperInstall) throw new Error("installation en cours");
+  uninstallWhisper();
+  return true;
+});
+
+rpc.method("whisper.transcribe", async (params) => {
+  const p = parse(z.object({ audio: z.string().max(11_200_000), language: z.string().max(4).default("fr") }), params);
+  return { text: await transcribe(Buffer.from(p.audio, "base64"), p.language) };
+});
 
 rpc.method("claude.triage", async (params) => {
   const { task } = parse(z.object({ task: z.string().trim().min(3).max(6000) }), params);

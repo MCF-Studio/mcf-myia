@@ -5,6 +5,7 @@ import {
   Copy,
   Eraser,
   Loader2,
+  Mic,
   Network,
   ShieldAlert,
   Square,
@@ -17,7 +18,8 @@ import { renderMarkdown } from "../lib/markdown";
 import { call } from "../lib/rpc";
 import { settings } from "../lib/settings";
 import { speak } from "../lib/sound";
-import { agentById, answerConfirm, cancelConversation, sendMessage, state, toast } from "../lib/store";
+import { dictation, startDictation, stopDictation } from "../lib/dictation";
+import { agentById, answerConfirm, cancelConversation, navigate, sendMessage, state, toast } from "../lib/store";
 import AgentAvatar from "./AgentAvatar.vue";
 
 const props = defineProps<{ id: string; compact?: boolean; closable?: boolean }>();
@@ -95,6 +97,29 @@ async function clear() {
   await call("conversations.clear", { id: props.id });
   conv.value.messages = [];
   toast("Conversation effacée (l'agent repart de zéro)");
+}
+
+const mine = computed(() => dictation.owner === props.id);
+
+async function toggleDictation() {
+  if (mine.value && dictation.state === "recording") return stopDictation();
+  if (dictation.state !== "idle") return;
+  if (!dictation.ready) {
+    toast("Installe d'abord la dictée : Paramètres → Son et voix", "info");
+    navigate("settings");
+    return;
+  }
+  try {
+    const text = await startDictation(props.id);
+    if (!text) return toast("Rien entendu", "info");
+    draft.value = draft.value.trim() ? `${draft.value.trim()} ${text}` : text;
+    await nextTick();
+    autoGrow();
+    input.value?.focus();
+  } catch (e) {
+    const msg = (e as Error).message;
+    toast(/Permission|NotAllowed/i.test(msg) ? "Micro refusé : autorise-le dans les paramètres de confidentialité de Windows" : msg, "error");
+  }
 }
 
 defineExpose({ focus: () => input.value?.focus() });
@@ -186,6 +211,18 @@ defineExpose({ focus: () => input.value?.focus() });
         @input="autoGrow"
         @keydown="onKeydown"
       />
+      <button
+        class="mic"
+        :class="{ rec: mine && dictation.state === 'recording', wait: mine && dictation.state === 'transcribing' }"
+        :style="mine && dictation.state === 'recording' ? { '--lvl': dictation.level } : undefined"
+        :disabled="dictation.state !== 'idle' && !mine"
+        :title="mine && dictation.state === 'recording' ? `Arrêter (${dictation.seconds} s)` : dictation.ready ? 'Dicter (whisper, local)' : 'Dictée non installée'"
+        @click="toggleDictation"
+      >
+        <Loader2 v-if="mine && dictation.state === 'transcribing'" :size="17" class="spin" />
+        <Square v-else-if="mine && dictation.state === 'recording'" :size="14" />
+        <Mic v-else :size="17" />
+      </button>
       <button class="send" :disabled="!draft.trim() || conv.busy" title="Envoyer" @click="send">
         <ArrowUp :size="18" />
       </button>
@@ -453,6 +490,39 @@ defineExpose({ focus: () => input.value?.focus() });
   max-height: 220px;
   line-height: 1.5;
   user-select: text;
+}
+.mic {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s, border-color 0.15s;
+}
+.mic:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+.mic:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.mic.rec {
+  color: var(--accent-contrast);
+  background: var(--danger);
+  border-color: transparent;
+  /* halo qui suit le niveau du micro */
+  box-shadow: 0 0 0 calc(2px + var(--lvl, 0) * 10px) color-mix(in srgb, var(--danger) 35%, transparent);
+  transition: box-shadow 0.08s linear;
+}
+.mic.wait {
+  color: var(--accent);
 }
 .send {
   width: 36px;

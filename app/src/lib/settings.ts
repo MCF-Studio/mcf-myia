@@ -35,6 +35,8 @@ export const DEFAULT_SETTINGS = {
     voicePitch: 1,
     voiceVolume: 90,
     readReplies: "focused" as "off" | "focused" | "all",
+    /** Langue de la dictée (whisper) : code ISO ou "auto". */
+    dictationLang: "fr",
   },
   notifications: {
     desktop: true,
