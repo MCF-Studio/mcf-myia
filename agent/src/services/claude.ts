@@ -4,7 +4,7 @@ import type { Config } from "../core/config.js";
 import { paths } from "../core/paths.js";
 import { commandWorks, runProcess } from "../core/proc.js";
 import type { ProjectRegistry } from "../core/projects.js";
-import { CLAUDE_MODELS, MODEL_LABEL, triageTask, type Triage } from "../core/claude-coach.js";
+import { CLAUDE_MODELS, fallbackFor, MODEL_LABEL, triageTask, type ClaudeModel, type Triage } from "../core/claude-coach.js";
 import { createLlm } from "../core/llm-factory.js";
 import { defineTool, truncate, type Service, type ToolContext } from "../core/types.js";
 
@@ -35,13 +35,15 @@ interface ClaudeRun {
   appendPrompt: string;
   maxTurns?: number;
   timeoutMinutes?: number;
-  /** Alias Claude Code (haiku, sonnet, opus) ; absent = claude.model de la config. */
+  /** Alias Claude Code (haiku, sonnet, opus, fable) ; absent = claude.model de la config. */
   model?: string;
 }
 
 async function runClaude(cfg: Config, o: ClaudeRun, ctx: ToolContext): Promise<string> {
   const maxTurns = o.maxTurns ?? cfg.claude.maxTurns;
   const timeoutMinutes = o.timeoutMinutes ?? cfg.claude.timeoutMinutes;
+  const model = o.model ?? cfg.claude.model;
+  const fallback = fallbackFor(model);
   const argv = [
     cfg.claude.command,
     "-p",
@@ -54,7 +56,8 @@ async function runClaude(cfg: Config, o: ClaudeRun, ctx: ToolContext): Promise<s
     String(maxTurns),
     "--append-system-prompt",
     o.appendPrompt,
-    ...((o.model ?? cfg.claude.model) ? ["--model", (o.model ?? cfg.claude.model)!] : []),
+    ...(model ? ["--model", model] : []),
+    ...(fallback ? ["--fallback-model", fallback] : []),
     "--allowedTools",
     ...o.tools,
   ];
@@ -102,21 +105,27 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
     model: z
       .enum(["auto", ...CLAUDE_MODELS])
       .default("auto")
-      .describe("auto = choisi selon la difficulté (recommandé) ; sinon haiku, sonnet ou opus si l'utilisateur l'a demandé"),
+      .describe("auto = choisi selon la difficulté (recommandé) ; sinon haiku, sonnet, opus ou fable, seulement si l'utilisateur l'a demandé"),
   });
 
   // Choix du modèle fait une fois, avant la confirmation, et réutilisé à l'exécution.
   const llm = createLlm(cfg.llm);
   const choices = new WeakMap<object, Triage>();
-  const choose = async (a: z.infer<typeof schema>): Promise<Triage | undefined> => {
-    if (a.model !== "auto") return { model: a.model, difficulty: 3, reason: "modèle demandé explicitement", by: "local" };
+  // `triage` n'existe que si la difficulté a vraiment été évaluée : un modèle demandé explicitement n'en a pas.
+  const choose = async (a: z.infer<typeof schema>): Promise<{ model: ClaudeModel; triage?: Triage } | undefined> => {
+    if (a.model !== "auto") return { model: a.model };
     if (cfg.claude.model && !cfg.claude.autoModel) return undefined; // modèle imposé par la config
     let t = choices.get(a);
     if (!t) {
       t = await triageTask(llm, a.task);
       choices.set(a, t);
     }
-    return t;
+    return { model: t.model, triage: t };
+  };
+  const describe = (c: { model: ClaudeModel; triage?: Triage }) => {
+    const why = c.triage ? `difficulté ${c.triage.difficulty}/5 : ${c.triage.reason}` : "demandé explicitement";
+    const fb = fallbackFor(c.model);
+    return `${MODEL_LABEL[c.model]} — ${why}${fb ? ` ; repli sur ${fb} s'il est surchargé` : ""}`;
   };
 
   const resolve = (project?: string) => {
@@ -159,14 +168,14 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
           async preview(a) {
             const { cwd, tools } = resolve(a.project);
             const t = await choose(a);
-            const model = t ? `${MODEL_LABEL[t.model]} — difficulté ${t.difficulty}/5 : ${t.reason}` : `${cfg.claude.model} (config)`;
+            const model = t ? describe(t) : `${cfg.claude.model} (config)`;
             return `Dossier : ${cwd}\nModèle : ${model}\nOutils accordés : ${tools.join(", ")}\nConsigne :\n────────\n${a.task}\n────────`;
           },
           async run(a, ctx) {
             const { cwd, tools } = resolve(a.project);
             if (!fs.existsSync(cwd)) throw new Error(`dossier introuvable : ${cwd}`);
             const t = await choose(a);
-            if (t) ctx.ui.progress(`Modèle Claude : ${t.model} (difficulté ${t.difficulty}/5)`);
+            if (t) ctx.ui.progress(`Modèle Claude : ${t.model} (${t.triage ? `difficulté ${t.triage.difficulty}/5` : "demandé"})`);
             return runClaude(
               cfg,
               { task: a.task, cwd, tools, permissionMode: "acceptEdits", appendPrompt: APPEND_PROMPT, model: t?.model },

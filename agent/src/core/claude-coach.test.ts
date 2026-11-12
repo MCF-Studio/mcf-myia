@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { heuristicTriage, modelForDifficulty, triageTask } from "./claude-coach.js";
+import fs from "node:fs";
+import { CLAUDE_MODELS, fallbackFor, heuristicTriage, modelForDifficulty, parseClaudeAccount, triageTask } from "./claude-coach.js";
 import type { OllamaClient } from "./llm.js";
 import { AgentProfileSchema } from "./profiles.js";
 
@@ -19,6 +20,33 @@ describe("coach des sessions Claude", () => {
     const t = await triageTask(fakeLlm("je pense que c'est facile"), "Renomme la variable hp en health");
     expect(t.by).toBe("heuristique");
     expect(t.model).toBe("haiku");
+  });
+
+  it("Fable est proposé mais jamais choisi automatiquement", () => {
+    expect(CLAUDE_MODELS).toContain("fable");
+    expect([1, 2, 3, 4, 5].map(modelForDifficulty)).not.toContain("fable");
+  });
+
+  it("la liste fermée du Rust (pty.rs) est la même que celle du cœur", () => {
+    const rs = fs.readFileSync(new URL("../../../app/src-tauri/src/pty.rs", import.meta.url), "utf8");
+    const list = /if !\[([^\]]+)\]\.contains\(&m\.as_str\(\)\)/.exec(rs)?.[1];
+    expect(list?.split(",").map((s) => s.trim().replace(/"/g, ""))).toEqual([...CLAUDE_MODELS]);
+  });
+
+  it("repli : seulement pour Fable, vers Opus", () => {
+    expect(fallbackFor("fable")).toBe("opus");
+    expect([fallbackFor("opus"), fallbackFor("haiku"), fallbackFor(undefined)]).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("compte Claude : ne garde que l'abonnement, jamais l'e-mail", () => {
+    const a = parseClaudeAccount(
+      '{"loggedIn": true, "authMethod": "claude.ai", "email": "a@b.fr", "orgId": "x", "subscriptionType": "max", "planTier": "max_5x"}',
+    );
+    expect(a).toEqual({ loggedIn: true, subscription: "max", tier: "max_5x", authMethod: "claude.ai", expiresAt: undefined });
+    expect(parseClaudeAccount('{"loggedIn": true, "loginExpiresAt": "2026-11-26T17:41:09.072Z"}').expiresAt).toBe("2026-11-26T17:41:09.072Z");
+    expect(parseClaudeAccount('{"loggedIn": true, "loginExpiresAt": "demain"}').expiresAt).toBeUndefined();
+    expect(parseClaudeAccount("pas du json")).toEqual({ loggedIn: false });
+    expect(parseClaudeAccount('{"loggedIn": true, "subscriptionType": "<script>"}').subscription).toBeUndefined();
   });
 
   it("heuristique : architecture et sécurité vont vers Opus", () => {

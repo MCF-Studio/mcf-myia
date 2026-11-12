@@ -147,11 +147,26 @@ la console prévient (très lent).
 `ANTHROPIC_API_KEY` est retirée de l'environnement de la console, le trafic non essentiel coupé.
 
 **Coach des sessions Claude** : le modèle local évalue la difficulté d'une tâche (1 à 5) et choisit Haiku, Sonnet ou
-Opus, pour `claude_delegate` (modèle affiché dans la confirmation) comme pour l'ouverture d'une console. Dans une
-console : changement de modèle (`/model`), `/compact`, et « résumer et repartir » (Claude écrit une passation dans
+Opus, pour `claude_delegate` (modèle affiché dans la confirmation) comme pour l'ouverture d'une console. Fable se
+choisit à la main, jamais automatiquement (quota) ; en délégation il a Opus en repli (`--fallback-model`). La liste des
+alias est fermée côté Rust et identique à celle du cœur (test). L'abonnement affiché vient de `claude auth status`,
+dont le cœur ne garde que le type d'abonnement et la date de fin de connexion (ni e-mail, ni jeton). Dans une
+console : changement de modèle (`/model`, affiché seulement une fois confirmé par la sortie de Claude Code), `/compact`, et « résumer et repartir » (Claude écrit une passation dans
 `<projet>/.myia/handoff-*.md`, la session est vidée par `/clear`, puis reprise depuis la passation ; le cœur ne surveille
 ce fichier que dans le workspace et les dossiers de projets). L'alerte « session longue » est une **estimation** (durée,
 volume affiché), pas une mesure du contexte réel.
+
+**Agent confié à Claude** (modèle `claude:<alias>` dans un profil) : Claude sert seulement de modèle. Chaque tour
+lance `claude -p` sans aucun outil intégré, sans réglages, sans serveur MCP et sans session enregistrée ; il répond par
+une sortie structurée (texte ou appels d'outils) et les outils restent ceux de MyIA, exécutés par MyIA avec les règles
+du §3. La conversation et les résultats d'outils de cet agent partent chez Anthropic (abonnement Claude Code) : c'est
+dit dans l'écran Agents. Il ne reçoit ni le contexte de mémoire ni les outils `memory_*` (test), et la Guilde refuse
+un tel modèle (un membre extérieur ne consomme pas l'abonnement de l'utilisateur).
+
+**Installation d'Ollama** (Paramètres → Système, Windows) : le script officiel `https://ollama.com/install.ps1` est
+enregistré puis lancé seulement si sa signature Authenticode est valide et au nom d'Ollama Inc. ; les variables qui le
+détournent (`OLLAMA_DOWNLOAD_URL`…) ne lui sont pas transmises. Avant un téléchargement de modèle, le registre Ollama
+est interrogé pour refuser tout de suite un nom inexistant.
 
 **Dictée** : whisper.cpp (MIT) et son modèle se téléchargent à la demande, en versions figées dont l'empreinte SHA-256
 est vérifiée avant usage (fichier rejeté sinon) ; archives extraites avec protection « zip slip » et plafond de taille.
@@ -171,7 +186,8 @@ pas d'URL, pas de police distante : un thème ne peut ni exécuter de code ni ap
 `memory.folders` dans `config/agent.json`, hors git). À chaque demande, l'index des documents et les passages les
 plus pertinents (recherche par mots-clés, sans réseau) sont joints au prompt ; les outils `memory_search` et
 `memory_read` (lecture seule) donnent le reste. Limites : 300 fichiers, 200 Ko par fichier, 2 Mo au total. La
-mémoire ne quitte jamais le PC : l'agent de la Guilde (bac à sable) ne la reçoit pas, ce que vérifie un test.
+mémoire ne quitte jamais le PC : ni l'agent de la Guilde (bac à sable) ni un agent confié à Claude ne la reçoivent,
+ce que vérifient des tests.
 
 **Marketplace (à venir)** : registre sur mcfstudio.fr, publications par des membres certifiés. Tant qu'il n'existe pas,
 l'app n'affiche aucun contenu fictif ; seule l'installation depuis un fichier local est proposée.

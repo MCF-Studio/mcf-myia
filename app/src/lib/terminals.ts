@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { reactive } from "vue";
+import { reactive, ref } from "vue";
+import { modelSwitchVerdict } from "./model-switch";
 import { call, inTauri } from "./rpc";
 import { toast } from "./store";
 
@@ -11,8 +12,10 @@ export interface TerminalInfo {
   title: string;
   cwd: string;
   exited?: number | null;
-  /** Modèle Claude demandé au lancement (ou changé ensuite via /model). */
+  /** Modèle Claude demandé au lancement, ou changement via /model CONFIRMÉ par Claude Code. Absent = inconnu. */
   model?: string;
+  /** Changement demandé via /model, pas encore confirmé dans la sortie de la console. */
+  pendingModel?: string;
   startedAt: number;
   /** Volume de sortie : sert d'estimation grossière de la longueur de la session. */
   outBytes: number;
@@ -21,11 +24,70 @@ export interface TerminalInfo {
   coachSnoozedUntil?: number;
 }
 
-export const CLAUDE_MODELS = [
-  { id: "haiku", label: "Haiku", hint: "rapide, économique" },
-  { id: "sonnet", label: "Sonnet", hint: "polyvalent" },
-  { id: "opus", label: "Opus", hint: "raisonnement profond" },
-] as const;
+export interface ClaudeModelInfo {
+  id: string;
+  label: string;
+  hint: string;
+}
+
+/** Modèles Claude proposés : la liste vient du cœur (claude.models), il n'y en a pas de copie ici. */
+export const claudeModels = ref<ClaudeModelInfo[]>([]);
+let modelsLoad: Promise<void> | undefined;
+export function loadClaudeModels(): Promise<void> {
+  if (claudeModels.value.length) return Promise.resolve();
+  modelsLoad ??= call<ClaudeModelInfo[]>("claude.models")
+    .then((m) => void (claudeModels.value = m))
+    .catch(() => undefined) // cœur pas encore prêt : on réessaiera au prochain appel
+    .finally(() => (modelsLoad = undefined));
+  return modelsLoad;
+}
+
+/** Abonnement du compte Claude Code connecté sur cette machine. */
+export interface ClaudeAccount {
+  loggedIn: boolean;
+  subscription?: string;
+  tier?: string;
+  authMethod?: string;
+  /** Fin de validité de la connexion (date ISO). */
+  expiresAt?: string;
+}
+
+export function claudeAccount() {
+  return call<ClaudeAccount>("claude.account");
+}
+
+/** Jours restants avant la fin de la connexion Claude Code ; undefined si inconnue. */
+export function loginDaysLeft(a: ClaudeAccount): number | undefined {
+  if (!a.loggedIn || !a.expiresAt) return undefined;
+  return Math.floor((Date.parse(a.expiresAt) - Date.now()) / 86_400_000);
+}
+
+export const LOGIN_WARN_DAYS = 5;
+
+export function loginWarning(a: ClaudeAccount): string | undefined {
+  const d = loginDaysLeft(a);
+  if (d === undefined || d > LOGIN_WARN_DAYS) return undefined;
+  const when = d < 0 ? "a expiré" : d === 0 ? "expire aujourd'hui" : `expire dans ${d} jour${d > 1 ? "s" : ""}`;
+  return `La connexion Claude Code ${when} : lance « claude » dans un terminal puis /login pour la renouveler.`;
+}
+
+/** Au démarrage de l'app : prévient une fois si la connexion Claude Code arrive à échéance. */
+let loginChecked = false;
+export async function checkClaudeLogin() {
+  if (loginChecked) return;
+  loginChecked = true;
+  const w = await claudeAccount().then(loginWarning).catch(() => undefined);
+  if (w) toast(w, "error");
+}
+
+/** « Max 5x », « Pro »… à partir de ce que renvoie Claude Code. */
+export function accountLabel(a: ClaudeAccount): string {
+  if (!a.loggedIn) return "non connecté";
+  if (!a.subscription) return a.authMethod ? `connecté (${a.authMethod})` : "connecté";
+  const name = a.subscription.charAt(0).toUpperCase() + a.subscription.slice(1);
+  const mult = a.tier?.match(/_(\d+x)$/)?.[1];
+  return mult ? `${name} ${mult}` : name;
+}
 
 /** Claude Code sur le modèle llama.cpp de MyIA (API Anthropic de llama-server, sur 127.0.0.1). */
 export const LOCAL_MODEL = {
@@ -35,7 +97,7 @@ export const LOCAL_MODEL = {
 } as const;
 
 export interface Triage {
-  model: "haiku" | "sonnet" | "opus";
+  model: string;
   difficulty: number;
   reason: string;
   by: "local" | "heuristique";
@@ -56,6 +118,12 @@ export async function startTerminals() {
   await listen<{ id: number; data: string }>("pty://data", (e) => {
     const t = terminals[`pty:${e.payload.id}`];
     if (t) t.outBytes += e.payload.data.length;
+    const sw = switches.get(e.payload.id);
+    if (sw) {
+      sw.buf = (sw.buf + e.payload.data).slice(-16_000);
+      const v = modelSwitchVerdict(sw.buf);
+      if (v) settleSwitch(e.payload.id, v);
+    }
     const fn = sinks.get(e.payload.id);
     if (fn) fn(e.payload.data);
     else {
@@ -68,6 +136,7 @@ export async function startTerminals() {
   await listen<{ id: number; code: number | null }>("pty://exit", (e) => {
     const t = terminals[`pty:${e.payload.id}`];
     if (t) t.exited = e.payload.code;
+    dropSwitch(e.payload.id);
   });
 }
 
@@ -94,11 +163,39 @@ export function sendLine(id: number, text: string) {
   setTimeout(() => writeTerminal(id, "\r"), 250);
 }
 
+/** Changements de modèle en attente de confirmation : sortie de la console reçue depuis l'envoi de /model. */
+const switches = new Map<number, { buf: string; timer: ReturnType<typeof setTimeout> }>();
+const SWITCH_TIMEOUT_MS = 20_000;
+
+function dropSwitch(id: number) {
+  const sw = switches.get(id);
+  if (sw) clearTimeout(sw.timer);
+  switches.delete(id);
+  const t = terminals[`pty:${id}`];
+  if (t) t.pendingModel = undefined;
+}
+
+function settleSwitch(id: number, verdict: "ok" | "failed" | "timeout") {
+  const t = terminals[`pty:${id}`];
+  const want = t?.pendingModel;
+  dropSwitch(id);
+  if (!t || !want) return;
+  if (verdict === "ok") t.model = want;
+  else if (verdict === "failed") toast(`Claude Code a refusé le modèle ${want} : le détail est dans la console.`, "error");
+  else {
+    // Ni confirmation ni refus (Claude occupé, question en attente…) : on ne sait plus quel modèle est actif.
+    t.model = undefined;
+    toast(`Changement vers ${want} non confirmé : vérifie dans la console (/model).`, "error");
+  }
+}
+
+/** Envoie /model, puis n'affiche le nouveau modèle qu'une fois le changement confirmé par Claude Code. */
 export function switchModel(key: string, model: string) {
   const t = terminals[key];
-  if (!t) return;
+  if (!t || t.pendingModel || t.exited !== undefined) return;
+  t.pendingModel = model;
+  switches.set(t.id, { buf: "", timer: setTimeout(() => settleSwitch(t.id, "timeout"), SWITCH_TIMEOUT_MS) });
   sendLine(t.id, `/model ${model}`);
-  t.model = model;
 }
 
 export function compact(key: string) {
@@ -206,5 +303,6 @@ export async function killTerminal(key: string) {
   const t = terminals[key];
   if (!t) return;
   await invoke("pty_kill", { id: t.id }).catch(() => undefined);
+  dropSwitch(t.id);
   delete terminals[key];
 }

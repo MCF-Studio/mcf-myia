@@ -1,13 +1,82 @@
 import { z } from "zod";
 import type { LlmClient } from "./llm.js";
+import { runProcess } from "./proc.js";
 
 /**
  * Coach des sessions Claude : choisit le modèle Claude adapté à une tâche (Haiku, Sonnet, Opus) d'après sa difficulté.
+ * Fable n'est jamais choisi automatiquement : seulement sur demande.
  * Le modèle LOCAL fait le tri (gratuit, rapide) ; une heuristique prend le relais s'il ne répond pas correctement.
  */
 
-export const CLAUDE_MODELS = ["haiku", "sonnet", "opus"] as const;
+/**
+ * Alias acceptés par `claude --model`. L'interface reçoit cette liste (claude.models) ; le Rust garde la sienne en dur
+ * (pty.rs, barrière de sécurité), et un test vérifie que les deux sont identiques.
+ */
+export const CLAUDE_MODELS = ["haiku", "sonnet", "opus", "fable"] as const;
 export type ClaudeModel = (typeof CLAUDE_MODELS)[number];
+
+export const CLAUDE_MODEL_INFO: Record<ClaudeModel, { label: string; hint: string }> = {
+  haiku: { label: "Haiku", hint: "rapide, économique" },
+  sonnet: { label: "Sonnet", hint: "polyvalent" },
+  opus: { label: "Opus", hint: "raisonnement profond" },
+  fable: { label: "Fable", hint: "le plus capable ; consomme le plus de quota, jamais choisi par Auto" },
+};
+
+export const MODEL_LABEL = Object.fromEntries(
+  CLAUDE_MODELS.map((m) => [m, `${CLAUDE_MODEL_INFO[m].label} (${CLAUDE_MODEL_INFO[m].hint})`]),
+) as Record<ClaudeModel, string>;
+
+/** Modèle de repli (`--fallback-model`) si le modèle demandé est surchargé : évite l'échec sec d'une tâche longue. */
+export function fallbackFor(model: string | undefined): ClaudeModel | undefined {
+  return model === "fable" ? "opus" : undefined;
+}
+
+/** Compte Claude Code connecté sur cette machine : uniquement ce qui sert à l'affichage (ni e-mail, ni jeton). */
+export interface ClaudeAccount {
+  loggedIn: boolean;
+  /** Ex. "pro", "max", "team" ; absent avec une clé d'API. */
+  subscription?: string;
+  /** Ex. "max_5x". */
+  tier?: string;
+  /** Ex. "claude.ai" (abonnement) ou une clé d'API. */
+  authMethod?: string;
+  /** Fin de validité de la connexion (date ISO), si Claude Code la donne. */
+  expiresAt?: string;
+}
+
+const isoDate = (v: unknown) => (typeof v === "string" && v.length <= 40 && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : undefined);
+
+const short = (v: unknown) => (typeof v === "string" && /^[\w .-]{1,40}$/.test(v) ? v : undefined);
+
+/** Lit la sortie JSON de `claude auth status` et n'en garde que l'abonnement. */
+export function parseClaudeAccount(stdout: string): ClaudeAccount {
+  let j: Record<string, unknown>;
+  try {
+    j = JSON.parse(stdout) as Record<string, unknown>;
+  } catch {
+    return { loggedIn: false };
+  }
+  if (!j || typeof j !== "object") return { loggedIn: false };
+  return {
+    loggedIn: j.loggedIn === true,
+    subscription: short(j.subscriptionType),
+    tier: short(j.planTier),
+    authMethod: short(j.authMethod),
+    expiresAt: isoDate(j.loginExpiresAt),
+  };
+}
+
+export async function claudeAccount(command: string, cwd: string): Promise<ClaudeAccount> {
+  const out: string[] = [];
+  const r = await runProcess([command, "auth", "status"], {
+    cwd,
+    timeoutMs: 15_000,
+    keep: 2,
+    onLine: (line, stream) => stream === "out" && out.length < 200 && out.push(line),
+  });
+  // Non connecté : code de sortie non nul, mais la sortie reste du JSON ({"loggedIn": false, …}).
+  return r.timedOut ? { loggedIn: false } : parseClaudeAccount(out.join("\n"));
+}
 
 export interface Triage {
   model: ClaudeModel;
@@ -17,12 +86,7 @@ export interface Triage {
   by: "local" | "heuristique";
 }
 
-export const MODEL_LABEL: Record<ClaudeModel, string> = {
-  haiku: "Haiku (rapide, économique)",
-  sonnet: "Sonnet (polyvalent)",
-  opus: "Opus (raisonnement profond)",
-};
-
+/** Le choix automatique s'arrête à Opus : Fable pèse lourd sur le quota, il reste un choix explicite. */
 export function modelForDifficulty(d: number): ClaudeModel {
   return d <= 2 ? "haiku" : d === 3 ? "sonnet" : "opus";
 }
@@ -69,17 +133,4 @@ export async function triageTask(llm: LlmClient, task: string, signal?: AbortSig
   } catch {
     return heuristicTriage(text);
   }
-}
-
-/** Consigne de passation : Claude résume la session dans un fichier pour la reprendre après /clear. */
-export function handoffPrompt(file: string): string {
-  return (
-    `Prépare une passation pour continuer ce travail dans une session vierge. Écris dans le fichier ${file} un résumé en Markdown : ` +
-    "objectif, état actuel, fichiers modifiés ou importants, décisions prises et pourquoi, problèmes en cours, prochaines étapes précises " +
-    "et commandes utiles. Sois complet mais concis. Ne fais rien d'autre, puis réponds en une ligne que la passation est écrite."
-  );
-}
-
-export function resumePrompt(file: string): string {
-  return `Lis ${file} : c'est la passation de la session précédente. Reprends le travail à partir des prochaines étapes indiquées.`;
 }

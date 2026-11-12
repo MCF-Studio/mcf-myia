@@ -7,6 +7,7 @@ import { downloadText, pickAvatar, pickTextFile } from "../lib/files";
 import { agentColor } from "../lib/format";
 import { call } from "../lib/rpc";
 import { createConversation, refreshAgents, refreshOverview, state, toast } from "../lib/store";
+import { claudeModels, loadClaudeModels } from "../lib/terminals";
 import type { AgentProfile, ModelInfo } from "../lib/types";
 
 const SWATCHES = ["#ff7a1a", "#e0a412", "#ff5247", "#f2c14e", "#45c98a", "#4cc9f0", "#8b7bff", "#ff6fae"];
@@ -140,6 +141,7 @@ async function copyJson() {
 }
 
 onMounted(async () => {
+  void loadClaudeModels();
   const [svc, mod] = await Promise.all([
     call<{ id: string; label: string }[]>("services.list").catch(() => []),
     call<{ installed: ModelInfo[] }>("models.list").catch(() => ({ installed: [] })),
@@ -218,8 +220,17 @@ onMounted(async () => {
             <span>Modèle</span>
             <select v-model="form.model" class="input select">
               <option value="">Modèle par défaut ({{ state.overview?.defaultModel }})</option>
-              <option v-for="m in models" :key="m.name" :value="m.name">{{ m.name }}{{ m.parameterSize ? ` · ${m.parameterSize}` : "" }}</option>
+              <optgroup label="Local (rien ne quitte ta machine)">
+                <option v-for="m in models" :key="m.name" :value="m.name">{{ m.name }}{{ m.parameterSize ? ` · ${m.parameterSize}` : "" }}</option>
+              </optgroup>
+              <optgroup label="Claude (ton abonnement, en ligne)">
+                <option v-for="m in claudeModels" :key="m.id" :value="`claude:${m.id}`">Claude {{ m.label }} · {{ m.hint }}</option>
+              </optgroup>
             </select>
+            <em v-if="form.model.startsWith('claude:')" class="tiny muted">
+              Cet agent réfléchit avec Claude : ses conversations et les résultats de ses outils partent chez Anthropic et comptent dans ton
+              abonnement. Les outils restent ceux de MyIA, avec les mêmes confirmations. Il n'a pas accès à ta mémoire, qui ne quitte jamais le PC.
+            </em>
           </label>
           <label class="field wide">
             <span>Description <em class="muted">(affichée dans l'app)</em></span>

@@ -4,7 +4,21 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import ChatPanel from "../components/ChatPanel.vue";
 import TerminalPanel from "../components/TerminalPanel.vue";
-import { CLAUDE_MODELS, isTerminalKey, killTerminal, LOCAL_MODEL, openClaude, terminals, triage, type Triage } from "../lib/terminals";
+import {
+  accountLabel,
+  claudeAccount,
+  claudeModels,
+  isTerminalKey,
+  killTerminal,
+  loadClaudeModels,
+  LOCAL_MODEL,
+  loginWarning,
+  openClaude,
+  terminals,
+  triage,
+  type ClaudeAccount,
+  type Triage,
+} from "../lib/terminals";
 import { relTime } from "../lib/format";
 import { call } from "../lib/rpc";
 import { settings } from "../lib/settings";
@@ -58,7 +72,9 @@ const consoleResume = ref(false);
 const launching = ref(false);
 const consoleTask = ref("");
 /** "auto" = le modèle local choisit selon la difficulté ; "" = modèle par défaut de Claude Code. */
-const consoleModel = ref<"auto" | "" | "haiku" | "sonnet" | "opus" | "local">("auto");
+/** Sinon : un alias de `claudeModels` (liste du cœur), ou "local". */
+const consoleModel = ref<string>("auto");
+const account = ref<ClaudeAccount>();
 const advice = ref<Triage>();
 const advising = ref(false);
 
@@ -80,6 +96,11 @@ async function adviseModel() {
 async function askConsole() {
   pickerOpen.value = false;
   consoleDialog.value = true;
+  void loadClaudeModels();
+  // Abonnement relu à chaque ouverture (il peut changer) ; sans réponse, on n'affiche simplement rien.
+  void claudeAccount()
+    .then((a) => (account.value = a))
+    .catch(() => (account.value = undefined));
   if (!projects.value.length) {
     try {
       const r = await call<{ workspace: string; projects: { name: string; path: string; kinds: string[] }[] }>("projects.list");
@@ -364,12 +385,15 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
             />
           </label>
           <div class="field">
-            <span class="small">Modèle Claude</span>
+            <span class="small">
+              Modèle Claude
+              <em v-if="account" class="muted" title="Compte Claude Code connecté sur cette machine">· abonnement : {{ accountLabel(account) }}</em>
+            </span>
             <div class="segmented model-seg">
               <button type="button" :class="{ on: consoleModel === 'auto' }" title="Le modèle local choisit selon la difficulté de la tâche" @click="consoleModel = 'auto'">
                 Auto
               </button>
-              <button v-for="m in CLAUDE_MODELS" :key="m.id" type="button" :class="{ on: consoleModel === m.id }" :title="m.hint" @click="consoleModel = m.id">
+              <button v-for="m in claudeModels" :key="m.id" type="button" :class="{ on: consoleModel === m.id }" :title="m.hint" @click="consoleModel = m.id">
                 {{ m.label }}
               </button>
               <button type="button" :class="{ on: consoleModel === '' }" title="Le modèle configuré dans Claude Code" @click="consoleModel = ''">Défaut</button>
@@ -381,9 +405,21 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
                 vite sur de grosses tâches, et le premier chargement prend une minute.
               </span>
             </div>
+            <div v-if="account && !account.loggedIn && consoleModel !== 'local'" class="advice small">
+              <span class="muted">Claude Code n'est pas connecté : lance <span class="mono">claude</span> dans un terminal pour te connecter.</span>
+            </div>
+            <div v-if="account && loginWarning(account) && consoleModel !== 'local'" class="advice small">
+              <span class="muted">{{ loginWarning(account) }}</span>
+            </div>
+            <div v-if="consoleModel === 'fable'" class="advice small">
+              <span class="muted">
+                Fable dépend de ton abonnement et consomme le quota plus vite. S'il n'est pas inclus, Claude Code l'indique à l'ouverture de la
+                console : change alors de modèle depuis sa barre.
+              </span>
+            </div>
             <div v-if="consoleModel === 'auto'" class="advice small">
               <template v-if="advice">
-                <strong>{{ CLAUDE_MODELS.find((m) => m.id === advice!.model)?.label }}</strong>
+                <strong>{{ claudeModels.find((m) => m.id === advice!.model)?.label ?? advice.model }}</strong>
                 <span class="muted">· difficulté {{ advice.difficulty }}/5 · {{ advice.reason }}</span>
               </template>
               <span v-else-if="consoleTask.trim().length >= 3" class="muted">

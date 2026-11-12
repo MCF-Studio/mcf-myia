@@ -5,7 +5,9 @@ import { paths } from "./paths.js";
 const SENSITIVE_KEY = /token|secret|password|passwd|api[_-]?key|authorization/i;
 
 export interface AuditEvent {
-  event: "tool_call" | "session_start" | "session_end" | "crash";
+  event: "tool_call" | "session_start" | "session_end" | "crash" | "ollama_install";
+  /** Version installée (event "ollama_install"). */
+  version?: string;
   tool?: string;
   risk?: string;
   args?: unknown;

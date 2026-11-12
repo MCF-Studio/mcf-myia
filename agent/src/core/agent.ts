@@ -76,10 +76,12 @@ export class Agent {
     readonly profile: AgentProfile = DEFAULT_PROFILE,
     private readonly opts: AgentOptions = {},
   ) {
-    this.llm = createLlm(cfg.llm, profile.model ?? cfg.llm.model);
+    this.llm = createLlm(cfg.llm, profile.model ?? cfg.llm.model, cfg.claude.command);
     // Un profil peut restreindre les services auxquels l'agent a accès (liste blanche d'ids).
     const allow = profile.services;
-    this.services = allow ? services.filter((s) => allow.includes(s.id)) : services;
+    const allowed = allow ? services.filter((s) => allow.includes(s.id)) : services;
+    // Agent confié à Claude : ses échanges partent chez Anthropic, il n'a donc pas non plus les outils de mémoire.
+    this.services = this.llm.engine === "claude" ? allowed.filter((s) => s.id !== "memory") : allowed;
   }
 
   /** Modèle utilisé par cet agent (avec llama.cpp, un nom Ollama non installé revient au modèle par défaut). */
@@ -189,7 +191,8 @@ export class Agent {
   async handle(input: string, ui: AgentUI, signal?: AbortSignal): Promise<string> {
     if (this.opts.trustInput !== false) this.trust.addFrom(input);
     try {
-      this.memoryContext = this.opts.memory?.contextFor(input) ?? "";
+      // La mémoire ne quitte jamais le PC (SPEC) : un agent confié à Claude ne la reçoit pas dans son prompt.
+      this.memoryContext = this.llm.engine === "claude" ? "" : (this.opts.memory?.contextFor(input) ?? "");
     } catch {
       this.memoryContext = "";
     }

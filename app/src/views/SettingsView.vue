@@ -99,6 +99,41 @@ const llamaProgress = ref<{ what: string; received: number; total?: number }>();
 const offLlamaProgress = on("llamacpp.progress", (p) => (llamaProgress.value = p as typeof llamaProgress.value));
 onBeforeUnmount(offLlamaProgress);
 
+// ─── Ollama : installation par son script officiel (signature vérifiée par le cœur) ───
+interface OllamaStatus {
+  installed: boolean;
+  version: string | null;
+  outdated: boolean;
+  minVersion: string;
+  installing: boolean;
+  canInstall: boolean;
+}
+const ollama = ref<OllamaStatus>();
+const ollamaInstalling = ref(false);
+const ollamaStep = ref("");
+const offOllamaProgress = on("ollama.installProgress", (p) => (ollamaStep.value = (p as { what: string }).what));
+onBeforeUnmount(offOllamaProgress);
+
+async function loadOllama() {
+  ollama.value = await call<OllamaStatus>("ollama.status").catch(() => undefined);
+  ollamaInstalling.value = !!ollama.value?.installing;
+}
+
+async function installOllama() {
+  ollamaInstalling.value = true;
+  ollamaStep.value = "démarrage";
+  try {
+    // Téléchargement d'environ 1 Go : pas de délai côté interface, le cœur a le sien (45 min).
+    const r = await call<{ version: string }>("ollama.install");
+    toast(`Ollama ${r.version} installé`, "success");
+  } catch (e) {
+    if (!/abort|annul/i.test((e as Error).message)) toast((e as Error).message, "error");
+  } finally {
+    ollamaInstalling.value = false;
+    await Promise.all([loadOllama(), refreshOverview()]);
+  }
+}
+
 async function loadLlama() {
   llama.value = await call<LlamaStatus>("llamacpp.status").catch(() => undefined);
 }
@@ -365,6 +400,7 @@ onMounted(async () => {
   void loadPrograms();
   void loadMemory();
   void loadLlama();
+  void loadOllama();
   void loadWhisper();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = loadVoices;
   if (inTauri) appVersion.value = await getVersion();
@@ -760,6 +796,21 @@ const shortcuts: [string, string][] = [
           <span class="badge" :class="state.overview?.ollama.ok ? 'ok' : 'warn'">{{
             state.overview?.ollama.ok ? (state.overview.ollama.engine === "llamacpp" ? state.overview.ollama.version : `v${state.overview.ollama.version}`) : "hors ligne"
           }}</span>
+        </SettingRow>
+        <SettingRow
+          v-if="ollama && ollama.canInstall && (!ollama.installed || ollama.outdated || ollamaInstalling)"
+          :label="ollama.installed ? 'Mettre à jour Ollama' : 'Installer Ollama'"
+          :hint="
+            ollama.installed
+              ? `Version ${ollama.version} trop ancienne : il faut au moins ${ollama.minVersion}.`
+              : 'Ollama n\'est pas installé sur ce PC. Script officiel d\'ollama.com, lancé seulement si sa signature Ollama Inc. est valide. Environ 1 Go.'
+          "
+        >
+          <div v-if="ollamaInstalling" class="row small">
+            <span class="muted">{{ ollamaStep }}</span>
+            <button class="btn sm" @click="call('ollama.cancelInstall')">Annuler</button>
+          </div>
+          <button v-else class="btn sm primary" @click="installOllama"><Download :size="14" /> {{ ollama.installed ? "Mettre à jour" : "Installer" }}</button>
         </SettingRow>
         <SettingRow label="Moteur" hint="Ollama gère les modèles tout seul ; llama.cpp direct donne plus de réglages et souvent un peu plus de vitesse.">
           <div class="segmented">

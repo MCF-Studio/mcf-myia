@@ -10,7 +10,7 @@ import { audit } from "../core/audit.js";
 import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
 import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
-import { triageTask } from "../core/claude-coach.js";
+import { CLAUDE_MODEL_INFO, CLAUDE_MODELS, claudeAccount, triageTask } from "../core/claude-coach.js";
 import { decide, journal, loadGuild, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
 import { deviceKeys } from "../core/guild-crypto.js";
@@ -18,7 +18,8 @@ import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
 import { openInBrowser } from "../services/web.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
-import { CLAUDE_LOCAL_CTX, claudeLocalOllamaModel, MODEL_NAME, OllamaClient } from "../core/llm.js";
+import { CLAUDE_LOCAL_CTX, claudeLocalOllamaModel, findOllama, MIN_OLLAMA, MODEL_NAME, OllamaClient, versionAtLeast } from "../core/llm.js";
+import { installOllama } from "../core/ollama-install.js";
 import { createLlm } from "../core/llm-factory.js";
 import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
 import { makeTeamRoot } from "../core/team-runner.js";
@@ -689,6 +690,12 @@ rpc.method("claude.triage", async (params) => {
   return triageTask(engine(), task);
 });
 
+/** Abonnement du compte Claude Code de cette machine (affiché à côté du choix du modèle). */
+rpc.method("claude.account", () => claudeAccount(cfg.claude.command, paths.home));
+
+/** Modèles Claude proposés dans l'interface : une seule liste, celle du cœur. */
+rpc.method("claude.models", () => CLAUDE_MODELS.map((id) => ({ id, ...CLAUDE_MODEL_INFO[id] })));
+
 /** Passation d'une console : le fichier existe-t-il (et a-t-il fini d'être écrit) ? Dossiers autorisés uniquement. */
 rpc.method("handoff.status", (params) => {
   const { cwd, file } = parse(z.object({ cwd: z.string().max(500), file: z.string().regex(/^\.myia\/handoff-[0-9-]{8,20}\.md$/) }), params);
@@ -806,6 +813,43 @@ rpc.method("claude.localReady", async () => {
         "Choisis un modèle plus petit (qwen3:4b), ou active la mémoire de contexte compressée (Paramètres → Système) en laissant MyIA démarrer Ollama."
       : undefined;
   return { engine: "ollama", model: variant, warning };
+});
+
+// ─── Ollama : installation par le script officiel (signature vérifiée) ───────
+
+let ollamaInstall: AbortController | undefined;
+rpc.method("ollama.status", () => {
+  const found = findOllama();
+  return {
+    installed: !!found,
+    version: found?.version ?? null,
+    outdated: !!found && !versionAtLeast(found.version, MIN_OLLAMA),
+    minVersion: MIN_OLLAMA,
+    installing: !!ollamaInstall,
+    canInstall: process.platform === "win32",
+  };
+});
+rpc.method("ollama.install", async () => {
+  if (ollamaInstall) throw new Error("installation déjà en cours");
+  ollamaInstall = new AbortController();
+  try {
+    const r = await installOllama((what) => rpc.notify("ollama.installProgress", { what }), ollamaInstall.signal);
+    audit({ event: "ollama_install", version: r.version });
+    // Moteur actif = Ollama : on le démarre tout de suite, sans attendre un redémarrage de MyIA.
+    if (cfg.llm.engine !== "llamacpp") {
+      void engine()
+        .ensureRunning()
+        .then(() => rpc.notify("ollama.ready", {}))
+        .catch((e) => rpc.notify("ollama.error", { message: (e as Error).message }));
+    }
+    return r;
+  } finally {
+    ollamaInstall = undefined;
+  }
+});
+rpc.method("ollama.cancelInstall", () => {
+  ollamaInstall?.abort();
+  return true;
 });
 
 let buildInstall: AbortController | undefined;

@@ -42,9 +42,12 @@ export interface PullProgress {
   completed?: number;
 }
 
-/** Ce que MyIA attend d'un moteur local (Ollama ou llama.cpp) : mêmes messages, mêmes outils, même gestion des modèles. */
+/**
+ * Ce que MyIA attend d'un moteur (Ollama ou llama.cpp en local ; « claude » pour un agent confié à Claude, voir
+ * claude-llm.ts) : mêmes messages, mêmes outils, même gestion des modèles.
+ */
 export interface LlmClient {
-  readonly engine: "ollama" | "llamacpp";
+  readonly engine: "ollama" | "llamacpp" | "claude";
   /** Modèle effectivement utilisé par ce client. */
   readonly model: string;
   ping(): Promise<boolean>;
@@ -134,8 +137,39 @@ export function engineEnv(cfg: Pick<Config["llm"], "flashAttention" | "kvCache">
 function tooOld(version: string, exe?: string): string {
   return (
     `Ollama ${version} est trop ancien pour ce modèle (${MIN_OLLAMA} au moins)${exe ? ` : ${exe}` : ""}. ` +
-    "Mets-le à jour depuis https://ollama.com/download (puis relance MyIA), ou passe le moteur sur llama.cpp (Paramètres → Système)."
+    "Mets-le à jour depuis Paramètres → Système (bouton Mettre à jour) ou https://ollama.com/download, ou passe le moteur sur llama.cpp (Paramètres → Système)."
   );
+}
+
+/**
+ * Adresse du manifeste d'un modèle sur le registre public d'Ollama. Le registre n'a pas de catalogue à lister, mais il
+ * dit si un nom précis existe. `undefined` = nom hors registre Ollama (ex. hf.co/…) : pas de vérification possible.
+ */
+export function registryManifestUrl(model: string): string | undefined {
+  if (!MODEL_NAME.test(model)) return undefined;
+  const colon = model.lastIndexOf(":");
+  const repo = colon >= 0 ? model.slice(0, colon) : model;
+  const tag = colon >= 0 ? model.slice(colon + 1) : "latest";
+  const parts = repo.split("/");
+  if (parts.length > 2 || (parts.length === 2 && parts[0]!.includes("."))) return undefined;
+  const [ns, name] = parts.length === 2 ? parts : ["library", parts[0]];
+  return `https://registry.ollama.ai/v2/${ns}/${name}/manifests/${tag}`;
+}
+
+/** Faux seulement si le registre répond clairement que le modèle n'existe pas ; hors ligne ou erreur = on laisse Ollama décider. */
+export async function existsInRegistry(model: string, signal?: AbortSignal): Promise<boolean> {
+  const url = registryManifestUrl(model);
+  if (!url) return true;
+  try {
+    const r = await fetch(url, {
+      method: "HEAD",
+      headers: { accept: "application/vnd.docker.distribution.manifest.v2+json" },
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000),
+    });
+    return r.status !== 404;
+  } catch {
+    return true;
+  }
 }
 
 /** Client minimal de l'API native d'Ollama (/api/chat). */
@@ -202,6 +236,9 @@ export class OllamaClient implements LlmClient {
   /** Télécharge un modèle depuis le registre Ollama, en remontant la progression. */
   async pull(model: string, onProgress: (p: PullProgress) => void, signal?: AbortSignal): Promise<void> {
     if (!MODEL_NAME.test(model)) throw new Error(`nom de modèle invalide : ${model}`);
+    if (!(await existsInRegistry(model, signal))) {
+      throw new Error("modèle introuvable sur le registre Ollama : vérifie le nom et la taille sur https://ollama.com/library");
+    }
     const r = await fetch(this.url("/api/pull"), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -236,7 +273,6 @@ export class OllamaClient implements LlmClient {
     if (!r.ok) throw new Error(`Ollama ${r.status} : ${(await r.text()).slice(0, 300)}`);
   }
 
-  /** Décharge un modèle de la mémoire. */
   /** Crée (ou remplace) une variante d'un modèle installé avec d'autres paramètres, sans copier les poids. */
   async createVariant(name: string, from: string, parameters: Record<string, number>): Promise<void> {
     const r = await fetch(this.url("/api/create"), {
@@ -257,6 +293,7 @@ export class OllamaClient implements LlmClient {
     return (await this.runningModels()).find((m) => m.name === model);
   }
 
+  /** Décharge un modèle de la mémoire. */
   async unload(model: string): Promise<void> {
     await fetch(this.url("/api/generate"), {
       method: "POST",
@@ -277,7 +314,7 @@ export class OllamaClient implements LlmClient {
     if (!this.cfg.autoStart) throw new Error(`Ollama ne répond pas sur ${this.cfg.baseUrl}`);
     const found = findOllama();
     if (!found) {
-      throw new Error("Ollama introuvable : installe-le depuis https://ollama.com (ou place ollama.exe dans runtime\ollama)");
+      throw new Error("Ollama introuvable : installe-le depuis Paramètres → Système (bouton Installer), ou depuis https://ollama.com");
     }
     if (!versionAtLeast(found.version, MIN_OLLAMA)) throw new Error(tooOld(found.version, found.exe));
     const host = new URL(this.cfg.baseUrl).host;

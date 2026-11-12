@@ -16,7 +16,7 @@ export const AgentProfileSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, "id : minuscules, chiffres et tirets (40 max)"),
   name: z.string().trim().min(1).max(40),
   description: z.string().max(300).optional(),
-  /** Modèle Ollama ; absent = celui de la config (llm.model). */
+  /** Modèle local, ou « claude:<alias> » pour confier l'agent à Claude (claude-llm.ts) ; absent = llm.model de la config. */
   model: z.string().max(120).regex(MODEL_NAME).optional(),
   /** Couleur d'accent dans l'interface. */
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),

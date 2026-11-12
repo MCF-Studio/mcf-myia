@@ -24,7 +24,8 @@ export const OfferSchema = z.object({
   description: z.string().max(300).default(""),
   /** Compétences annoncées (ex. rédaction, traduction, code-review). */
   tags: z.array(z.string().trim().min(2).max(24)).max(8).default([]),
-  model: z.string().max(120).regex(MODEL_NAME),
+  // Toujours un modèle local : un membre extérieur ne doit pas consommer l'abonnement Claude de l'utilisateur.
+  model: z.string().max(120).regex(MODEL_NAME).refine((m) => !m.startsWith("claude:"), "un agent de la Guilde tourne sur un modèle local"),
   instructions: z.string().max(4000).default(""),
   enabled: z.boolean().default(true),
 });

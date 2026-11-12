@@ -93,13 +93,13 @@ fn valid_model(m: &str, extra: &[char]) -> bool {
         && m.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') || extra.contains(&c))
 }
 
+/// Variables d'environnement d'une console Claude Code locale, et identifiant du modèle.
+type LocalEnv = (Vec<(&'static str, String)>, String);
+
 /// Claude Code sur le modèle local du moteur actif : llama-server et Ollama exposent l'API Messages d'Anthropic.
 /// Tout est lu ICI, côté Rust : adresse (toujours la machine elle-même), modèle (celui de la config) et clé (coffre
 /// Windows pour llama.cpp). L'interface ne peut donc pas envoyer Claude Code vers un autre serveur.
 /// Renvoie les variables d'environnement et l'identifiant du modèle (passé aussi en `--model`).
-/// Variables d'environnement d'une console Claude Code locale, et identifiant du modèle.
-type LocalEnv = (Vec<(&'static str, String)>, String);
-
 fn local_claude_env() -> Result<LocalEnv, String> {
     let cfg = std::fs::read_to_string(crate::sidecar::home().join("config").join("agent.json"))
         .ok()
@@ -205,7 +205,7 @@ pub fn pty_spawn(
     if bypass_permissions() {
         cmd.arg("--dangerously-skip-permissions");
     }
-    // Modèle : liste fermée d'alias Claude Code, ou « local » (modèle llama.cpp de MyIA, voir local_claude_env).
+    // Modèle : liste fermée d'alias Claude Code (même liste que le cœur, vérifié par claude-coach.test.ts), ou « local » (modèle llama.cpp de MyIA, voir local_claude_env).
     let mut local_env = None;
     if let Some(m) = model.filter(|m| !m.is_empty()) {
         if m == "local" {
@@ -214,7 +214,7 @@ pub fn pty_spawn(
             cmd.arg(id);
             local_env = Some(vars);
         } else {
-            if !["haiku", "sonnet", "opus"].contains(&m.as_str()) {
+            if !["haiku", "sonnet", "opus", "fable"].contains(&m.as_str()) {
                 return Err(format!("modèle inconnu : {m}"));
             }
             cmd.arg("--model");

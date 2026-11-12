@@ -9,9 +9,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { settings } from "../lib/settings";
 import {
   attach,
-  CLAUDE_MODELS,
+  claudeModels,
   compact as compactSession,
   detach,
+  loadClaudeModels,
   openClaude,
   resizeTerminal,
   resumeFresh,
@@ -39,9 +40,14 @@ const elapsed = computed(() => {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 });
 
+void loadClaudeModels();
+
 function onModel(e: Event) {
-  const v = (e.target as HTMLSelectElement).value;
+  const el = e.target as HTMLSelectElement;
+  const v = el.value;
   if (v) switchModel(props.tabKey, v);
+  // L'étiquette ne change qu'à la confirmation : on remet la liste sur l'état connu (en attente ou actuel).
+  el.value = info.value?.pendingModel ?? info.value?.model ?? "";
   term?.focus();
 }
 
@@ -152,9 +158,17 @@ async function restart() {
         </span>
         <span v-if="!compact" class="tiny muted session-time" title="Durée de la session"><Gauge :size="12" /> {{ elapsed }}</span>
         <span v-if="info?.model === 'local'" class="badge" title="Claude Code sur ton modèle llama.cpp">local</span>
-        <select v-else class="model-pick" :value="info?.model ?? ''" title="Changer le modèle Claude (/model)" @change="onModel">
+        <select
+          v-else
+          class="model-pick"
+          :class="{ pending: !!info?.pendingModel }"
+          :value="info?.pendingModel ?? info?.model ?? ''"
+          :disabled="!!info?.pendingModel"
+          :title="info?.pendingModel ? 'Changement de modèle en attente de confirmation par Claude Code…' : 'Changer le modèle Claude (/model)'"
+          @change="onModel"
+        >
           <option value="" disabled>modèle</option>
-          <option v-for="m in CLAUDE_MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
+          <option v-for="m in claudeModels" :key="m.id" :value="m.id" :title="m.hint">{{ m.label }}{{ info?.pendingModel === m.id ? " …" : "" }}</option>
         </select>
         <button class="btn sm ghost" :class="{ icon: compact }" title="Résumer le contexte sans perdre le fil (/compact)" :disabled="busyHandoff" @click="compactSession(tabKey)">
           <Archive :size="13" /><span v-if="!compact">Compacter</span>
@@ -243,6 +257,11 @@ async function restart() {
   padding: 0 6px;
   font-size: 0.8rem;
   cursor: pointer;
+}
+.model-pick.pending {
+  opacity: 0.6;
+  font-style: italic;
+  cursor: progress;
 }
 .session-time {
   display: inline-flex;
