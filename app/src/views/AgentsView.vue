@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Camera, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
+import { Bot, Camera, Crown, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import Toggle from "../components/Toggle.vue";
@@ -28,7 +28,11 @@ const form = reactive({
   instructions: "",
   restrict: false,
   services: [] as string[],
+  master: false,
 });
+
+/** Autre agent déjà MASTER (il perdra ce rôle si celui-ci le prend). */
+const masterOther = computed(() => state.agents.find((a) => a.master && a.id !== form.id)?.name);
 
 const usage = computed(() => new Map((state.overview?.agents ?? []).map((a) => [a.id, a])));
 
@@ -56,6 +60,7 @@ function load(a?: AgentProfile) {
   form.avatar = a?.avatar ?? "";
   form.instructions = a?.instructions ?? "";
   form.restrict = !!a?.services;
+  form.master = !!a?.master;
   form.services = a?.services ? [...a.services] : services.value.map((s) => s.id);
 }
 
@@ -74,6 +79,7 @@ function toProfile(): AgentProfile {
   if (form.avatar) p.avatar = form.avatar;
   if (form.instructions.trim()) p.instructions = form.instructions.trim();
   if (form.restrict) p.services = [...form.services];
+  if (form.master) p.master = true;
   return p;
 }
 
@@ -274,6 +280,19 @@ onMounted(async () => {
             />
             <small class="tiny muted counter">{{ form.instructions.length }} / 4000</small>
           </label>
+
+          <div class="field wide">
+            <div class="row">
+              <span class="grow"><Crown :size="15" /> Agent MASTER</span>
+              <Toggle v-model="form.master" label="Agent MASTER" />
+            </div>
+            <p class="tiny muted">
+              Ton assistant principal : il pilote l'app (liste et crée des agents, ouvre des conversations, consulte la Guilde) et écrit aux
+              autres agents quand une tâche relève de leur rôle ; tu vois leurs échanges dans les conversations. Créer ou supprimer un agent
+              et publier sur la Guilde te sont toujours demandés. Il n'a accès à aucun réglage. Un seul MASTER à la fois.
+              <strong v-if="form.master && masterOther">Il remplacera {{ masterOther }} comme MASTER.</strong>
+            </p>
+          </div>
 
           <div class="field wide">
             <div class="row">

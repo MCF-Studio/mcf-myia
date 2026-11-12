@@ -10,6 +10,8 @@ export interface AgentProfile {
   avatar?: string;
   instructions?: string;
   services?: string[];
+  /** Agent MASTER : l'assistant principal, qui pilote l'app (un seul). */
+  master?: boolean;
 }
 
 export interface DisplayMessage {
@@ -17,6 +19,8 @@ export interface DisplayMessage {
   role: "user" | "assistant" | "progress" | "confirm" | "error";
   text: string;
   ts: string;
+  /** Écrit par un autre agent (ex. MASTER) au lieu de l'utilisateur. */
+  from?: string;
   title?: string;
   decision?: "pending" | "approved" | "refused";
 }

@@ -210,6 +210,27 @@ plus pertinents (recherche par mots-clés, sans réseau) sont joints au prompt ;
 mémoire ne quitte jamais le PC : ni l'agent de la Guilde (bac à sable) ni un agent confié à Claude ne la reçoivent,
 ce que vérifient des tests.
 
+**Agent MASTER** (profil `master: true`, un seul à la fois ; il garde son nom) : l'assistant du quotidien, qui pilote
+l'app. En plus de ses services, il reçoit les outils `app_*` :
+- lecture, sans confirmation : agents, équipes, conversations, Guilde (état, offres publiées), marketplace (« pas encore
+  disponible » tant qu'il n'existe pas : jamais de contenu inventé) ;
+- créer une conversation : sans confirmation (rien ne sort, rien n'est détruit) ;
+- créer ou supprimer un agent, publier une offre sur la Guilde : **confirmation à chaque fois**, avec le contenu
+  complet dans la confirmation (nom, modèle, consignes, services ; texte de l'offre) ;
+- `app_agent_message` : écrire à un autre agent et récupérer sa réponse. L'échange se fait dans une vraie
+  conversation « MASTER ↔ agent », visible dans l'app (messages marqués « de MASTER »). Les confirmations demandées
+  par l'agent appelé remontent dans la conversation de MASTER.
+*Qui voit quoi* : MASTER voit les noms, descriptions, modèles et consignes des agents, les titres des conversations et
+l'état de la Guilde ; il ne lit pas le contenu des autres conversations (seulement les réponses aux messages qu'il
+envoie). Il n'a **aucun** outil pour les réglages : clés d'API, accès à tout le PC, mode bypass, dossiers de mémoire,
+mises à jour.
+*Menaces et mesures* : injection par un résultat d'outil (page web, fichier) qui pousse MASTER à créer, supprimer ou
+publier → ces actions sont toujours confirmées, contenu complet affiché ; un agent créé par MASTER ne peut pas être
+MASTER et ne peut pas recevoir un modèle hors liste ; boucle ou coût incontrôlé entre agents → 6 messages à d'autres
+agents au plus par demande, l'agent appelé n'a pas `app_agent_message` (profondeur 1), MASTER ne s'écrit pas à
+lui-même, une conversation déjà occupée est refusée ; suppression de MASTER par lui-même → refusée ; offre de la Guilde
+→ mêmes règles que l'écran Guilde (modèle local seulement, schéma `OfferSchema`).
+
 **Accès aux fichiers** : par défaut, les agents lisent, cherchent (`files_find`, `folder_list`, `file_read`) et
 écrivent (`file_write`, confirmé hors Documents\MyIA) dans les dossiers habituels, les projets et les dossiers de
 mémoire. L'option « Accès à tout le PC » (`files.fullAccess`, désactivée par défaut, Paramètres → Accès aux fichiers,

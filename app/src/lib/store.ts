@@ -242,6 +242,9 @@ export async function boot() {
     void refreshSidecar();
   });
   on("ready", () => void afterReady());
+  // MASTER a créé ou supprimé un agent, ouvert une conversation.
+  on("agents.changed", () => void refreshAgents());
+  on("conversations.changed", () => void refreshConversations());
   onRequest((method, params, id) => {
     if (method === "ui.confirm") state.confirms[params.messageId] = id;
     else void reply(id, null);

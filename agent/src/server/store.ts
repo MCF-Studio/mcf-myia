@@ -11,6 +11,8 @@ export interface DisplayMessage {
   role: "user" | "assistant" | "progress" | "confirm" | "error";
   text: string;
   ts: string;
+  /** Message écrit par un autre agent (ex. MASTER) au lieu de l'utilisateur. */
+  from?: string;
   /** Confirmations : titre et décision. */
   title?: string;
   decision?: "pending" | "approved" | "refused";

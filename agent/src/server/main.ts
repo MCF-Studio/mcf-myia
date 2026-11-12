@@ -13,7 +13,7 @@ import { addProgram, assertLocalPath, listPrograms, removeProgram, searchProgram
 import { CLAUDE_MODEL_INFO, CLAUDE_MODELS, claudeAccount, triageTask } from "../core/claude-coach.js";
 import { API_KEY_SECRET, apiKeyStatus, CLAUDE_API_MODELS, verifyApiKey } from "../core/claude-api-llm.js";
 import { deleteSecret, setSecret } from "../core/secrets.js";
-import { decide, journal, loadGuild, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
+import { decide, journal, loadGuild, OfferSchema, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
 import { deviceKeys } from "../core/guild-crypto.js";
 import { GuildLink } from "../core/guild-link.js";
@@ -25,6 +25,7 @@ import { installOllama } from "../core/ollama-install.js";
 import { createLlm } from "../core/llm-factory.js";
 import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
 import { makeTeamRoot } from "../core/team-runner.js";
+import { appControlTools, type AppControl } from "../services/app-control.js";
 import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
 import { isInside, paths } from "../core/paths.js";
 import { ProjectRegistry } from "../core/projects.js";
@@ -39,7 +40,7 @@ import {
 import type { AgentUI, Service } from "../core/types.js";
 import { buildServices } from "../services/index.js";
 import { RpcError, RpcPeer } from "./rpc.js";
-import { ConversationStore, type Conversation } from "./store.js";
+import { ConversationStore, type Conversation, type DisplayMessage } from "./store.js";
 import { deleteTheme, installTheme, listThemes } from "./themes.js";
 
 // stdout = protocole. Tout le reste part sur stderr (journal du sidecar côté app).
@@ -100,6 +101,8 @@ interface Live {
   running?: AbortController;
   /** Équipe : budget remis à zéro à chaque message de l'utilisateur. */
   budget?: TeamBudget;
+  /** Agent MASTER : messages à d'autres agents pendant la demande en cours. */
+  masterBudget?: { used: number };
 }
 const live = new Map<string, Live>();
 const pulls = new Map<string, AbortController>();
@@ -116,15 +119,25 @@ async function agentFor(c: Conversation): Promise<Live> {
   if (!l || l.signature !== signature) {
     let agent: Agent;
     let budget: TeamBudget | undefined;
+    let masterBudget: { used: number } | undefined;
     if (team) {
       budget = new TeamBudget(team.maxCalls, team.maxDepth);
       agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders) });
+    } else if (profile.master) {
+      masterBudget = { used: 0 };
+      agent = new Agent(cfg, services, profile, {
+        memory: memoryFor(cfg.memory.folders),
+        extraTools: appControlTools(appControl, profile, masterBudget),
+        teamNote:
+          `Tu es l'agent principal de ${cfg.user.name} (MASTER) : tu pilotes l'app MyIA. Tu peux lister et créer des agents, ouvrir des conversations, ` +
+          "consulter la Guilde et écrire aux autres agents (app_agent_message) quand une tâche relève de leur rôle. Fais toi-même ce qui est simple.",
+      });
     } else {
       agent = new Agent(cfg, services, profile, { memory: memoryFor(cfg.memory.folders) });
     }
     agent.importHistory(c.history);
     await agent.refreshServices();
-    l = { agent, signature, running: l?.running, budget };
+    l = { agent, signature, running: l?.running, budget, masterBudget };
     live.set(c.id, l);
   }
   return l;
@@ -193,14 +206,16 @@ rpc.method("agents.list", () => profiles.map((p) => ({ ...p, model: p.model, eff
 
 rpc.method("agents.save", (params) => {
   const p = parse(AgentProfileSchema, params);
-  const next = profiles.some((x) => x.id === p.id) ? profiles.map((x) => (x.id === p.id ? p : x)) : [...profiles, p];
-  saveProfiles(next);
-  profiles = next;
+  saveProfile(p);
   return p;
 });
 
 rpc.method("agents.delete", (params) => {
-  const { id } = parse(z.object({ id: z.string() }), params);
+  deleteAgent(parse(z.object({ id: z.string() }), params).id);
+  return true;
+});
+
+function deleteAgent(id: string) {
   if (profiles.length <= 1) throw new Error("il faut garder au moins un agent");
   const used = store.list().filter((c) => c.agentId === id).length;
   if (used) throw new Error(`${used} conversation(s) utilisent encore cet agent`);
@@ -208,8 +223,7 @@ rpc.method("agents.delete", (params) => {
   if (inTeams.length) throw new Error(`cet agent fait partie de : ${inTeams.join(", ")}`);
   profiles = profiles.filter((p) => p.id !== id);
   saveProfiles(profiles);
-  return true;
-});
+}
 
 rpc.method("agents.import", (params) => {
   const { json } = parse(z.object({ json: z.string().max(64_000) }), params);
@@ -326,24 +340,38 @@ rpc.method("conversations.cancel", (params) => {
   return true;
 });
 
-rpc.method("conversations.send", async (params) => {
-  const { id, text } = parse(z.object({ id: z.string().uuid(), text: z.string().trim().min(1).max(20_000) }), params);
-  const c = store.get(id);
+interface SendOptions {
+  /** Expéditeur affiché quand ce n'est pas l'utilisateur (ex. MASTER). */
+  from?: string;
+  /** Les confirmations passent par cette interface (celle de l'agent appelant) au lieu de la conversation. */
+  confirmVia?: AgentUI;
+  signal?: AbortSignal;
+}
+
+/** Envoie un message dans une conversation et attend la réponse de son agent (utilisateur ou MASTER). */
+async function sendTo(c: Conversation, text: string, opts: SendOptions = {}): Promise<DisplayMessage> {
+  const id = c.id;
   const l = await agentFor(c);
   if (l.running) throw new Error("l'agent répond déjà dans cette conversation");
 
-  const emit = (msg: ReturnType<typeof store.push>) => rpc.notify("conversation.message", { conversationId: id, message: msg });
-  emit(store.push(c, { role: "user", text }));
-  if (c.messages.filter((m) => m.role === "user").length === 1 && c.title === "Nouvelle conversation") {
+  const emit = (msg: DisplayMessage) => rpc.notify("conversation.message", { conversationId: id, message: msg });
+  emit(store.push(c, { role: "user", text, ...(opts.from ? { from: opts.from } : {}) }));
+  if (!opts.from && c.messages.filter((m) => m.role === "user").length === 1 && c.title === "Nouvelle conversation") {
     c.title = text.replace(/\s+/g, " ").slice(0, 60);
     store.save(c);
     rpc.notify("conversation.updated", { conversationId: id, title: c.title });
   }
 
   const running = new AbortController();
+  if (opts.signal) {
+    if (opts.signal.aborted) running.abort();
+    else opts.signal.addEventListener("abort", () => running.abort(), { once: true });
+  }
   l.running = running;
   if (l.budget) l.budget.calls = 0;
+  if (l.masterBudget) l.masterBudget.used = 0;
   rpc.notify("conversation.busy", { conversationId: id, busy: true });
+  const agentName = profileOf(c.agentId).name;
 
   const ui: AgentUI = {
     async confirm(title, details) {
@@ -351,7 +379,9 @@ rpc.method("conversations.send", async (params) => {
       emit(m);
       let ok = false;
       try {
-        ok = (await rpc.call<boolean>("ui.confirm", { conversationId: id, messageId: m.id, title, details }, running.signal)) === true;
+        ok = opts.confirmVia
+          ? await opts.confirmVia.confirm(`${agentName} · ${title}`, details)
+          : (await rpc.call<boolean>("ui.confirm", { conversationId: id, messageId: m.id, title, details }, running.signal)) === true;
       } catch {
         ok = false;
       }
@@ -381,7 +411,70 @@ rpc.method("conversations.send", async (params) => {
     l.running = undefined;
     rpc.notify("conversation.busy", { conversationId: id, busy: false });
   }
+}
+
+rpc.method("conversations.send", async (params) => {
+  const { id, text } = parse(z.object({ id: z.string().uuid(), text: z.string().trim().min(1).max(20_000) }), params);
+  return sendTo(store.get(id), text);
 });
+
+// ─── MASTER : ce que l'agent principal peut faire dans l'app ─────────────────
+
+/** Enregistre un profil ; un seul MASTER à la fois. */
+function saveProfile(p: AgentProfile) {
+  let next = profiles.some((x) => x.id === p.id) ? profiles.map((x) => (x.id === p.id ? p : x)) : [...profiles, p];
+  if (p.master) next = next.map((x) => (x.id !== p.id && x.master ? { ...x, master: undefined } : x));
+  saveProfiles(next);
+  profiles = next;
+}
+
+const summary = (c: { id: string; title: string; agentId: string; teamId?: string; updatedAt: string }) => ({ id: c.id, title: c.title, agentId: c.agentId, teamId: c.teamId, updatedAt: c.updatedAt });
+
+const appControl: AppControl = {
+  agents: () => profiles,
+  teams: () => teams.map((t) => ({ id: t.id, name: t.name, description: t.description })),
+  conversations: () => store.list().map(summary),
+  installedModels: async () => (await engine().listModels()).map((m) => m.name),
+  createAgent(p) {
+    const parsed = parse(AgentProfileSchema, { ...p, master: undefined });
+    if (profiles.some((x) => x.id === parsed.id)) throw new Error(`un agent « ${parsed.id} » existe déjà`);
+    saveProfile(parsed);
+    rpc.notify("agents.changed", {});
+    return parsed;
+  },
+  deleteAgent(id) {
+    deleteAgent(id);
+    rpc.notify("agents.changed", {});
+  },
+  createConversation(agentId, title) {
+    const { history: _h, ...c } = store.create(agentId, title);
+    rpc.notify("conversations.changed", {});
+    return summary(c);
+  },
+  guild: () => {
+    const g = loadGuild();
+    return { enabled: g.enabled, relay: relayStatus(), offers: g.offers };
+  },
+  publishOffer(offer) {
+    const g = loadGuild();
+    const o = parse(OfferSchema, offer);
+    const saved = saveGuild({ ...g, offers: [...g.offers.filter((x) => x.id !== o.id), o] });
+    link?.publishOffers();
+    return saved.offers.find((x) => x.id === o.id)!;
+  },
+  async messageAgent(fromName, agentId, text, confirmVia, signal) {
+    const target = profileOf(agentId);
+    const title = `${fromName} ↔ ${target.name}`;
+    let convId = store.list().find((x) => x.agentId === agentId && !x.teamId && x.title === title)?.id;
+    if (!convId) {
+      convId = store.create(agentId, title).id;
+      rpc.notify("conversations.changed", {});
+    }
+    const m = await sendTo(store.get(convId), text, { from: fromName, confirmVia, signal });
+    if (m.role === "error") throw new Error(m.text);
+    return m.text;
+  },
+};
 
 // ─── modèles ─────────────────────────────────────────────────────────────────
 

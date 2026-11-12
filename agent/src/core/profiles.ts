@@ -28,6 +28,8 @@ export const AgentProfileSchema = z.object({
     .optional(),
   /** Consignes ajoutées au prompt système (ton, rôle). Ne remplacent jamais les règles de sécurité. */
   instructions: z.string().max(4000).optional(),
+  /** Agent MASTER : l'assistant principal, qui pilote l'app (un seul ; voir services/app-control.ts). */
+  master: z.boolean().optional(),
   /** Ids des services autorisés ; absent = tous les services disponibles. */
   services: z.array(z.string().max(60)).max(50).optional(),
 });

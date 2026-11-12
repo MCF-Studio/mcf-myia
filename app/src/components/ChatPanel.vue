@@ -161,7 +161,8 @@ defineExpose({ focus: () => input.value?.focus() });
       </div>
 
       <template v-for="m in messages" :key="m.id">
-        <div v-if="m.role === 'user'" class="msg user">
+        <div v-if="m.role === 'user'" class="msg user" :class="{ agent: m.from }">
+          <span v-if="m.from" class="from tiny muted">de {{ m.from }}</span>
           <div class="bubble">{{ m.text }}</div>
           <span v-if="settings.conversations.showTimestamps" class="ts">{{ clock(m.ts) }}</span>
         </div>
@@ -308,6 +309,16 @@ defineExpose({ focus: () => input.value?.focus() });
 .msg.user {
   align-self: flex-end;
   align-items: flex-end;
+}
+/* Message écrit par un autre agent (MASTER) : distingué de l'utilisateur. */
+.msg.user.agent .bubble {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  box-shadow: none;
+}
+.from {
+  margin-bottom: 2px;
 }
 .msg.assistant,
 .msg.error {
