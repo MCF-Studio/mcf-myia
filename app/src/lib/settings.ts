@@ -6,6 +6,8 @@ export const DEFAULT_SETTINGS = {
   general: {
     startView: "overview" as "overview" | "conversations" | "last",
     metricsInterval: 2,
+    /** Touche globale « appuyer pour parler » à MASTER (vide = désactivée). */
+    pttKey: "F9",
   },
   appearance: {
     theme: "volcano",
@@ -37,6 +39,8 @@ export const DEFAULT_SETTINGS = {
     readReplies: "focused" as "off" | "focused" | "all",
     /** Langue de la dictée (whisper) : code ISO ou "auto". */
     dictationLang: "fr",
+    /** Lire à voix haute la réponse de MASTER à une demande faite avec la touche « parler ». */
+    pttSpeak: true,
   },
   notifications: {
     desktop: true,

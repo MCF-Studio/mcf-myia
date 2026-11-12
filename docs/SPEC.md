@@ -235,6 +235,13 @@ agents au plus par demande, l'agent appelé n'a pas `app_agent_message` (profond
 lui-même, une conversation déjà occupée est refusée ; suppression de MASTER par lui-même → refusée ; offre de la Guilde
 → mêmes règles que l'écran Guilde (modèle local seulement, schéma `OfferSchema`).
 
+**Touche « parler à MASTER »** (par défaut F9, Paramètres → Son et voix) : appuyer pour parler, même fenêtre cachée.
+La touche est enregistrée côté Rust (`src-tauri/src/ptt.rs`) ; la page n'a PAS la permission des raccourcis globaux
+(elle ne peut pas écouter le clavier hors de l'app) et ne reçoit que « enfoncée / relâchée » pour cette touche. Touches
+permises : F1–F24, Pause, Inser, Arrêt défil, ou Ctrl/Alt/Maj + lettre, chiffre ou espace (jamais Alt+F4, jamais une
+lettre seule qui volerait la frappe). La voix est transcrite en local (whisper.cpp) puis envoyée comme un message
+normal dans la conversation de MASTER (créée au besoin) : mêmes confirmations que si la demande était tapée.
+
 **Accès aux fichiers** : par défaut, les agents lisent, cherchent (`files_find`, `folder_list`, `file_read`) et
 écrivent (`file_write`, confirmé hors Documents\MyIA) dans les dossiers habituels, les projets et les dossiers de
 mémoire. L'option « Accès à tout le PC » (`files.fullAccess`, désactivée par défaut, Paramètres → Accès aux fichiers,

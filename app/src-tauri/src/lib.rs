@@ -1,4 +1,5 @@
 mod metrics;
+mod ptt;
 mod pty;
 mod sidecar;
 mod tray;
@@ -15,10 +16,12 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(ptt::plugin())
         .manage(sidecar::Sidecar::default())
         .manage(metrics::Metrics::default())
         .manage(pty::Ptys::default())
         .manage(update::Updates::default())
+        .manage(ptt::Ptt::default())
         .invoke_handler(tauri::generate_handler![
             sidecar::sidecar_send,
             sidecar::sidecar_restart,
@@ -30,6 +33,7 @@ pub fn run() {
             pty::pty_kill,
             update::update_status,
             update::update_check,
+            ptt::ptt_set,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

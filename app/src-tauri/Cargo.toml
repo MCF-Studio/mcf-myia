@@ -25,6 +25,8 @@ sysinfo = "0.40"
 portable-pty = "0.9"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
+# Touche « parler à MASTER » globale, enregistrée côté Rust uniquement (voir src/ptt.rs).
+tauri-plugin-global-shortcut = "2"
 # Coffre Windows (Gestionnaire d'identification) : même format que @napi-rs/keyring côté cœur (cible « nom.MyIA »).
 keyring = { version = "3.6", features = ["windows-native"] }
 

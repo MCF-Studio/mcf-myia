@@ -36,6 +36,7 @@ import { refreshOverview, refreshSidecar, refreshThemes, restartSidecar, state, 
 import { BUILTIN_THEMES, exportTheme } from "../lib/themes";
 import type { Theme } from "../lib/types";
 import { checkForUpdate, update } from "../lib/update";
+import { applyPttKey, ptt } from "../lib/ptt";
 import { claudeApi, loadClaudeApi } from "../lib/terminals";
 
 type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "system" | "about";
@@ -413,6 +414,22 @@ async function searchProg() {
   }
 }
 
+// ─── Touche « parler à MASTER » ──────────────────────────────────────────────
+const pttDraft = ref(settings.general.pttKey);
+
+async function savePttKey() {
+  const key = pttDraft.value.trim();
+  try {
+    await applyPttKey(key);
+    settings.general.pttKey = key;
+    toast(key ? `Touche « parler à MASTER » : ${key}` : "Touche « parler à MASTER » désactivée", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+    // On revient à la touche précédente, qui reste enregistrée.
+    await applyPttKey().catch(() => undefined);
+  }
+}
+
 // ─── Dictée (whisper.cpp) ─────────────────────────────────────────────────────
 interface WhisperSt {
   ready: boolean;
@@ -776,6 +793,19 @@ const shortcuts: [string, string][] = [
               <button :class="{ on: wModel === 'small' }" @click="wModel = 'small'">small · 466 Mo</button>
             </div>
           </SettingRow>
+          <SettingRow
+            label="Touche « parler à MASTER »"
+            hint="Maintiens-la enfoncée, parle, relâche : ta demande part dans la conversation de ton agent MASTER (créée au besoin), même quand MyIA est en arrière-plan. F1–F24, Pause, ou Ctrl/Alt/Maj + touche. Vide = désactivée."
+          >
+            <div class="row-actions">
+              <input v-model="pttDraft" class="input w-120 mono" maxlength="30" placeholder="F9" spellcheck="false" @keydown.enter="savePttKey" />
+              <button class="btn sm" :disabled="pttDraft.trim() === settings.general.pttKey" @click="savePttKey">Appliquer</button>
+            </div>
+          </SettingRow>
+          <p v-if="ptt.error" class="tiny err-text">{{ ptt.error }}</p>
+          <SettingRow label="Lire la réponse de MASTER à voix haute" hint="Pour une demande faite avec la touche « parler ».">
+            <Toggle v-model="s.pttSpeak" />
+          </SettingRow>
           <SettingRow label="Langue">
             <select v-model="s.dictationLang" class="input select w-220">
               <option value="fr">Français</option>
@@ -1016,6 +1046,13 @@ const shortcuts: [string, string][] = [
 }
 .access-warn p {
   margin: 0;
+}
+.err-text {
+  color: var(--danger);
+  margin: 0 0 6px;
+}
+.w-120 {
+  width: 120px;
 }
 .row-actions {
   display: flex;

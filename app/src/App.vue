@@ -10,6 +10,7 @@ import { settings } from "./lib/settings";
 import { navigate, restartSidecar, startPolling, state, type View } from "./lib/store";
 import { applyTheme, BUILTIN_THEMES } from "./lib/themes";
 import { startUpdates, update } from "./lib/update";
+import { startPtt } from "./lib/ptt";
 import AgentsView from "./views/AgentsView.vue";
 import ConversationsView from "./views/ConversationsView.vue";
 import MarketplaceView from "./views/MarketplaceView.vue";
@@ -83,6 +84,7 @@ async function startTrayNavigation() {
 
 onMounted(() => {
   void startUpdates();
+  void startPtt();
   void startTrayNavigation();
   window.addEventListener("keydown", onKey);
   document.addEventListener("click", onClick);
