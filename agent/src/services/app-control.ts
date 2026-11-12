@@ -50,6 +50,12 @@ export function appControlTools(ctl: AppControl, master: AgentProfile, budget: {
     return ctl.agents().find((a) => a.name.toLowerCase() === n || a.id === n);
   };
   const others = () => ctl.agents().filter((a) => a.id !== master.id);
+  /** L'agent appelé peut-il faire plus que MASTER (services en plus, ou accès local pour un MASTER en ligne) ? */
+  const widerThanMaster = (t: AgentProfile) => {
+    if (isCloudModel(master.model) && !isCloudModel(t.model)) return true;
+    if (!master.services) return false;
+    return !t.services || t.services.some((s) => !master.services!.includes(s));
+  };
 
   return [
     defineTool({
@@ -229,8 +235,22 @@ export function appControlTools(ctl: AppControl, master: AgentProfile, budget: {
         agent: z.string().min(1).max(40).describe("Nom ou id de l'agent"),
         message: z.string().min(2).max(6000),
       }),
-      risk: "read",
-      preview: (a) => `${master.name} → ${a.agent} : ${a.message}`,
+      risk: "local",
+      // Sans confirmation seulement si l'agent appelé n'a pas plus de pouvoirs que MASTER : sinon (services en plus, ou
+      // MASTER en ligne qui récupérerait ce que lit un agent local, mémoire comprise), l'utilisateur confirme.
+      confirmIf: (a) => {
+        const t = byName(a.agent);
+        return !!t && t.id !== master.id && widerThanMaster(t);
+      },
+      preview: (a) => {
+        const t = byName(a.agent);
+        const why = t && isCloudModel(master.model) && !isCloudModel(t.model)
+          ? `
+(${master.name} tourne sur Claude : la réponse de ${t.name}, qui peut contenir ta mémoire ou tes fichiers, partira chez Anthropic.)`
+          : `
+(${t?.name ?? a.agent} a des services que ${master.name} n'a pas.)`;
+        return `${master.name} → ${a.agent} : ${a.message}${why}`;
+      },
       async run(a, ctx) {
         const t = byName(a.agent);
         if (!t) return `Agent introuvable : ${a.agent}. Agents : ${others().map((x) => x.name).join(", ") || "aucun"}.`;

@@ -233,7 +233,8 @@ rpc.method("agents.import", (params) => {
   } catch {
     throw new Error("fichier d'agent : JSON invalide");
   }
-  const p = parse(AgentProfileSchema, raw);
+  // Le rôle MASTER ne s'attribue que depuis l'écran Agents, jamais par un fichier importé.
+  const p = { ...parse(AgentProfileSchema, raw), master: undefined };
   if (profiles.some((x) => x.id === p.id)) throw new Error(`un agent « ${p.id} » existe déjà`);
   profiles = [...profiles, p];
   saveProfiles(profiles);
@@ -396,7 +397,8 @@ async function sendTo(c: Conversation, text: string, opts: SendOptions = {}): Pr
   };
 
   try {
-    const answer = await l.agent.handle(text, ui, running.signal);
+    // Un message d'un autre agent n'est pas l'utilisateur : ses liens ne sont pas de confiance.
+    const answer = await l.agent.handle(text, ui, running.signal, opts.from ? false : undefined);
     c.history = l.agent.exportHistory();
     const m = store.push(c, { role: "assistant", text: answer });
     emit(m);

@@ -43,7 +43,7 @@ describe("agent MASTER", () => {
     expect(confirms(tools.get("app_agent_create")!, { name: "X" })).toBe(true);
     expect(confirms(tools.get("app_agent_delete")!, { agent: "redac" })).toBe(true);
     expect(confirms(tools.get("app_guild_publish")!, {})).toBe(true);
-    for (const n of ["app_agents_list", "app_conversations_list", "app_guild_view", "app_marketplace_view", "app_agent_message"]) {
+    for (const n of ["app_agents_list", "app_conversations_list", "app_guild_view", "app_marketplace_view"]) {
       expect(confirms(tools.get(n)!, {})).toBe(false);
     }
     // Aucun outil de réglage.
@@ -57,6 +57,21 @@ describe("agent MASTER", () => {
     expect(await t.preview(args)).toContain("Surveille les sorties de jeux.");
     expect(await run("app_agent_create", { name: "Veilleur" })).toContain("créé");
     expect(agents().find((a) => a.name === "Veilleur")?.master).toBeUndefined();
+  });
+
+  it("déléguer à un agent plus puissant que MASTER est confirmé", () => {
+    const tool = (m: AgentProfile, target: AgentProfile) => {
+      const ctl = { agents: () => [m, target] } as unknown as AppControl;
+      return appControlTools(ctl, m, { used: 0 }).find((t) => t.name === "app_agent_message")!;
+    };
+    const args = { agent: "Rédac", message: "résume mon dossier" };
+    // MASTER sans restriction, agent local : pas de confirmation.
+    expect(confirms(tool(master, redac), args)).toBe(false);
+    // MASTER sur Claude, agent local (mémoire, fichiers) : confirmé.
+    expect(confirms(tool({ ...master, model: "claude-api:opus" }, redac), args)).toBe(true);
+    // MASTER restreint, agent avec plus de services : confirmé.
+    expect(confirms(tool({ ...master, services: ["web"] }, { ...redac, services: ["web", "files"] }), args)).toBe(true);
+    expect(confirms(tool({ ...master, services: ["web"] }, { ...redac, services: ["web"] }), args)).toBe(false);
   });
 
   it("modèle refusé s'il n'est ni installé ni Claude", async () => {

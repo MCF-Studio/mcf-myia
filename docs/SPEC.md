@@ -219,7 +219,11 @@ l'app. En plus de ses services, il reçoit les outils `app_*` :
   complet dans la confirmation (nom, modèle, consignes, services ; texte de l'offre) ;
 - `app_agent_message` : écrire à un autre agent et récupérer sa réponse. L'échange se fait dans une vraie
   conversation « MASTER ↔ agent », visible dans l'app (messages marqués « de MASTER »). Les confirmations demandées
-  par l'agent appelé remontent dans la conversation de MASTER.
+  par l'agent appelé remontent dans la conversation de MASTER. Sans confirmation seulement si l'agent appelé n'a pas
+  plus de pouvoirs que MASTER ; confirmé s'il a des services que MASTER n'a pas, ou si MASTER tourne sur Claude et
+  l'agent appelé en local (sa réponse, qui peut contenir mémoire ou fichiers, partirait chez Anthropic). Un message
+  venu de MASTER n'ajoute pas ses liens aux liens de confiance (ce n'est pas l'utilisateur). Le rôle MASTER ne
+  s'attribue que dans l'écran Agents, jamais par un fichier importé.
 *Qui voit quoi* : MASTER voit les noms, descriptions, modèles et consignes des agents, les titres des conversations et
 l'état de la Guilde ; il ne lit pas le contenu des autres conversations (seulement les réponses aux messages qu'il
 envoie). Il n'a **aucun** outil pour les réglages : clés d'API, accès à tout le PC, mode bypass, dossiers de mémoire,

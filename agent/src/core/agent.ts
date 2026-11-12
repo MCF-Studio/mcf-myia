@@ -197,8 +197,12 @@ export class Agent {
   }
 
   /** Traite un message utilisateur jusqu'à la réponse finale. */
-  async handle(input: string, ui: AgentUI, signal?: AbortSignal): Promise<string> {
-    if (this.opts.trustInput !== false) this.trust.addFrom(input);
+  /**
+   * `trusted` : faux quand le message vient d'un autre agent (MASTER) et non de l'utilisateur ; ses liens ne
+   * deviennent alors pas des liens de confiance.
+   */
+  async handle(input: string, ui: AgentUI, signal?: AbortSignal, trusted = this.opts.trustInput !== false): Promise<string> {
+    if (trusted) this.trust.addFrom(input);
     try {
       // La mémoire ne quitte jamais le PC (SPEC) : un agent confié à Claude ne la reçoit pas dans son prompt.
       this.memoryContext = this.cloud ? "" : (this.opts.memory?.contextFor(input) ?? "");
