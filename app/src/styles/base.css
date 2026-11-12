@@ -252,6 +252,18 @@ textarea.input {
   resize: vertical;
   line-height: 1.5;
 }
+/*
+ * WebView2 : sans couche d'affichage dédiée, la position précédente du curseur n'est pas toujours effacée pendant la
+ * frappe (curseurs « fantômes » qui s'accumulent jusqu'à la perte du focus). Une couche propre à chaque champ force
+ * son redessin complet.
+ */
+input,
+textarea,
+[contenteditable="true"] {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
 .input:focus,
 .select:focus {
   border-color: var(--accent);
