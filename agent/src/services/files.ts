@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { Config } from "../core/config.js";
-import { accessRoots, explicitRoots, isSensitive } from "../core/access.js";
+import { accessRoots, deniedFor, explicitRoots, isSensitive } from "../core/access.js";
 import { isInside, paths } from "../core/paths.js";
 import { assertLocalPath } from "../core/programs.js";
 import { defineTool, type Service } from "../core/types.js";
@@ -55,11 +55,11 @@ function musicDirs(): string[] {
   return [path.join(home, "Music"), path.join(home, "OneDrive", "Music")].filter((d) => fs.existsSync(d));
 }
 
-function checkOpenable(p: string, explicit: string[] = []): string {
+function checkOpenable(p: string, explicit: string[] = [], denied: string[] = []): string {
   const abs = assertLocalPath(p);
   if (!fs.existsSync(abs)) throw new Error(`introuvable : ${abs}`);
   const real = fs.realpathSync.native(abs);
-  if (isSensitive(real, explicit)) throw new Error(`${real} est un emplacement protégé (système, données d'applications, clés ou config de MyIA)`);
+  if (isSensitive(real, explicit, denied)) throw new Error(`${real} est un emplacement protégé (système, données d'applications, clés ou config de MyIA)`);
   if (fs.statSync(real).isFile() && EXECUTABLE.has(ext(real))) {
     throw new Error(`${path.basename(real)} est un programme ou un script : il ne s'ouvre pas par ici (voir program_launch)`);
   }
@@ -102,7 +102,7 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9]/g, "");
 
 /** Recherche bornée (profondeur, durée, nombre d'entrées) dans des dossiers donnés. */
-export function findFiles(roots: string[], query: string, kind: Kind, max = 15, explicit: string[] = roots): { path: string; dir: boolean }[] {
+export function findFiles(roots: string[], query: string, kind: Kind, max = 15, explicit: string[] = roots, denied: string[] = []): { path: string; dir: boolean }[] {
   const q = norm(query);
   const out: { path: string; dir: boolean; score: number }[] = [];
   const t0 = Date.now();
@@ -119,7 +119,7 @@ export function findFiles(roots: string[], query: string, kind: Kind, max = 15, 
       seen++;
       if (e.name.startsWith(".") || /^(node_modules|\$recycle\.bin|appdata)$/i.test(e.name)) continue;
       const full = path.join(dir, e.name);
-      if (isSensitive(full, explicit)) continue;
+      if (isSensitive(full, explicit, denied)) continue;
       const isDir = e.isDirectory();
       const n = norm(e.name);
       if ((!q || n.includes(q)) && matchesKind(full, isDir, kind)) {
@@ -165,9 +165,9 @@ export function filesService(cfg: Config): Service {
   const places = () => knownPlaces(cfg);
   const isKnown = (p: string) => places().some((k) => isInside(k, p));
   /** Où chercher et lister : dossiers habituels + mémoire, ou tout le PC si l'option est activée. */
-  const searchable = () => accessRoots(cfg, places());
-  const explicit = () => explicitRoots(cfg, places());
-  const openable = (p: string) => checkOpenable(p, explicit());
+  const searchable = (cloud = false) => accessRoots(cfg, places(), cloud);
+  const explicit = (cloud = false) => explicitRoots(cfg, places(), cloud);
+  const openable = (p: string, cloud = false) => checkOpenable(p, explicit(cloud), deniedFor(cfg, cloud));
   const downloads = [path.join(os.homedir(), "Downloads"), path.join(os.homedir(), "OneDrive", "Downloads")];
 
   /** Raison de demander confirmation, ou undefined si l'ouverture est sans risque. */
@@ -209,8 +209,8 @@ export function filesService(cfg: Config): Service {
             const p = openable(a.path);
             return `Ouvrir :\n${p}\n(${openNeedsConfirmation(p) ?? "ouverture"})`;
           },
-          async run(a) {
-            const p = openable(a.path);
+          async run(a, ctx) {
+            const p = openable(a.path, ctx.cloud);
             openWithDefault(p);
             return `Ouvert : ${p}`;
           },
@@ -226,9 +226,9 @@ export function filesService(cfg: Config): Service {
           }),
           risk: "read",
           preview: () => "",
-          async run(a) {
+          async run(a, ctx) {
             if (!a.query.trim() && a.kind === "tout") return "Précise un nom ou un type de fichier.";
-            const res = findFiles(searchable(), a.query, a.kind, 15, explicit());
+            const res = findFiles(searchable(ctx.cloud), a.query, a.kind, 15, explicit(ctx.cloud), deniedFor(cfg, !!ctx.cloud));
             if (!res.length) return `Rien trouvé pour « ${a.query} » (${a.kind}).`;
             return res.map((r, i) => `${i + 1}. ${r.dir ? "[dossier] " : ""}${r.path}`).join("\n");
           },
@@ -241,15 +241,15 @@ export function filesService(cfg: Config): Service {
           schema: z.object({ path: z.string().max(500).default("").describe("Chemin complet du dossier (vide = racines accessibles)") }),
           risk: "read",
           preview: () => "",
-          async run(a) {
-            const roots = searchable();
+          async run(a, ctx) {
+            const roots = searchable(ctx.cloud);
             if (!a.path.trim()) return "Dossiers accessibles :\n" + roots.map((r) => `- ${r}`).join("\n");
-            const real = openable(a.path);
+            const real = openable(a.path, ctx.cloud);
             if (!roots.some((r) => isInside(r, real))) {
               return `${real} est hors des dossiers accessibles.${cfg.files.fullAccess ? "" : " L'utilisateur peut activer l'accès à tout le PC dans Paramètres → Accès."}`;
             }
             if (!fs.statSync(real).isDirectory()) return `${real} est un fichier, pas un dossier.`;
-            const entries = fs.readdirSync(real, { withFileTypes: true }).filter((e) => !isSensitive(path.join(real, e.name), explicit()));
+            const entries = fs.readdirSync(real, { withFileTypes: true }).filter((e) => !isSensitive(path.join(real, e.name), explicit(ctx.cloud), deniedFor(cfg, !!ctx.cloud)));
             const MAX = 200;
             const lines = entries.slice(0, MAX).map((e) => {
               if (e.isDirectory()) return `[dossier] ${e.name}`;

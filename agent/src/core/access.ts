@@ -66,23 +66,32 @@ export function sensitivePlaces(): string[] {
 }
 
 /**
- * Vrai si le chemin (réel) est fermé aux agents. Un dossier choisi explicitement par l'utilisateur (`explicit` :
- * dossiers habituels, projets, mémoire) reste ouvert même s'il se trouve dans un emplacement fermé par défaut ; la
- * configuration et les données de MyIA restent fermées dans tous les cas.
+ * Vrai si le chemin (réel) est fermé aux agents.
+ * - La configuration et les données de MyIA, et `denied` (dossiers de mémoire pour un agent en ligne), sont fermés
+ *   dans tous les cas.
+ * - Un emplacement fermé par défaut ne s'ouvre que si l'utilisateur a choisi un dossier À L'INTÉRIEUR de cet
+ *   emplacement (ex. un dossier de mémoire sous AppData). Choisir un dossier plus large (son dossier personnel, un
+ *   disque) ne rouvre pas ce qu'il contient (.ssh, AppData…).
  */
-export function isSensitive(real: string, explicit: string[] = []): boolean {
+export function isSensitive(real: string, explicit: string[] = [], denied: string[] = []): boolean {
   const p = path.resolve(real);
   if (myiaPlaces().some((s) => isInside(s, p))) return true;
-  if (explicit.some((d) => isInside(d, p))) return false;
-  return sensitivePlaces().some((s) => isInside(s, p));
+  if (denied.some((d) => isInside(path.resolve(d), p))) return true;
+  return sensitivePlaces().some((s) => isInside(s, p) && !explicit.some((d) => isInside(s, d) && isInside(d, p)));
 }
 
-/** Dossiers choisis par l'utilisateur (sans les disques entiers de l'accès à tout le PC). */
-export function explicitRoots(cfg: Config, base: string[]): string[] {
-  return [...new Set([...base, ...cfg.memory.folders].filter((d) => fs.existsSync(d)).map((d) => path.resolve(d)))];
+/** Dossiers fermés à un agent en ligne : ses échanges partent chez Anthropic, la mémoire ne quitte jamais le PC. */
+export function deniedFor(cfg: Config, cloud: boolean): string[] {
+  return cloud ? cfg.memory.folders.map((d) => path.resolve(d)) : [];
+}
+
+/** Dossiers choisis par l'utilisateur (sans les disques entiers de l'accès à tout le PC ; sans la mémoire en ligne). */
+export function explicitRoots(cfg: Config, base: string[], cloud = false): string[] {
+  const roots = [...base, ...(cloud ? [] : cfg.memory.folders)];
+  return [...new Set(roots.filter((d) => fs.existsSync(d)).map((d) => path.resolve(d)))];
 }
 
 /** Dossiers ouverts aux agents (lecture, recherche ; écriture avec les contrôles de file_write). */
-export function accessRoots(cfg: Config, base: string[]): string[] {
-  return [...new Set([...explicitRoots(cfg, base), ...(cfg.files.fullAccess ? drives() : [])])];
+export function accessRoots(cfg: Config, base: string[], cloud = false): string[] {
+  return [...new Set([...explicitRoots(cfg, base, cloud), ...(cfg.files.fullAccess ? drives() : [])])];
 }

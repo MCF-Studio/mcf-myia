@@ -23,6 +23,8 @@ export interface ToolContext {
   signal?: AbortSignal;
   /** Liens de confiance de la conversation en cours. */
   trust: UrlTrust;
+  /** Agent sur un modèle en ligne (Claude) : la mémoire lui reste fermée, y compris par les outils de fichiers. */
+  cloud?: boolean;
 }
 
 export interface Tool {

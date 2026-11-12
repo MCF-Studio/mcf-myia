@@ -280,7 +280,7 @@ export class Agent {
 
     const t0 = Date.now();
     try {
-      const out = await tool.run(args, { ui, signal, trust: this.trust });
+      const out = await tool.run(args, { ui, signal, trust: this.trust, cloud: this.cloud });
       audit({ event: "tool_call", tool: name, risk: tool.risk, args, decision, ok: true, durationMs: Date.now() - t0 });
       return out;
     } catch (e) {
