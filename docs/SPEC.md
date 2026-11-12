@@ -220,8 +220,8 @@ l'app. En plus de ses services, il reçoit les outils `app_*` :
 - `app_agent_message` : écrire à un autre agent et récupérer sa réponse. L'échange se fait dans une vraie
   conversation « MASTER ↔ agent », visible dans l'app (messages marqués « de MASTER »). Les confirmations demandées
   par l'agent appelé remontent dans la conversation de MASTER. Sans confirmation seulement si l'agent appelé n'a pas
-  plus de pouvoirs que MASTER ; confirmé s'il a des services que MASTER n'a pas, ou si MASTER tourne sur Claude et
-  l'agent appelé en local (sa réponse, qui peut contenir mémoire ou fichiers, partirait chez Anthropic). Un message
+  plus de pouvoirs que MASTER ; confirmé s'il a des services que MASTER n'a pas, ou si l'un tourne sur Claude et
+  l'autre en local (ce qui passe entre eux, mémoire ou fichiers compris, partirait chez Anthropic). Un message
   venu de MASTER n'ajoute pas ses liens aux liens de confiance (ce n'est pas l'utilisateur). Le rôle MASTER ne
   s'attribue que dans l'écran Agents, jamais par un fichier importé.
 *Qui voit quoi* : MASTER voit les noms, descriptions, modèles et consignes des agents, les titres des conversations et

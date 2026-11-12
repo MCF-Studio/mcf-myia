@@ -69,6 +69,10 @@ describe("agent MASTER", () => {
     expect(confirms(tool(master, redac), args)).toBe(false);
     // MASTER sur Claude, agent local (mémoire, fichiers) : confirmé.
     expect(confirms(tool({ ...master, model: "claude-api:opus" }, redac), args)).toBe(true);
+    // MASTER local (mémoire), agent sur Claude : confirmé, le message partirait chez Anthropic.
+    expect(confirms(tool(master, { ...redac, model: "claude:sonnet" }), args)).toBe(true);
+    // Les deux sur Claude : rien de local ne passe, pas de confirmation.
+    expect(confirms(tool({ ...master, model: "claude:opus" }, { ...redac, model: "claude-api:haiku" }), args)).toBe(false);
     // MASTER restreint, agent avec plus de services : confirmé.
     expect(confirms(tool({ ...master, services: ["web"] }, { ...redac, services: ["web", "files"] }), args)).toBe(true);
     expect(confirms(tool({ ...master, services: ["web"] }, { ...redac, services: ["web"] }), args)).toBe(false);

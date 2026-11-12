@@ -52,7 +52,8 @@ export function appControlTools(ctl: AppControl, master: AgentProfile, budget: {
   const others = () => ctl.agents().filter((a) => a.id !== master.id);
   /** L'agent appelé peut-il faire plus que MASTER (services en plus, ou accès local pour un MASTER en ligne) ? */
   const widerThanMaster = (t: AgentProfile) => {
-    if (isCloudModel(master.model) && !isCloudModel(t.model)) return true;
+    // Un côté local, l'autre en ligne : ce qui passe entre eux (mémoire, fichiers) partirait chez Anthropic.
+    if (isCloudModel(master.model) !== isCloudModel(t.model)) return true;
     if (!master.services) return false;
     return !t.services || t.services.some((s) => !master.services!.includes(s));
   };
@@ -244,11 +245,16 @@ export function appControlTools(ctl: AppControl, master: AgentProfile, budget: {
       },
       preview: (a) => {
         const t = byName(a.agent);
-        const why = t && isCloudModel(master.model) && !isCloudModel(t.model)
-          ? `
+        const why = !t
+          ? ""
+          : isCloudModel(master.model) && !isCloudModel(t.model)
+            ? `
 (${master.name} tourne sur Claude : la réponse de ${t.name}, qui peut contenir ta mémoire ou tes fichiers, partira chez Anthropic.)`
-          : `
-(${t?.name ?? a.agent} a des services que ${master.name} n'a pas.)`;
+            : !isCloudModel(master.model) && isCloudModel(t.model)
+              ? `
+(${t.name} tourne sur Claude : ce message, qui peut contenir ta mémoire ou tes fichiers, partira chez Anthropic.)`
+              : `
+(${t.name} a des services que ${master.name} n'a pas.)`;
         return `${master.name} → ${a.agent} : ${a.message}${why}`;
       },
       async run(a, ctx) {
