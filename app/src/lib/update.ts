@@ -8,7 +8,7 @@ import { inTauri } from "./rpc";
  * installation). La page ne fait qu'afficher l'état.
  */
 export interface UpdateStatus {
-  state: "idle" | "checking" | "current" | "downloading" | "installing" | "error";
+  state: "idle" | "checking" | "current" | "available" | "downloading" | "installing" | "error";
   version?: string | null;
   percent?: number | null;
   error?: string | null;

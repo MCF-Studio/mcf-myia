@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Minus, Square, X } from "lucide-vue-next";
+import { AlertTriangle, ArrowUpCircle, CheckCircle2, CircleHelp, Copy, Loader2, Minus, Square, X } from "lucide-vue-next";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import logo from "../assets/logo.svg";
 import { inTauri } from "../lib/rpc";
-import { state, type View } from "../lib/store";
+import { navigate, state, type View } from "../lib/store";
+import { update } from "../lib/update";
 
 /**
  * Barre de titre de l'app (la fenêtre n'a plus celle de Windows) : on la saisit pour déplacer la fenêtre,
@@ -22,6 +24,26 @@ const LABELS: Record<View, string> = {
 };
 
 const title = computed(() => LABELS[state.view]);
+
+// Version installée + état des mises à jour (recherche faite côté Rust, voir update.rs).
+const version = ref("");
+const badge = computed(() => {
+  switch (update.state) {
+    case "current":
+      return { icon: CheckCircle2, cls: "ok", tip: "À jour" };
+    case "available":
+      return { icon: ArrowUpCircle, cls: "pending", tip: `Mise à jour en attente : v${update.version ?? "?"}` };
+    case "downloading":
+    case "installing":
+      return { icon: ArrowUpCircle, cls: "pending", tip: `Mise à jour v${update.version ?? "?"} en cours d'installation` };
+    case "checking":
+      return { icon: Loader2, cls: "spin", tip: "Recherche de mise à jour…" };
+    case "error":
+      return { icon: AlertTriangle, cls: "err", tip: `Vérification impossible : ${update.error ?? "erreur"}` };
+    default:
+      return { icon: CircleHelp, cls: "", tip: "Mises à jour non vérifiées" };
+  }
+});
 const maximized = ref(false);
 const win = inTauri ? getCurrentWindow() : undefined;
 let unlisten: (() => void) | undefined;
@@ -32,6 +54,7 @@ async function refresh() {
 
 onMounted(async () => {
   if (!win) return;
+  version.value = await getVersion().catch(() => "");
   await refresh();
   unlisten = await win.onResized(() => void refresh());
 });
@@ -42,6 +65,10 @@ onUnmounted(() => unlisten?.());
   <header class="titlebar" data-tauri-drag-region>
     <img :src="logo" alt="" data-tauri-drag-region />
     <span class="app" data-tauri-drag-region>MyIA</span>
+    <button v-if="version" type="button" class="version" :class="badge.cls" :title="badge.tip" :aria-label="`Version ${version} — ${badge.tip}`" @click="navigate('settings')">
+      v{{ version }}
+      <component :is="badge.icon" :size="13" />
+    </button>
     <span class="sep" data-tauri-drag-region>/</span>
     <span class="view" data-tauri-drag-region>{{ title }}</span>
     <div class="grow" data-tauri-drag-region />
@@ -80,6 +107,41 @@ onUnmounted(() => unlisten?.());
 }
 .sep {
   color: var(--border);
+}
+.version {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.version:hover {
+  color: var(--text);
+}
+.version.ok svg {
+  color: var(--success);
+}
+.version.pending {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.version.err svg {
+  color: var(--danger);
+}
+.version.spin svg {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .view {
   color: var(--text-muted);

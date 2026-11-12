@@ -5,6 +5,8 @@ import type { Config } from "./config.js";
 import { paths } from "./paths.js";
 
 export interface ToolCall {
+  /** Identifiant de l'appel, quand le moteur en donne un (API Claude). */
+  id?: string;
   function: { name: string; arguments: Record<string, unknown> | string };
 }
 
@@ -13,6 +15,21 @@ export interface ChatMessage {
   content: string;
   tool_calls?: ToolCall[];
   tool_name?: string;
+  /** Résultat d'outil : identifiant de l'appel auquel il répond (API Claude). */
+  tool_call_id?: string;
+  /**
+   * Réponse d'assistant de l'API Claude : blocs d'origine (réflexion signée comprise), renvoyés tels quels pendant la
+   * demande en cours. Jamais persistés (voir Agent.exportHistory).
+   */
+  blocks?: unknown[];
+}
+
+/** Moteurs dont les échanges quittent le PC (Claude par abonnement ou par clé d'API). */
+export const CLOUD_ENGINES: ReadonlySet<string> = new Set(["claude", "claude-api"]);
+
+/** Modèle d'agent confié à un service en ligne (« claude:… » ou « claude-api:… »). */
+export function isCloudModel(model: string | undefined): boolean {
+  return !!model && (model.startsWith("claude:") || model.startsWith("claude-api:"));
 }
 
 export interface ToolSpec {
@@ -47,7 +64,7 @@ export interface PullProgress {
  * claude-llm.ts) : mêmes messages, mêmes outils, même gestion des modèles.
  */
 export interface LlmClient {
-  readonly engine: "ollama" | "llamacpp" | "claude";
+  readonly engine: "ollama" | "llamacpp" | "claude" | "claude-api";
   /** Modèle effectivement utilisé par ce client. */
   readonly model: string;
   ping(): Promise<boolean>;

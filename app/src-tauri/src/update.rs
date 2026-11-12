@@ -12,7 +12,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::UpdaterExt;
 
-/// `state` : idle | checking | current | downloading | installing | error.
+/// `state` : idle | checking | current | available | downloading | installing | error.
+/// `available` : version plus récente publiée mais pas installée (build de développement, qui ne s'installe jamais).
 #[derive(Serialize, Clone)]
 pub struct UpdateStatus {
     state: &'static str,
@@ -99,9 +100,25 @@ async fn check(app: AppHandle) {
     updates.busy.store(false, Ordering::SeqCst);
 }
 
-/// Recherche au démarrage. Jamais en développement : un build local n'est pas une version publiée.
+/// En développement : on regarde seulement si une version plus récente est publiée, sans rien télécharger ni installer
+/// (un build local n'est pas une version publiée).
+async fn peek(app: AppHandle) {
+    set(&app, "checking", None, None, None);
+    let found = match app.updater_builder().build() {
+        Ok(u) => u.check().await.map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    };
+    match found {
+        Ok(Some(u)) => set(&app, "available", Some(u.version.clone()), None, None),
+        Ok(None) => set(&app, "current", None, None, None),
+        Err(e) => set(&app, "error", None, None, Some(e)),
+    }
+}
+
+/// Recherche au démarrage. En développement, simple consultation (voir `peek`).
 pub fn start(app: &AppHandle) {
     if cfg!(debug_assertions) {
+        tauri::async_runtime::spawn(peek(app.clone()));
         return;
     }
     let app = app.clone();

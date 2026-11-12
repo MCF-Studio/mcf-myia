@@ -163,6 +163,27 @@ du §3. La conversation et les résultats d'outils de cet agent partent chez Ant
 dit dans l'écran Agents. Il ne reçoit ni le contexte de mémoire ni les outils `memory_*` (test), et la Guilde refuse
 un tel modèle (un membre extérieur ne consomme pas l'abonnement de l'utilisateur).
 
+**Agent sur l'API Claude** (modèle `claude-api:<alias>` dans un profil ; alias `haiku`, `sonnet`, `opus`, `fable`
+→ `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-2`, liste fermée) : même principe que
+l'agent confié à Claude, mais par l'API Messages avec la clé d'API de l'utilisateur, facturée à l'usage. Les outils de
+MyIA sont décrits en appel d'outils natif et exécutés par MyIA avec les règles du §3 ; aucun outil serveur d'Anthropic
+n'est activé. Il fonctionne dans les équipes comme n'importe quel agent (le budget d'appels de l'équipe borne aussi
+le coût), ne reçoit ni la mémoire ni les outils `memory_*`, et la Guilde le refuse (tests).
+- *Qui voit quoi* : la clé n'est connue que du cœur. L'interface l'envoie une fois (`claudeApi.setKey`), le cœur la
+  vérifie (`GET /v1/models`, sans jeton consommé) puis la range dans le coffre Windows (`anthropic_api_key`) ; aucune
+  méthode ne la renvoie, seuls ses 4 derniers caractères sont affichés. Anthropic reçoit le prompt système, la
+  conversation et les résultats d'outils de cet agent, rien d'autre.
+- *Menaces et mesures* : clé détournée vers un autre serveur → adresse `https://api.anthropic.com` figée,
+  `ANTHROPIC_BASE_URL` ignorée ; clé dans un journal ou un message d'erreur → erreurs passées par `redact`, audit
+  limité à l'action (`claude_api_key` set/delete) ; dépense incontrôlée → `claudeApi.maxTokens` par réponse,
+  `maxSteps` par demande, budget d'appels des équipes, consommation de chaque appel au journal d'audit
+  (`claude_api_usage`), et limite de dépense à fixer sur platform.claude.com (rappelé dans Paramètres) ; injection
+  par un résultat d'outil → mêmes confirmations qu'un agent local, résultats d'outils traités comme des données ;
+  appel d'outil tronqué (`max_tokens`) → rien n'est exécuté.
+- *Réflexions signées* : le prompt système est figé pour toute une demande ; les blocs d'origine (réflexion comprise)
+  ne sont renvoyés que pour la demande en cours et jamais persistés, ce qui revient à retirer toutes les réflexions
+  de tête, comme l'API le permet. Repli côté serveur (`fallbacks: "default"`) en cas de refus de sécurité, sauf Haiku.
+
 **Installation d'Ollama** (Paramètres → Système, Windows) : le script officiel `https://ollama.com/install.ps1` est
 enregistré puis lancé seulement si sa signature Authenticode est valide et au nom d'Ollama Inc. ; les variables qui le
 détournent (`OLLAMA_DOWNLOAD_URL`…) ne lui sont pas transmises. Avant un téléchargement de modèle, le registre Ollama
@@ -188,6 +209,16 @@ plus pertinents (recherche par mots-clés, sans réseau) sont joints au prompt ;
 `memory_read` (lecture seule) donnent le reste. Limites : 300 fichiers, 200 Ko par fichier, 2 Mo au total. La
 mémoire ne quitte jamais le PC : ni l'agent de la Guilde (bac à sable) ni un agent confié à Claude ne la reçoivent,
 ce que vérifient des tests.
+
+**Accès aux fichiers** : par défaut, les agents lisent, cherchent (`files_find`, `folder_list`, `file_read`) et
+écrivent (`file_write`, confirmé hors Documents\MyIA) dans les dossiers habituels, les projets et les dossiers de
+mémoire. L'option « Accès à tout le PC » (`files.fullAccess`, désactivée par défaut, Paramètres → Accès aux fichiers,
+journalisée) étend ces outils à tous les disques locaux fixes ; l'activer demande une confirmation qui rappelle que
+l'utilisateur est seul responsable des consignes données à son IA et que MyIA / MCF Studio ne récoltent rien (un agent
+sur Claude envoie toutefois à Anthropic ce qu'il lit, c'est écrit à côté de l'option). Restent fermés dans tous les cas
+: Windows, Program Files, ProgramData, AppData (profils de navigateur, jetons), les clés (`.ssh`, `.aws`, `.claude`…) —
+sauf dossier choisi explicitement par l'utilisateur — et, sans exception, `config/` et `data/` de MyIA (tests). Les
+réglages s'appliquent sans redémarrage : la configuration est mise à jour en place pour tous les services.
 
 **Marketplace (à venir)** : registre sur mcfstudio.fr, publications par des membres certifiés. Tant qu'il n'existe pas,
 l'app n'affiche aucun contenu fictif ; seule l'installation depuis un fichier local est proposée.

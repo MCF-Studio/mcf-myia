@@ -4,7 +4,7 @@ import { reactive } from "vue";
 import { call, inTauri, on, onRequest, reply, startRpc } from "./rpc";
 import { settings } from "./settings";
 import { playSound, speak } from "./sound";
-import { checkClaudeLogin, loadClaudeModels, startTerminals } from "./terminals";
+import { checkClaudeLogin, loadClaudeApi, loadClaudeModels, startTerminals } from "./terminals";
 import { refreshDictation } from "./dictation";
 import type {
   AgentProfile,
@@ -261,6 +261,7 @@ async function afterReady() {
   }
   state.ready = true;
   void loadClaudeModels();
+  void loadClaudeApi();
   void checkClaudeLogin();
   await Promise.all([refreshAgents(), refreshTeams(), refreshConversations(), refreshThemes(), refreshOverview(), refreshDictation()]);
   // Les onglets restaurés doivent encore exister.

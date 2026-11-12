@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { Config } from "../core/config.js";
+import { accessRoots, explicitRoots, isSensitive } from "../core/access.js";
 import { isInside, paths } from "../core/paths.js";
 import { assertLocalPath } from "../core/programs.js";
 import { defineTool, type Service } from "../core/types.js";
@@ -54,10 +55,11 @@ function musicDirs(): string[] {
   return [path.join(home, "Music"), path.join(home, "OneDrive", "Music")].filter((d) => fs.existsSync(d));
 }
 
-function checkOpenable(p: string): string {
+function checkOpenable(p: string, explicit: string[] = []): string {
   const abs = assertLocalPath(p);
   if (!fs.existsSync(abs)) throw new Error(`introuvable : ${abs}`);
   const real = fs.realpathSync.native(abs);
+  if (isSensitive(real, explicit)) throw new Error(`${real} est un emplacement protégé (système, données d'applications, clés ou config de MyIA)`);
   if (fs.statSync(real).isFile() && EXECUTABLE.has(ext(real))) {
     throw new Error(`${path.basename(real)} est un programme ou un script : il ne s'ouvre pas par ici (voir program_launch)`);
   }
@@ -100,7 +102,7 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9]/g, "");
 
 /** Recherche bornée (profondeur, durée, nombre d'entrées) dans des dossiers donnés. */
-export function findFiles(roots: string[], query: string, kind: Kind, max = 15): { path: string; dir: boolean }[] {
+export function findFiles(roots: string[], query: string, kind: Kind, max = 15, explicit: string[] = roots): { path: string; dir: boolean }[] {
   const q = norm(query);
   const out: { path: string; dir: boolean; score: number }[] = [];
   const t0 = Date.now();
@@ -117,6 +119,7 @@ export function findFiles(roots: string[], query: string, kind: Kind, max = 15):
       seen++;
       if (e.name.startsWith(".") || /^(node_modules|\$recycle\.bin|appdata)$/i.test(e.name)) continue;
       const full = path.join(dir, e.name);
+      if (isSensitive(full, explicit)) continue;
       const isDir = e.isDirectory();
       const n = norm(e.name);
       if ((!q || n.includes(q)) && matchesKind(full, isDir, kind)) {
@@ -161,6 +164,10 @@ function playlistFromDir(dir: string, shuffled: boolean): { file: string; count:
 export function filesService(cfg: Config): Service {
   const places = () => knownPlaces(cfg);
   const isKnown = (p: string) => places().some((k) => isInside(k, p));
+  /** Où chercher et lister : dossiers habituels + mémoire, ou tout le PC si l'option est activée. */
+  const searchable = () => accessRoots(cfg, places());
+  const explicit = () => explicitRoots(cfg, places());
+  const openable = (p: string) => checkOpenable(p, explicit());
   const downloads = [path.join(os.homedir(), "Downloads"), path.join(os.homedir(), "OneDrive", "Downloads")];
 
   /** Raison de demander confirmation, ou undefined si l'ouverture est sans risque. */
@@ -192,18 +199,18 @@ export function filesService(cfg: Config): Service {
           // peut être associée à un programme qui exécute du code).
           confirmIf: (a) => {
             try {
-              return openNeedsConfirmation(checkOpenable(a.path)) !== undefined;
+              return openNeedsConfirmation(openable(a.path)) !== undefined;
             } catch {
               return true;
             }
           },
-          check: (a) => void checkOpenable(a.path),
+          check: (a) => void openable(a.path),
           preview: (a) => {
-            const p = checkOpenable(a.path);
+            const p = openable(a.path);
             return `Ouvrir :\n${p}\n(${openNeedsConfirmation(p) ?? "ouverture"})`;
           },
           async run(a) {
-            const p = checkOpenable(a.path);
+            const p = openable(a.path);
             openWithDefault(p);
             return `Ouvert : ${p}`;
           },
@@ -211,7 +218,8 @@ export function filesService(cfg: Config): Service {
         defineTool({
           name: "files_find",
           description:
-            "Cherche des fichiers ou dossiers par nom dans les dossiers de l'utilisateur (Bureau, Documents, Téléchargements, Musique, Images, Vidéos, projets). Ne lit pas les fichiers.",
+            "Cherche des fichiers ou dossiers par nom dans les dossiers de l'utilisateur (Bureau, Documents, Téléchargements, Musique, Images, Vidéos, projets, mémoire ; " +
+            "tous les disques si l'accès à tout le PC est activé). Ne lit pas les fichiers.",
           schema: z.object({
             query: z.string().max(80).describe("Partie du nom (vide = tout lister, avec un type)"),
             kind: z.enum(["musique", "vidéo", "image", "document", "dossier", "tout"]).default("tout"),
@@ -220,9 +228,35 @@ export function filesService(cfg: Config): Service {
           preview: () => "",
           async run(a) {
             if (!a.query.trim() && a.kind === "tout") return "Précise un nom ou un type de fichier.";
-            const res = findFiles(places(), a.query, a.kind);
+            const res = findFiles(searchable(), a.query, a.kind, 15, explicit());
             if (!res.length) return `Rien trouvé pour « ${a.query} » (${a.kind}).`;
             return res.map((r, i) => `${i + 1}. ${r.dir ? "[dossier] " : ""}${r.path}`).join("\n");
+          },
+        }),
+        defineTool({
+          name: "folder_list",
+          description:
+            "Liste le contenu d'un dossier (sous-dossiers, fichiers, tailles) pour avoir une vue d'ensemble. Sans chemin : les dossiers accessibles. " +
+            "Ne lit pas les fichiers (file_read pour ça).",
+          schema: z.object({ path: z.string().max(500).default("").describe("Chemin complet du dossier (vide = racines accessibles)") }),
+          risk: "read",
+          preview: () => "",
+          async run(a) {
+            const roots = searchable();
+            if (!a.path.trim()) return "Dossiers accessibles :\n" + roots.map((r) => `- ${r}`).join("\n");
+            const real = openable(a.path);
+            if (!roots.some((r) => isInside(r, real))) {
+              return `${real} est hors des dossiers accessibles.${cfg.files.fullAccess ? "" : " L'utilisateur peut activer l'accès à tout le PC dans Paramètres → Accès."}`;
+            }
+            if (!fs.statSync(real).isDirectory()) return `${real} est un fichier, pas un dossier.`;
+            const entries = fs.readdirSync(real, { withFileTypes: true }).filter((e) => !isSensitive(path.join(real, e.name), explicit()));
+            const MAX = 200;
+            const lines = entries.slice(0, MAX).map((e) => {
+              if (e.isDirectory()) return `[dossier] ${e.name}`;
+              const size = fs.statSync(path.join(real, e.name), { throwIfNoEntry: false })?.size;
+              return size === undefined ? e.name : `${e.name} (${Math.max(1, Math.round(size / 1024))} Ko)`;
+            });
+            return `${real} — ${entries.length} élément(s)${entries.length > MAX ? `, ${MAX} premiers` : ""} :\n${lines.join("\n") || "(vide)"}`;
           },
         }),
         defineTool({
@@ -251,7 +285,7 @@ export function filesService(cfg: Config): Service {
               openWithDefault(file);
               return `Lecture du dossier ${path.basename(hit.path)} (${count} morceaux${a.shuffle ? ", aléatoire" : ""}).`;
             }
-            openWithDefault(checkOpenable(hit.path));
+            openWithDefault(openable(hit.path));
             return `Lecture : ${path.basename(hit.path)}`;
           },
         }),

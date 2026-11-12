@@ -11,6 +11,8 @@ import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
 import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
 import { CLAUDE_MODEL_INFO, CLAUDE_MODELS, claudeAccount, triageTask } from "../core/claude-coach.js";
+import { API_KEY_SECRET, apiKeyStatus, CLAUDE_API_MODELS, verifyApiKey } from "../core/claude-api-llm.js";
+import { deleteSecret, setSecret } from "../core/secrets.js";
 import { decide, journal, loadGuild, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
 import { deviceKeys } from "../core/guild-crypto.js";
@@ -76,7 +78,15 @@ process.on("unhandledRejection", (e) => {
 
 // ─── état ────────────────────────────────────────────────────────────────────
 
-let cfg: Config = loadConfig();
+const cfg: Config = loadConfig();
+/**
+ * Applique une nouvelle configuration EN PLACE : les services et les agents gardent une référence à `cfg`, ils voient
+ * donc tout de suite les nouveaux réglages (dossiers de mémoire, accès aux fichiers…) sans redémarrage.
+ */
+function setCfg(next: Config) {
+  for (const k of Object.keys(cfg)) delete (cfg as Record<string, unknown>)[k];
+  Object.assign(cfg, next);
+}
 let services: Service[] = buildServices(cfg);
 let profiles: AgentProfile[] = loadProfiles();
 let teams: Team[] = loadTeams();
@@ -431,7 +441,7 @@ rpc.method("models.setDefault", async (params) => {
   const raw = JSON.parse(fs.readFileSync(paths.config, "utf8")) as { llm?: Record<string, unknown> };
   raw.llm = { ...(raw.llm ?? {}), model: name };
   writeJsonAtomic(paths.config, raw);
-  cfg = loadConfig();
+  setCfg(loadConfig());
   return true;
 });
 
@@ -463,7 +473,7 @@ rpc.method("themes.delete", (params) => {
 
 /** Modifie un réglage simple de config/agent.json sans toucher au reste du fichier. */
 function patchConfig(mutate: (raw: Record<string, any>) => void) {
-  cfg = patchConfigFile(mutate);
+  setCfg(patchConfigFile(mutate));
   live.clear();
 }
 
@@ -696,6 +706,30 @@ rpc.method("claude.account", () => claudeAccount(cfg.claude.command, paths.home)
 /** Modèles Claude proposés dans l'interface : une seule liste, celle du cœur. */
 rpc.method("claude.models", () => CLAUDE_MODELS.map((id) => ({ id, ...CLAUDE_MODEL_INFO[id] })));
 
+// ─── Agents sur l'API Claude : clé d'API de l'utilisateur ───────────────────
+// La clé ne fait que l'aller (interface → coffre Windows) : aucune méthode ne la renvoie, seule sa fin est affichée.
+
+/** Modèles proposés pour un agent « claude-api:<alias> », et état de la clé. */
+rpc.method("claudeApi.status", () => ({
+  ...apiKeyStatus(),
+  effort: cfg.claudeApi.effort,
+  models: Object.entries(CLAUDE_API_MODELS).map(([alias, m]) => ({ id: alias, label: m.label, hint: m.hint })),
+}));
+
+rpc.method("claudeApi.setKey", async (params) => {
+  const { key } = parse(z.object({ key: z.string().trim().min(10).max(400) }), params);
+  await verifyApiKey(key);
+  setSecret(API_KEY_SECRET, key);
+  audit({ event: "claude_api_key", action: "set" });
+  return apiKeyStatus();
+});
+
+rpc.method("claudeApi.deleteKey", () => {
+  deleteSecret(API_KEY_SECRET);
+  audit({ event: "claude_api_key", action: "delete" });
+  return apiKeyStatus();
+});
+
 /** Passation d'une console : le fichier existe-t-il (et a-t-il fini d'être écrit) ? Dossiers autorisés uniquement. */
 rpc.method("handoff.status", (params) => {
   const { cwd, file } = parse(z.object({ cwd: z.string().max(500), file: z.string().regex(/^\.myia\/handoff-[0-9-]{8,20}\.md$/) }), params);
@@ -713,14 +747,14 @@ rpc.method("programs.list", () => listPrograms());
 rpc.method("programs.add", (params) => {
   const p = parse(z.object({ name: z.string(), path: z.string().max(500), description: z.string().max(200).optional() }), params);
   const added = addProgram(p.name.trim(), p.path, p.description);
-  cfg = loadConfig();
+  setCfg(loadConfig());
   live.clear(); // les agents verront le nouveau programme dans la description de program_launch
   return added;
 });
 
 rpc.method("programs.remove", (params) => {
   removeProgram(parse(z.object({ name: z.string() }), params).name);
-  cfg = loadConfig();
+  setCfg(loadConfig());
   live.clear();
   return true;
 });
@@ -732,6 +766,7 @@ rpc.method("config.get", () => ({
   projectRoots: cfg.projectRoots,
   configPath: paths.config,
   claudeBypassPermissions: cfg.claude.bypassPermissions,
+  filesFullAccess: cfg.files.fullAccess,
   engine: {
     flashAttention: cfg.llm.flashAttention,
     kvCache: cfg.llm.kvCache,
@@ -886,6 +921,14 @@ rpc.method("llamacpp.uninstall", (params) => {
   return true;
 });
 
+/** Accès des agents à tout le PC (lecture et recherche ; écriture toujours confirmée hors Documents\MyIA). */
+rpc.method("config.setFilesFullAccess", (params) => {
+  const { enabled } = parse(z.object({ enabled: z.boolean() }), params);
+  patchConfig((raw) => (raw.files = { ...(raw.files ?? {}), fullAccess: enabled }));
+  audit({ event: "files_full_access", ok: enabled });
+  return true;
+});
+
 rpc.method("config.setClaudeBypassPermissions", (params) => {
   const { enabled } = parse(z.object({ enabled: z.boolean() }), params);
   patchConfig((raw) => (raw.claude = { ...(raw.claude ?? {}), bypassPermissions: enabled }));
@@ -925,7 +968,7 @@ rpc.method("config.setProjectRoots", (params) => {
 });
 
 rpc.method("config.reload", async () => {
-  cfg = loadConfig();
+  setCfg(loadConfig());
   await Promise.allSettled(services.map((s) => s.close?.()));
   services = buildServices(cfg);
   profiles = loadProfiles();
