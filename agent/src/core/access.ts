@@ -82,7 +82,20 @@ export function isSensitive(real: string, explicit: string[] = [], denied: strin
 
 /** Dossiers fermés à un agent en ligne : ses échanges partent chez Anthropic, la mémoire ne quitte jamais le PC. */
 export function deniedFor(cfg: Config, cloud: boolean): string[] {
-  return cloud ? cfg.memory.folders.map((d) => path.resolve(d)) : [];
+  if (!cloud) return [];
+  // Forme écrite ET chemin réel (lien, jonction, nom court) : comparés comme les dossiers autorisés.
+  return [
+    ...new Set(
+      cfg.memory.folders.flatMap((d) => {
+        const abs = path.resolve(d);
+        try {
+          return [abs, fs.realpathSync.native(abs)];
+        } catch {
+          return [abs];
+        }
+      }),
+    ),
+  ];
 }
 
 /** Dossiers choisis par l'utilisateur (sans les disques entiers de l'accès à tout le PC ; sans la mémoire en ligne). */
