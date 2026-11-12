@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { Agent } from "./agent.js";
 import { claudeAlias, ClaudeChatClient, parseReply, renderConversation, renderSystem } from "./claude-llm.js";
-import { loadConfig } from "./config.js";
+import { ConfigSchema } from "./config.js";
 import { OfferSchema } from "./guild.js";
 import { createLlm } from "./llm-factory.js";
 import type { ToolSpec } from "./llm.js";
 import type { Memory } from "./memory.js";
 import type { Service } from "./types.js";
+
+// Configuration par défaut, sans fichier : config/agent.json n'existe pas sur une machine de CI.
+const loadConfig = () => ConfigSchema.parse({});
 
 const tool: ToolSpec = { type: "function", function: { name: "open_path", description: "Ouvre un dossier", parameters: { type: "object" } } };
 
