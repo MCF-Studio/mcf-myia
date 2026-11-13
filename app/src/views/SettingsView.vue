@@ -266,6 +266,52 @@ async function deleteApiKey() {
 // ─── Consoles Claude Code : lancement sans demande d'autorisation ────────────
 const claudeBypass = ref(false);
 
+// ─── Carte des agents de mcfstudio.fr ────────────────────────────────────────
+interface MapSt {
+  enabled: boolean;
+  agents: string[];
+  lastSyncAt?: string;
+  lastError?: string;
+  site: string;
+  refused: string[];
+}
+const mapState = ref<MapSt>({ enabled: false, agents: [], site: "https://mcfstudio.fr", refused: [] });
+const mapSelection = ref<string[]>([]);
+const mapBusy = ref(false);
+const mapChanged = computed(() => [...mapSelection.value].sort().join() !== [...mapState.value.agents].sort().join());
+
+async function loadMap() {
+  try {
+    mapState.value = await call<MapSt>("map.status");
+    mapSelection.value = [...mapState.value.agents];
+  } catch {
+    /* cœur arrêté */
+  }
+}
+
+async function runMap(method: string, params: object, done: string) {
+  mapBusy.value = true;
+  try {
+    mapState.value = await call<MapSt>(method, params, 6 * 60_000);
+    mapSelection.value = [...mapState.value.agents];
+    toast(done, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+    await loadMap();
+  } finally {
+    mapBusy.value = false;
+  }
+}
+
+function setMapEnabled(enabled: boolean) {
+  if (enabled) void runMap("map.enable", { agents: mapSelection.value }, "Carte activée : tes agents cochés apparaîtront sur mcfstudio.fr");
+  else void runMap("map.disable", {}, "Tes agents ont été retirés de la carte");
+}
+
+function saveMapSelection() {
+  void runMap("map.setAgents", { agents: mapSelection.value }, "Sélection envoyée à la carte");
+}
+
 // ─── Accès des agents à tout le PC ───────────────────────────────────────────
 const fullAccess = ref(false);
 
@@ -482,6 +528,7 @@ onMounted(async () => {
   void loadConfigBits();
   void loadPrograms();
   void loadClaudeApi();
+  void loadMap();
   void loadMemory();
   void loadLlama();
   void loadOllama();
@@ -605,6 +652,34 @@ const shortcuts: [string, string][] = [
         <p v-else class="tiny muted">
           {{ memDocs.length }} document(s){{ memDocs.length ? " : " + memDocs.slice(0, 8).map((d) => d.title).join(", ") + (memDocs.length > 8 ? "…" : "") : "" }}
         </p>
+      </section>
+
+      <section class="card">
+        <h3 class="sec-title">Carte des agents</h3>
+        <SettingRow
+          label="Montrer mes agents sur la carte de mcfstudio.fr"
+          hint="Les noms des agents cochés et ton pseudo apparaissent sur la page publique Carte des agents, où ils se baladent au hasard. Rien d'autre ne part : ni consignes, ni modèle, ni conversations. Une à deux mises à jour par jour. L'activer ouvre ton navigateur pour autoriser MyIA sur mcfstudio.fr."
+        >
+          <Toggle :model-value="mapState.enabled" :disabled="mapBusy" @update:model-value="setMapEnabled" />
+        </SettingRow>
+        <div class="map-agents">
+          <label v-for="a in state.agents" :key="a.id" class="map-agent">
+            <input v-model="mapSelection" type="checkbox" :value="a.id" :disabled="mapBusy" />
+            <span>{{ a.name }}</span>
+          </label>
+        </div>
+        <p v-if="mapState.refused.length" class="tiny err-text">
+          Noms refusés par le site (lettres, chiffres, espaces et . _ ' - seulement, 40 caractères) : {{ mapState.refused.join(", ") }}
+        </p>
+        <div class="row-actions">
+          <button v-if="mapState.enabled" class="btn sm" :disabled="mapBusy || !mapChanged" @click="saveMapSelection">Envoyer la sélection</button>
+          <button v-if="mapBusy" class="btn sm" @click="call('map.cancelLogin')">Annuler</button>
+          <a class="tiny" :href="`${mapState.site}/agents`">Voir la carte</a>
+          <span class="tiny muted">
+            {{ mapState.lastSyncAt ? `Dernier envoi : ${new Date(mapState.lastSyncAt).toLocaleString("fr-FR")}` : mapState.enabled ? "Pas encore envoyé" : "" }}
+          </span>
+        </div>
+        <p v-if="mapState.lastError" class="tiny err-text">{{ mapState.lastError }}</p>
       </section>
 
       <section class="card">
@@ -1025,6 +1100,18 @@ const shortcuts: [string, string][] = [
   </div>
 </template>
 
+.map-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 8px 0;
+}
+.map-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
 .access-warn {
   display: flex;
   gap: 10px;

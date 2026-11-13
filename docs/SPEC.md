@@ -242,6 +242,14 @@ permises : F1–F24, Pause, Inser, Arrêt défil, ou Ctrl/Alt/Maj + lettre, chif
 lettre seule qui volerait la frappe). La voix est transcrite en local (whisper.cpp) puis envoyée comme un message
 normal dans la conversation de MASTER (créée au besoin) : mêmes confirmations que si la demande était tapée.
 
+**Carte des agents de mcfstudio.fr** (Paramètres → Carte des agents, désactivée par défaut ; spec du site
+`docs/superpowers/specs/2026-11-13-carte-agents-design.md`) : MyIA envoie au site les **noms** des agents cochés,
+rien d'autre (ni consignes, ni modèle, ni conversations), avec une autorisation OAuth de portée `map` distincte de
+celle de la Guilde (jeton de renouvellement dans le coffre : `mcfstudio_map_refresh`). Envois : au démarrage si le
+dernier date de plus de 12 h, puis toutes les 12 h, et quand l'utilisateur change sa sélection (le site en refuse plus
+de 4 par jour). Un nom hors des règles du site est signalé et n'est pas envoyé. Désactiver retire les agents du site
+tout de suite puis révoque l'autorisation. Chaque envoi est journalisé (nombre de noms, jamais les noms).
+
 **Accès aux fichiers** : par défaut, les agents lisent, cherchent (`files_find`, `folder_list`, `file_read`) et
 écrivent (`file_write`, confirmé hors Documents\MyIA) dans les dossiers habituels, les projets et les dossiers de
 mémoire. L'option « Accès à tout le PC » (`files.fullAccess`, désactivée par défaut, Paramètres → Accès aux fichiers,

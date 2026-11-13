@@ -15,6 +15,7 @@ import { API_KEY_SECRET, apiKeyStatus, CLAUDE_API_MODELS, verifyApiKey } from ".
 import { deleteSecret, setSecret } from "../core/secrets.js";
 import { decide, journal, loadGuild, OfferSchema, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
+import { AgentsMap, mapNames } from "../core/agents-map.js";
 import { deviceKeys } from "../core/guild-crypto.js";
 import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
@@ -576,6 +577,47 @@ function patchConfig(mutate: (raw: Record<string, any>) => void) {
 
 // Compte mcfstudio.fr (OAuth + PKCE, boucle locale) : jeton de renouvellement dans le coffre Windows.
 let mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
+
+// ─── Carte des agents de mcfstudio.fr (option, noms d'agents seulement) ─────────
+let agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser);
+agentsMap.start();
+let mapLogin: AbortController | undefined;
+
+const mapStatus = () => {
+  const s = agentsMap.state();
+  return { ...s, site: cfg.site.url, refused: mapNames(profiles, s.agents).refused };
+};
+
+rpc.method("map.status", () => mapStatus());
+
+const MapAgentsParam = z.object({ agents: z.array(z.string().max(40)).max(12) });
+
+rpc.method("map.enable", async (params) => {
+  const { agents } = parse(MapAgentsParam, params);
+  if (mapLogin) throw new Error("autorisation déjà en cours dans le navigateur");
+  mapLogin = new AbortController();
+  try {
+    await agentsMap.enable(agents, mapLogin.signal);
+  } finally {
+    mapLogin = undefined;
+  }
+  return mapStatus();
+});
+
+rpc.method("map.cancelLogin", () => {
+  mapLogin?.abort();
+  return true;
+});
+
+rpc.method("map.setAgents", async (params) => {
+  await agentsMap.setAgents(parse(MapAgentsParam, params).agents);
+  return mapStatus();
+});
+
+rpc.method("map.disable", async () => {
+  await agentsMap.disable();
+  return mapStatus();
+});
 let mcfLogin: AbortController | undefined;
 
 // Lien avec le relais (wss://guilde.mcfstudio.fr) : clé d'appareil X25519 dans le coffre, contenu chiffré de bout en bout.
@@ -1071,6 +1113,9 @@ rpc.method("config.reload", async () => {
   registry = undefined;
   live.clear();
   mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
+  agentsMap.stop();
+  agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser);
+  agentsMap.start();
   stopLink();
   void startLink();
   return true;
