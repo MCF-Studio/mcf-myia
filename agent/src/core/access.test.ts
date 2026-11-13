@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveWritable } from "../services/file-write.js";
-import { accessRoots, isSensitive } from "./access.js";
+import { accessRoots, checkWorkspace, isSensitive, usableWorkspace } from "./access.js";
 import { ConfigSchema } from "./config.js";
+import { paths } from "./paths.js";
 
 // Chemin long réel : sur certaines machines (CI), le dossier temporaire a un nom court Windows (RUNNER~1) que
 // resolveWritable refuse à juste titre.
@@ -59,6 +60,41 @@ describe("accès des agents aux fichiers", () => {
     const inside = path.join(home, "AppData", "Local", "MonDossier");
     expect(isSensitive(path.join(inside, "notes.md"), [inside])).toBe(false);
     expect(isSensitive(path.join(home, "AppData", "Local", "Autre", "x"), [inside])).toBe(true);
+  });
+
+  it("espace de travail d'un agent : ouvert à cet agent seulement, les chemins relatifs y vont", () => {
+    const ws = tmp();
+    fs.writeFileSync(path.join(ws, "plan.md"), "# Plan");
+    const cfg = ConfigSchema.parse({});
+    const file = fs.realpathSync.native(path.join(ws, "plan.md"));
+    // Sans espace de travail : hors des dossiers de l'utilisateur.
+    expect(() => resolveWritable(cfg, file, { read: true })).toThrow(/refusée/);
+    expect(resolveWritable(cfg, file, { read: true, workspace: ws })).toBe(file);
+    expect(resolveWritable(cfg, "plan.md", { read: true, workspace: ws })).toBe(file);
+    expect(resolveWritable(cfg, "notes/todo.md", { workspace: ws })).toBe(path.join(ws, "notes", "todo.md"));
+    // Les règles d'écriture restent les mêmes à l'intérieur.
+    expect(() => resolveWritable(cfg, "run.bat", { workspace: ws })).toThrow();
+    expect(() => resolveWritable(cfg, ".git/hooks/x.txt", { workspace: ws })).toThrow(/exécuter du code/);
+    expect(() => resolveWritable(cfg, "../ailleurs.md", { workspace: ws })).toThrow();
+  });
+
+  it("espace de travail : un dossier précis, ni un disque, ni le dossier personnel, ni un emplacement protégé", () => {
+    const dir = fs.mkdtempSync(path.join(paths.workspace, "test-ws-"));
+    try {
+      expect(checkWorkspace(dir)).toBe(fs.realpathSync.native(dir));
+      expect(usableWorkspace(dir)).toBe(fs.realpathSync.native(dir));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    expect(usableWorkspace(dir)).toBeUndefined(); // dossier disparu (disque débranché)
+    expect(usableWorkspace(undefined)).toBeUndefined();
+    const home = os.homedir();
+    expect(() => checkWorkspace(path.parse(home).root)).toThrow(/disque entier/);
+    expect(() => checkWorkspace(home)).toThrow(/trop large/);
+    expect(() => checkWorkspace(path.join(home, "AppData"))).toThrow(/protégé/);
+    expect(() => checkWorkspace(path.join(paths.home, "config"))).toThrow(/protégé|introuvable/);
+    expect(() => checkWorkspace(String.raw`\\serveur\partage\projet`)).toThrow(/réseau/);
+    expect(() => checkWorkspace("projet")).toThrow();
   });
 
   it("l'option est désactivée par défaut", () => {

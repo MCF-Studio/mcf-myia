@@ -7,7 +7,7 @@ import type { Config } from "../core/config.js";
 import { accessRoots, deniedFor, explicitRoots, isSensitive } from "../core/access.js";
 import { isInside, paths } from "../core/paths.js";
 import { assertLocalPath } from "../core/programs.js";
-import { defineTool, type Service } from "../core/types.js";
+import { defineTool, type Service, type ToolScope } from "../core/types.js";
 
 /**
  * Ouvrir des dossiers et des fichiers avec l'application par défaut, trouver et lancer de la musique.
@@ -35,14 +35,15 @@ const SAFE_TO_OPEN = new Set([...AUDIO, ...PLAYLIST, ...VIDEO, ...IMAGE, ...DOCU
 
 const ext = (p: string) => path.extname(p).slice(1).toLowerCase();
 
-/** Dossiers « chez toi » : ouverture sans confirmation. */
-export function knownPlaces(cfg: Config): string[] {
+/** Dossiers « chez toi » : ouverture sans confirmation. `workspace` : espace de travail de l'agent qui appelle. */
+export function knownPlaces(cfg: Config, workspace?: string): string[] {
   const home = os.homedir();
   const names = ["Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos"];
   const dirs = [
     ...names.map((n) => path.join(home, n)),
     ...names.map((n) => path.join(home, "OneDrive", n)),
     paths.workspace,
+    ...(workspace ? [workspace] : []),
     ...cfg.projectRoots.map((r) => r.path),
     ...Object.values(cfg.projects).map((p) => p.path),
     ...(cfg.godot.projectsRoot ? [cfg.godot.projectsRoot] : []),
@@ -162,17 +163,18 @@ function playlistFromDir(dir: string, shuffled: boolean): { file: string; count:
 }
 
 export function filesService(cfg: Config): Service {
-  const places = () => knownPlaces(cfg);
-  const isKnown = (p: string) => places().some((k) => isInside(k, p));
-  /** Où chercher et lister : dossiers habituels + mémoire, ou tout le PC si l'option est activée. */
-  const searchable = (cloud = false) => accessRoots(cfg, places(), cloud);
-  const explicit = (cloud = false) => explicitRoots(cfg, places(), cloud);
-  const openable = (p: string, cloud = false) => checkOpenable(p, explicit(cloud), deniedFor(cfg, cloud));
+  // `s` : l'agent qui appelle (modèle en ligne ou non, espace de travail).
+  const places = (s: ToolScope) => knownPlaces(cfg, s.workspace);
+  const isKnown = (p: string, s: ToolScope) => places(s).some((k) => isInside(k, p));
+  /** Où chercher et lister : dossiers habituels + espace de travail + mémoire, ou tout le PC si l'option est activée. */
+  const searchable = (s: ToolScope) => accessRoots(cfg, places(s), s.cloud);
+  const explicit = (s: ToolScope) => explicitRoots(cfg, places(s), s.cloud);
+  const openable = (p: string, s: ToolScope) => checkOpenable(p, explicit(s), deniedFor(cfg, !!s.cloud));
   const downloads = [path.join(os.homedir(), "Downloads"), path.join(os.homedir(), "OneDrive", "Downloads")];
 
   /** Raison de demander confirmation, ou undefined si l'ouverture est sans risque. */
-  const openNeedsConfirmation = (real: string): string | undefined => {
-    if (!isKnown(real)) return "en dehors de tes dossiers habituels";
+  const openNeedsConfirmation = (real: string, s: ToolScope): string | undefined => {
+    if (!isKnown(real, s)) return "en dehors de tes dossiers habituels";
     if (fs.statSync(real).isDirectory()) return undefined;
     if (!SAFE_TO_OPEN.has(ext(real))) return `type de fichier .${ext(real) || "?"} non reconnu comme document ou média`;
     if (downloads.some((d) => isInside(d, real))) return "fichier téléchargé";
@@ -197,20 +199,20 @@ export function filesService(cfg: Config): Service {
           // Liste d'AUTORISATION : sans confirmation seulement un dossier, ou un média/document d'extension connue,
           // dans les dossiers habituels et hors Téléchargements. Tout le reste est confirmé (une extension inconnue
           // peut être associée à un programme qui exécute du code).
-          confirmIf: (a) => {
+          confirmIf: (a, _trust, s) => {
             try {
-              return openNeedsConfirmation(openable(a.path)) !== undefined;
+              return openNeedsConfirmation(openable(a.path, s), s) !== undefined;
             } catch {
               return true;
             }
           },
-          check: (a) => void openable(a.path),
-          preview: (a) => {
-            const p = openable(a.path);
-            return `Ouvrir :\n${p}\n(${openNeedsConfirmation(p) ?? "ouverture"})`;
+          check: (a, s) => void openable(a.path, s),
+          preview: (a, s) => {
+            const p = openable(a.path, s);
+            return `Ouvrir :\n${p}\n(${openNeedsConfirmation(p, s) ?? "ouverture"})`;
           },
           async run(a, ctx) {
-            const p = openable(a.path, ctx.cloud);
+            const p = openable(a.path, ctx);
             openWithDefault(p);
             return `Ouvert : ${p}`;
           },
@@ -228,7 +230,7 @@ export function filesService(cfg: Config): Service {
           preview: () => "",
           async run(a, ctx) {
             if (!a.query.trim() && a.kind === "tout") return "Précise un nom ou un type de fichier.";
-            const res = findFiles(searchable(ctx.cloud), a.query, a.kind, 15, explicit(ctx.cloud), deniedFor(cfg, !!ctx.cloud));
+            const res = findFiles(searchable(ctx), a.query, a.kind, 15, explicit(ctx), deniedFor(cfg, !!ctx.cloud));
             if (!res.length) return `Rien trouvé pour « ${a.query} » (${a.kind}).`;
             return res.map((r, i) => `${i + 1}. ${r.dir ? "[dossier] " : ""}${r.path}`).join("\n");
           },
@@ -242,14 +244,14 @@ export function filesService(cfg: Config): Service {
           risk: "read",
           preview: () => "",
           async run(a, ctx) {
-            const roots = searchable(ctx.cloud);
+            const roots = searchable(ctx);
             if (!a.path.trim()) return "Dossiers accessibles :\n" + roots.map((r) => `- ${r}`).join("\n");
-            const real = openable(a.path, ctx.cloud);
+            const real = openable(a.path, ctx);
             if (!roots.some((r) => isInside(r, real))) {
               return `${real} est hors des dossiers accessibles.${cfg.files.fullAccess ? "" : " L'utilisateur peut activer l'accès à tout le PC dans Paramètres → Accès."}`;
             }
             if (!fs.statSync(real).isDirectory()) return `${real} est un fichier, pas un dossier.`;
-            const entries = fs.readdirSync(real, { withFileTypes: true }).filter((e) => !isSensitive(path.join(real, e.name), explicit(ctx.cloud), deniedFor(cfg, !!ctx.cloud)));
+            const entries = fs.readdirSync(real, { withFileTypes: true }).filter((e) => !isSensitive(path.join(real, e.name), explicit(ctx), deniedFor(cfg, !!ctx.cloud)));
             const MAX = 200;
             const lines = entries.slice(0, MAX).map((e) => {
               if (e.isDirectory()) return `[dossier] ${e.name}`;
@@ -270,7 +272,7 @@ export function filesService(cfg: Config): Service {
           }),
           risk: "launch",
           preview: () => "",
-          async run(a) {
+          async run(a, ctx) {
             const roots = musicDirs();
             if (!roots.length) return "Pas de dossier Musique trouvé. Demande à l'utilisateur où est sa musique, puis utilise open_path.";
             if (!a.query.trim()) {
@@ -285,7 +287,7 @@ export function filesService(cfg: Config): Service {
               openWithDefault(file);
               return `Lecture du dossier ${path.basename(hit.path)} (${count} morceaux${a.shuffle ? ", aléatoire" : ""}).`;
             }
-            openWithDefault(openable(hit.path));
+            openWithDefault(openable(hit.path, ctx));
             return `Lecture : ${path.basename(hit.path)}`;
           },
         }),

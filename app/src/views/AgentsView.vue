@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Bot, Camera, ChevronDown, ChevronUp, Crown, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Bot, Camera, ChevronDown, ChevronUp, Crown, Copy, Download, FolderOpen, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import Toggle from "../components/Toggle.vue";
@@ -29,7 +30,13 @@ const form = reactive({
   restrict: false,
   services: [] as string[],
   master: false,
+  workspace: "",
 });
+
+async function chooseWorkspace() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier dans lequel cet agent travaille" });
+  if (typeof dir === "string") form.workspace = dir;
+}
 
 /** Autre agent déjà MASTER (il perdra ce rôle si celui-ci le prend). */
 const masterOther = computed(() => state.agents.find((a) => a.master && a.id !== form.id)?.name);
@@ -61,6 +68,7 @@ function load(a?: AgentProfile) {
   form.instructions = a?.instructions ?? "";
   form.restrict = !!a?.services;
   form.master = !!a?.master;
+  form.workspace = a?.workspace ?? "";
   form.services = a?.services ? [...a.services] : services.value.map((s) => s.id);
 }
 
@@ -80,6 +88,7 @@ function toProfile(): AgentProfile {
   if (form.instructions.trim()) p.instructions = form.instructions.trim();
   if (form.restrict) p.services = [...form.services];
   if (form.master) p.master = true;
+  if (form.workspace) p.workspace = form.workspace;
   return p;
 }
 
@@ -129,7 +138,9 @@ async function importFile() {
 }
 
 function exportJson() {
-  return JSON.stringify({ $schema: "myia/agent@1", ...toProfile() }, null, 2);
+  // L'espace de travail est un chemin de CETTE machine : il ne part pas dans un profil partagé.
+  const { workspace: _w, ...shared } = toProfile();
+  return JSON.stringify({ $schema: "myia/agent@1", ...shared }, null, 2);
 }
 
 async function choosePhoto() {
@@ -318,6 +329,21 @@ async function move(id: string, dir: -1 | 1) {
             />
             <small class="tiny muted counter">{{ form.instructions.length }} / 4000</small>
           </label>
+
+          <div class="field wide">
+            <span><FolderOpen :size="15" /> Espace de travail <em class="muted">(optionnel)</em></span>
+            <div class="row">
+              <input class="input grow mono" :value="form.workspace" readonly placeholder="Aucun : dossier workspace de MyIA" :title="form.workspace" />
+              <button type="button" class="btn" @click="chooseWorkspace"><FolderOpen :size="15" /> Choisir…</button>
+              <button v-if="form.workspace" type="button" class="btn ghost" title="Retirer l'espace de travail" @click="form.workspace = ''"><X :size="15" /></button>
+            </div>
+            <p class="tiny muted">
+              Le dossier dans lequel cet agent travaille, sur n'importe quel disque : il peut y lire, chercher et écrire des fichiers (un
+              simple nom de fichier s'y enregistre), et c'est là que Claude Code est lancé quand il lui délègue une tâche. Les
+              confirmations avant d'écrire ou de déléguer restent les mêmes. Dans une équipe qui a son propre espace de travail, c'est
+              celui de l'équipe qui compte.
+            </p>
+          </div>
 
           <div class="field wide">
             <div class="row">

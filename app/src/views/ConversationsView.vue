@@ -67,6 +67,8 @@ async function closeAny(id: string) {
 const consoleDialog = ref(false);
 const projects = ref<{ name: string; path: string; kinds: string[] }[]>([]);
 const workspace = ref("");
+/** Espaces de travail des agents et des équipes. */
+const workspaces = ref<{ name: string; path: string }[]>([]);
 const consoleDir = ref("");
 const consoleResume = ref(false);
 const launching = ref(false);
@@ -101,22 +103,25 @@ async function askConsole() {
   void claudeAccount()
     .then((a) => (account.value = a))
     .catch(() => (account.value = undefined));
-  if (!projects.value.length) {
-    try {
-      const r = await call<{ workspace: string; projects: { name: string; path: string; kinds: string[] }[] }>("projects.list");
-      projects.value = r.projects;
-      workspace.value = r.workspace;
-      consoleDir.value ||= r.workspace;
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
+  // Relu à chaque ouverture : un espace de travail a pu être ajouté à un agent ou à une équipe entre-temps.
+  try {
+    const r = await call<{ workspace: string; workspaces?: { name: string; path: string }[]; projects: { name: string; path: string; kinds: string[] }[] }>(
+      "projects.list",
+    );
+    projects.value = r.projects;
+    workspaces.value = r.workspaces ?? [];
+    workspace.value = r.workspace;
+    const known = [r.workspace, ...workspaces.value.map((w) => w.path), ...r.projects.map((p) => p.path)];
+    if (!known.includes(consoleDir.value)) consoleDir.value = r.workspace;
+  } catch (e) {
+    toast((e as Error).message, "error");
   }
 }
 
 async function launchConsole() {
   launching.value = true;
   try {
-    const p = projects.value.find((x) => x.path === consoleDir.value);
+    const p = projects.value.find((x) => x.path === consoleDir.value) ?? workspaces.value.find((x) => x.path === consoleDir.value);
     const task = consoleTask.value.trim();
     let model: string | undefined = consoleModel.value || undefined;
     if (model === "auto") model = task ? (advice.value ?? (await adviseModel()))?.model : undefined;
@@ -370,7 +375,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
             <span class="small">Dossier de travail</span>
             <select v-model="consoleDir" class="input select">
               <option :value="workspace">workspace (dossier de travail MyIA)</option>
-              <option v-for="p in projects" :key="p.path" :value="p.path">{{ p.name }}{{ p.kinds.length ? ` · ${p.kinds.join(", ")}` : "" }}</option>
+              <optgroup v-if="workspaces.length" label="Espaces de travail">
+                <option v-for="w in workspaces" :key="w.path" :value="w.path">{{ w.name }} · {{ w.path }}</option>
+              </optgroup>
+              <optgroup v-if="projects.length" label="Projets">
+                <option v-for="p in projects" :key="p.path" :value="p.path">{{ p.name }}{{ p.kinds.length ? ` · ${p.kinds.join(", ")}` : "" }}</option>
+              </optgroup>
             </select>
           </label>
           <label class="field">

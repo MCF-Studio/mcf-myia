@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { Agent } from "../core/agent.js";
+import { checkWorkspace, usableWorkspace } from "../core/access.js";
 import { audit } from "../core/audit.js";
 import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
@@ -129,13 +130,14 @@ async function agentFor(c: Conversation): Promise<Live> {
       masterBudget = { used: 0 };
       agent = new Agent(cfg, services, profile, {
         memory: memoryFor(cfg.memory.folders),
+        workspace: profile.workspace,
         extraTools: appControlTools(appControl, profile, masterBudget),
         teamNote:
           `Tu es l'agent principal de ${cfg.user.name} (MASTER) : tu pilotes l'app MyIA. Tu peux lister et créer des agents, ouvrir des conversations, ` +
           "consulter la Guilde et écrire aux autres agents (app_agent_message) quand une tâche relève de leur rôle. Fais toi-même ce qui est simple.",
       });
     } else {
-      agent = new Agent(cfg, services, profile, { memory: memoryFor(cfg.memory.folders) });
+      agent = new Agent(cfg, services, profile, { memory: memoryFor(cfg.memory.folders), workspace: profile.workspace });
     }
     agent.importHistory(c.history);
     await agent.refreshServices();
@@ -206,8 +208,18 @@ rpc.method("overview", async () => {
 
 rpc.method("agents.list", () => profiles.map((p) => ({ ...p, model: p.model, effectiveModel: p.model ?? cfg.llm.model })));
 
+/**
+ * Espace de travail reçu de l'interface : contrôlé (dossier existant, ni disque entier ni emplacement protégé) quand
+ * il change. Inchangé, il est gardé tel quel : on peut modifier un agent dont le disque est débranché.
+ */
+function workspaceFor(next: string | undefined, current: string | undefined): string | undefined {
+  if (!next) return undefined;
+  return next === current ? next : checkWorkspace(next);
+}
+
 rpc.method("agents.save", (params) => {
   const p = parse(AgentProfileSchema, params);
+  p.workspace = workspaceFor(p.workspace, profiles.find((x) => x.id === p.id)?.workspace);
   saveProfile(p);
   return p;
 });
@@ -244,8 +256,9 @@ rpc.method("agents.import", (params) => {
   } catch {
     throw new Error("fichier d'agent : JSON invalide");
   }
-  // Le rôle MASTER ne s'attribue que depuis l'écran Agents, jamais par un fichier importé.
-  const p = { ...parse(AgentProfileSchema, raw), master: undefined };
+  // Le rôle MASTER et l'espace de travail (un accès à un dossier) ne s'attribuent que depuis l'écran Agents, jamais
+  // par un fichier importé.
+  const p = { ...parse(AgentProfileSchema, raw), master: undefined, workspace: undefined };
   if (profiles.some((x) => x.id === p.id)) throw new Error(`un agent « ${p.id} » existe déjà`);
   profiles = [...profiles, p];
   saveProfiles(profiles);
@@ -258,6 +271,7 @@ rpc.method("teams.list", () => teams);
 
 rpc.method("teams.save", (params) => {
   const t = parseTeam(params, new Set(profiles.map((p) => p.id)));
+  t.workspace = workspaceFor(t.workspace, teams.find((x) => x.id === t.id)?.workspace);
   teams = teams.some((x) => x.id === t.id) ? teams.map((x) => (x.id === t.id ? t : x)) : [...teams, t];
   saveTeams(teams);
   return t;
@@ -274,12 +288,28 @@ rpc.method("teams.delete", (params) => {
 
 rpc.method("teams.newNodeId", () => newNodeId());
 
-/** Dossiers où ouvrir une console Claude Code : projets connus + workspace. */
+/** Espaces de travail des agents et des équipes (dossiers présents uniquement), sans doublon. */
+function workspaces(): { name: string; path: string }[] {
+  const out = new Map<string, { name: string; path: string }>();
+  for (const [label, list] of [
+    ["équipe", teams],
+    ["agent", profiles],
+  ] as const) {
+    for (const x of list) {
+      const dir = usableWorkspace(x.workspace);
+      if (dir && !out.has(dir.toLowerCase())) out.set(dir.toLowerCase(), { name: `${x.name} (${label})`, path: dir });
+    }
+  }
+  return [...out.values()];
+}
+
+/** Dossiers où ouvrir une console Claude Code : projets connus + workspace + espaces de travail. */
 let registry: ProjectRegistry | undefined;
 rpc.method("projects.list", () => {
   registry ??= new ProjectRegistry(cfg);
   return {
     workspace: paths.workspace,
+    workspaces: workspaces(),
     projects: registry.all.map((p) => ({ name: p.name, path: p.path, kinds: p.kinds })),
   };
 });
@@ -449,7 +479,7 @@ const appControl: AppControl = {
   conversations: () => store.list().map(summary),
   installedModels: async () => (await engine().listModels()).map((m) => m.name),
   createAgent(p) {
-    const parsed = parse(AgentProfileSchema, { ...p, master: undefined });
+    const parsed = parse(AgentProfileSchema, { ...p, master: undefined, workspace: undefined });
     if (profiles.some((x) => x.id === parsed.id)) throw new Error(`un agent « ${parsed.id} » existe déjà`);
     saveProfile(parsed);
     rpc.notify("agents.changed", {});
@@ -880,7 +910,7 @@ rpc.method("claudeApi.deleteKey", () => {
 /** Passation d'une console : le fichier existe-t-il (et a-t-il fini d'être écrit) ? Dossiers autorisés uniquement. */
 rpc.method("handoff.status", (params) => {
   const { cwd, file } = parse(z.object({ cwd: z.string().max(500), file: z.string().regex(/^\.myia\/handoff-[0-9-]{8,20}\.md$/) }), params);
-  const allowed = [paths.workspace, ...cfg.projectRoots.map((r) => r.path), ...Object.values(cfg.projects).map((p) => p.path)];
+  const allowed = [paths.workspace, ...workspaces().map((w) => w.path), ...cfg.projectRoots.map((r) => r.path), ...Object.values(cfg.projects).map((p) => p.path)];
   const dir = path.resolve(assertLocalPath(cwd));
   if (!allowed.some((r) => isInside(r, dir))) throw new Error("dossier non autorisé");
   const full = path.join(dir, file);
