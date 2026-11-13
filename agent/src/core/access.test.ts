@@ -79,6 +79,7 @@ describe("accès des agents aux fichiers", () => {
   });
 
   it("espace de travail : un dossier précis, ni un disque, ni le dossier personnel, ni un emplacement protégé", () => {
+    fs.mkdirSync(paths.workspace, { recursive: true }); // absent d'un dépôt fraîchement cloné (CI)
     const dir = fs.mkdtempSync(path.join(paths.workspace, "test-ws-"));
     try {
       expect(checkWorkspace(dir)).toBe(fs.realpathSync.native(dir));
