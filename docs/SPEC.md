@@ -76,7 +76,17 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   (`.git`, `.vscode`, `.claude`, `.github`…), ni via un lien qui en sortirait. Nouveau fichier dans `Documents\MyIA`
   (dossier par défaut) ou le workspace : direct ; remplacer, compléter ou écrire ailleurs : confirmation avec aperçu.
   `file_read` lit un fichier texte des mêmes dossiers (contenu traité comme une donnée).
-- Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
+- Délégation Claude Code : `cwd` = projet de la config, sinon espace de travail de l'agent, sinon `workspace\` ;
+  outils autorisés listés par projet.
+- **Espace de travail** d'un agent ou d'une équipe (champ `workspace` de `config/agents.json` / `config/teams.json`,
+  optionnel) : un dossier choisi par l'utilisateur depuis l'écran Agents ou Équipes, sur n'importe quel disque. Contrôlé
+  à l'enregistrement : dossier local existant, ni disque entier, ni dossier personnel, ni emplacement protégé. Il n'est
+  jamais repris d'un profil importé, ni créé par MASTER, ni exporté, et un agent de la Guilde n'en a pas. Pour CET agent
+  (ou tous les membres de l'équipe, dont l'espace remplace celui de chaque agent), le dossier s'ajoute aux dossiers
+  ouverts aux outils de fichiers, un chemin relatif de `file_write`/`file_read` y est résolu et `claude_delegate` sans
+  projet s'y exécute. Les règles ne changent pas : écrire dans un espace de travail et déléguer restent confirmés,
+  mêmes formats, mêmes dossiers interdits. Dossier absent (disque débranché) : l'agent en est prévenu et retombe sur
+  les dossiers habituels.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,
   ni 169.254.169.254), taille plafonnée. `web_research` lance Claude Code avec **seulement** WebSearch et WebFetch,
@@ -92,8 +102,8 @@ est dessinée par l'app). La page n'ouvre jamais de lien elle-même ; les répon
 HTML échappé. (`freezePrototype` est désactivé : incompatible avec xterm.js, le terminal des consoles.)
 
 **Consoles Claude Code** : seule la commande `claude` peut être lancée dans un pseudo-terminal (pas de shell
-libre), uniquement dans le workspace ou un dossier de `projectRoots`/`projects` (vérifié côté Rust à partir de la
-config, pas de l'interface) ; Claude Code y applique ses propres règles de permission. Les consoles meurent avec l'app.
+libre), uniquement dans le workspace, un dossier de `projectRoots`/`projects` ou l'espace de travail d'un agent ou
+d'une équipe (vérifié côté Rust à partir de la config, pas de l'interface) ; Claude Code y applique ses propres règles de permission. Les consoles meurent avec l'app.
 **Mode bypass permissions** (`claude.bypassPermissions`, Paramètres → Général, **désactivé par défaut**) : les consoles
 sont lancées avec `--dangerously-skip-permissions`, Claude Code n'y demande plus d'accord avant de modifier des
 fichiers ou de lancer des commandes. Le réglage est lu dans la config côté Rust à chaque lancement (un appel de

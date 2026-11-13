@@ -35,6 +35,8 @@ export const TeamSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
   name: z.string().trim().min(1).max(60),
   description: z.string().max(300).optional(),
+  /** Espace de travail de l'équipe : tous ses membres y travaillent (il remplace celui de chaque agent). */
+  workspace: z.string().trim().min(3).max(500).optional(),
   root: NodeSchema,
   /** Appels d'agents autorisés par message de l'utilisateur (coût maximal d'un message). */
   maxCalls: z.number().int().min(1).max(50).default(8),

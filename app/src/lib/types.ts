@@ -12,6 +12,8 @@ export interface AgentProfile {
   services?: string[];
   /** Agent MASTER : l'assistant principal, qui pilote l'app (un seul). */
   master?: boolean;
+  /** Espace de travail : dossier dans lequel l'agent travaille (propre à cette machine, jamais exporté). */
+  workspace?: string;
 }
 
 export interface DisplayMessage {
@@ -36,6 +38,8 @@ export interface Team {
   id: string;
   name: string;
   description?: string;
+  /** Espace de travail de l'équipe : tous ses membres y travaillent. */
+  workspace?: string;
   root: TeamNode;
   maxCalls: number;
   maxDepth: number;

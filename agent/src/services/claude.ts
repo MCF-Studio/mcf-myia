@@ -6,7 +6,7 @@ import { commandWorks, runProcess } from "../core/proc.js";
 import type { ProjectRegistry } from "../core/projects.js";
 import { CLAUDE_MODELS, fallbackFor, MODEL_LABEL, triageTask, type ClaudeModel, type Triage } from "../core/claude-coach.js";
 import { createLlm } from "../core/llm-factory.js";
-import { defineTool, truncate, type Service, type ToolContext } from "../core/types.js";
+import { defineTool, truncate, type Service, type ToolContext, type ToolScope } from "../core/types.js";
 
 const APPEND_PROMPT =
   "Tu es appelé en mode non interactif par MyIA, l'agent local de l'utilisateur. Fais la tâche dans le dossier courant, " +
@@ -101,7 +101,7 @@ async function runClaude(cfg: Config, o: ClaudeRun, ctx: ToolContext): Promise<s
 export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
   const schema = z.object({
     task: z.string().min(10).describe("Consigne complète et autonome pour Claude Code (contexte, but, critère de réussite)"),
-    project: z.string().min(1).optional().describe("Nom du projet dans lequel travailler ; absent = dossier workspace"),
+    project: z.string().min(1).optional().describe("Nom du projet dans lequel travailler ; absent = ton espace de travail (sinon le dossier workspace)"),
     model: z
       .enum(["auto", ...CLAUDE_MODELS])
       .default("auto")
@@ -128,11 +128,12 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
     return `${MODEL_LABEL[c.model]} — ${why}${fb ? ` ; repli sur ${fb} s'il est surchargé` : ""}`;
   };
 
-  const resolve = (project?: string) => {
+  // Sans projet nommé : l'espace de travail de l'agent (ou de son équipe), sinon le workspace de MyIA.
+  const resolve = (project: string | undefined, s: ToolScope) => {
     const p = project ? reg.resolve(project) : undefined;
     return {
       name: p?.name,
-      cwd: p?.path ?? paths.workspace,
+      cwd: p?.path ?? s.workspace ?? paths.workspace,
       tools: p?.claudeAllowedTools ?? cfg.claude.defaultAllowedTools,
     };
   };
@@ -154,25 +155,25 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
             "Le projet se désigne par son nom (voir projects_find). Peut prendre plusieurs minutes.",
           schema,
           risk: "local",
-          projectOf: (a) => {
+          projectOf: (a, s) => {
             try {
-              return resolve(a.project).name;
+              return resolve(a.project, s).name;
             } catch {
               return undefined;
             }
           },
-          async check(a) {
-            resolve(a.project);
+          async check(a, s) {
+            resolve(a.project, s);
             await choose(a);
           },
-          async preview(a) {
-            const { cwd, tools } = resolve(a.project);
+          async preview(a, s) {
+            const { cwd, tools } = resolve(a.project, s);
             const t = await choose(a);
             const model = t ? describe(t) : `${cfg.claude.model} (config)`;
             return `Dossier : ${cwd}\nModèle : ${model}\nOutils accordés : ${tools.join(", ")}\nConsigne :\n────────\n${a.task}\n────────`;
           },
           async run(a, ctx) {
-            const { cwd, tools } = resolve(a.project);
+            const { cwd, tools } = resolve(a.project, ctx);
             if (!fs.existsSync(cwd)) throw new Error(`dossier introuvable : ${cwd}`);
             const t = await choose(a);
             if (t) ctx.ui.progress(`Modèle Claude : ${t.model} (${t.triage ? `difficulté ${t.triage.difficulty}/5` : "demandé"})`);

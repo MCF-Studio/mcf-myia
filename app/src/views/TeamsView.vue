@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { AlertTriangle, MessageSquarePlus, Network, Plus, RotateCcw, Save, Trash2 } from "lucide-vue-next";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { AlertTriangle, FolderOpen, MessageSquarePlus, Network, Plus, RotateCcw, Save, Trash2, X } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import TeamNodeView from "../components/TeamNodeView.vue";
 import { call } from "../lib/rpc";
@@ -74,6 +75,11 @@ function slug(s: string) {
       .replace(/^-+|-+$/g, "")
       .slice(0, 40) || "equipe"
   );
+}
+
+async function chooseWorkspace() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier dans lequel cette équipe travaille" });
+  if (typeof dir === "string" && draft.value) draft.value.workspace = dir;
 }
 
 async function save() {
@@ -163,6 +169,18 @@ watch(
           <div class="head-fields">
             <input v-model="draft.name" class="input title" maxlength="60" placeholder="Nom de l'équipe" />
             <input v-model="draft.description" class="input" maxlength="300" placeholder="À quoi sert cette équipe ? (optionnel)" />
+          </div>
+          <div class="workspace">
+            <div class="row">
+              <span class="small ws-label"><FolderOpen :size="15" /> Espace de travail</span>
+              <input class="input grow mono" :value="draft.workspace ?? ''" readonly placeholder="Aucun : chaque agent garde le sien" :title="draft.workspace" />
+              <button type="button" class="btn" @click="chooseWorkspace"><FolderOpen :size="15" /> Choisir…</button>
+              <button v-if="draft.workspace" type="button" class="btn ghost" title="Retirer l'espace de travail" @click="draft.workspace = undefined"><X :size="15" /></button>
+            </div>
+            <span class="tiny muted">
+              Le dossier du projet de cette équipe, sur n'importe quel disque : tous ses membres y lisent, cherchent et écrivent, et
+              Claude Code y est lancé quand ils délèguent. Les confirmations restent les mêmes.
+            </span>
           </div>
           <div class="budgets">
             <label>
@@ -307,6 +325,22 @@ watch(
 }
 .title {
   font-weight: 650;
+}
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.workspace .grow {
+  flex: 1;
+  min-width: 0;
+}
+.ws-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 550;
+  white-space: nowrap;
 }
 .budgets {
   display: grid;
