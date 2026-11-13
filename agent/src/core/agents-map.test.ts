@@ -72,4 +72,24 @@ describe("carte des agents (MyIA)", () => {
     expect(account.logout).toHaveBeenCalledOnce();
     expect(loadMapState(file).enabled).toBe(false);
   });
+  it("hors ligne, désactiver garde le jeton et laisse le retrait en attente (jamais de révocation sans retrait)", async () => {
+    const { map, account, file } = setup({ enabled: true, agents: ["forgeron"] });
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new Error("réseau coupé"))));
+    await expect(map.disable()).rejects.toThrow(/en attente/);
+    expect(account.logout).not.toHaveBeenCalled();
+    expect(loadMapState(file)).toMatchObject({ enabled: false, pendingRemoval: true });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    await map.disable();
+    expect(account.logout).toHaveBeenCalledOnce();
+    expect(loadMapState(file).pendingRemoval).toBeUndefined();
+  });
+
+  it("sans autorisation restante, le retrait se termine (le site ne montre plus rien)", async () => {
+    const { map, account, calls, file } = setup({ enabled: true, agents: ["forgeron"] });
+    account.accessToken.mockResolvedValue(undefined as never);
+    await map.disable();
+    expect(calls).toHaveLength(0);
+    expect(loadMapState(file)).toMatchObject({ enabled: false });
+    expect(loadMapState(file).pendingRemoval).toBeUndefined();
+  });
 });
