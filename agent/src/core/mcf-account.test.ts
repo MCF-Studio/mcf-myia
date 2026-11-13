@@ -152,6 +152,22 @@ describe("connexion à mcfstudio.fr (OAuth + PKCE, boucle locale)", () => {
     expect(await acc.account()).toBeUndefined();
   });
 
+  it("jeton neuf à la demande (renouvellement au relais), sans double rotation si deux appels se croisent", async () => {
+    site = fakeSite();
+    const url = await site.start();
+    const store = memoryStore();
+    const acc = new McfAccount(url, { store, openBrowser: browser(site).open });
+    await acc.login();
+    const first = await acc.accessToken();
+
+    // Encore valide, mais le relais veut un jeton qui expire plus tard : nouveau jeton, rotation.
+    const [a, b] = await Promise.all([acc.accessToken({ fresh: true }), acc.accessToken({ fresh: true })]);
+    expect(a).not.toBe(first);
+    expect(b).toBe(a);
+    expect(store.value).toBe("r2");
+    expect(await acc.accessToken()).toBe(a);
+  });
+
   it("déconnexion : révoque sur le site puis oublie", async () => {
     site = fakeSite();
     const url = await site.start();

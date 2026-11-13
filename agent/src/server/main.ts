@@ -635,7 +635,7 @@ function makeLink() {
   return new GuildLink({
     relayUrl: cfg.site.relayUrl,
     keys: deviceKeys(),
-    token: () => mcf.accessToken(),
+    token: (fresh) => mcf.accessToken({ fresh }),
     loadGuild,
     run: (offer, text, maxSeconds, signal) => runSandboxed(cfg, offer, text, maxSeconds, signal),
     emit: (event, data) => rpc.notify(event, data),
@@ -667,6 +667,11 @@ rpc.method("guild.connect", async () => {
   return relayStatus();
 });
 rpc.method("guild.pending", () => link?.pendingList() ?? []);
+/** Offres en ligne des autres membres (pour en choisir une au moment de demander). */
+rpc.method("guild.offers", async () => {
+  if (!link) throw new Error("connecte-toi d'abord à mcfstudio.fr");
+  return link.offers();
+});
 /** Ajoute (ou lie à son compte) un membre de la liste blanche, depuis une demande reçue : id garanti par le relais. */
 rpc.method("guild.trust", (params) => {
   const { id, name } = parse(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(40) }), params);

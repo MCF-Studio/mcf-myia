@@ -52,10 +52,20 @@ export interface AskResult {
   fingerprint: string;
 }
 
+/** Offre en ligne d'un autre membre, telle que le relais la liste (métadonnées publiées par son propriétaire). */
+export interface OnlineOffer {
+  member: Member;
+  offerId: string;
+  name: string;
+  tags: string[];
+  model: string;
+}
+
 export interface GuildLinkDeps {
   relayUrl: string;
   keys: DeviceKeys;
-  token(): Promise<string | undefined>;
+  /** Jeton d'accès du compte ; `fresh` : un nouveau jeton, même si l'actuel est encore valide. */
+  token(fresh?: boolean): Promise<string | undefined>;
   loadGuild(): Guild;
   run(offer: Offer, text: string, maxSeconds: number, signal: AbortSignal): Promise<string>;
   /** Événements pour l'interface (état, demande à valider, demande traitée). */
@@ -73,6 +83,7 @@ const OPEN = 1;
 /** Demandes traitées en même temps, et en attente de validation, au plus (en plus des limites du relais). */
 const MAX_RUNNING = 2;
 const MAX_PENDING = 10;
+const LIST_TIMEOUT_MS = 8000;
 
 /** Taux d'utilisation du GPU NVIDIA (nvidia-smi) ; undefined si inconnu (les règles du mode auto restent prudentes). */
 export function nvidiaGpu(): Promise<number | undefined> {
@@ -126,6 +137,8 @@ export class GuildLink {
   private readonly inFlight = new Map<string, number>();
   /** Demandes envoyées par cette machine, en attente d'un événement du relais. */
   private readonly waiting = new Map<string, (m: Msg) => void>();
+  /** Appels à `offers()` en attente de la liste du relais. */
+  private listing: { resolve(items: OnlineOffer[]): void; reject(e: Error): void }[] = [];
 
   constructor(private readonly deps: GuildLinkDeps) {}
 
@@ -158,6 +171,7 @@ export class GuildLink {
     this.inFlight.clear();
     for (const w of this.waiting.values()) w({ type: "expired", reason: "connexion au relais coupée" });
     this.waiting.clear();
+    this.settleListing(new Error("connexion au relais coupée"));
     this.setStatus({ state: "off", reason });
   }
 
@@ -217,6 +231,13 @@ export class GuildLink {
     this.retry = setTimeout(() => void this.connect(), wait);
   }
 
+  private settleListing(result: OnlineOffer[] | Error) {
+    for (const l of this.listing.splice(0)) {
+      if (result instanceof Error) l.reject(result);
+      else l.resolve(result);
+    }
+  }
+
   private send(m: Msg) {
     if (this.ws?.readyState === OPEN) this.ws.send(JSON.stringify(m));
   }
@@ -255,6 +276,12 @@ export class GuildLink {
         this.publishOffers();
         return;
       }
+      case "catalog":
+        return this.settleListing(Array.isArray(m.items) ? (m.items as OnlineOffer[]) : []);
+      case "error":
+        // Sans identifiant de demande pendant qu'on attend la liste : un relais plus ancien ne connaît pas `list`.
+        if (!id && m.code === "bad_message") this.settleListing(new Error("le relais ne sait pas encore lister les offres (mise à jour en cours)"));
+        break;
       case "ask":
         return this.onAsk(m);
       case "payload":
@@ -277,7 +304,8 @@ export class GuildLink {
 
   private async renew() {
     try {
-      const token = await this.deps.token();
+      // Un jeton NEUF : renvoyer celui du hello (encore valide) ne repousserait pas l'échéance, et le relais couperait.
+      const token = await this.deps.token(true);
       if (token) this.send({ type: "reauth", token });
     } catch {
       /* le relais coupera à l'expiration ; la reconnexion réessaiera */
@@ -400,6 +428,23 @@ export class GuildLink {
   }
 
   // ─── demandeur ─────────────────────────────────────────────────────────────
+
+  /** Offres en ligne des autres membres que ce compte peut solliciter (pour en choisir une, ou voir les compétences). */
+  offers(): Promise<OnlineOffer[]> {
+    if (this.status.state !== "online") return Promise.reject(new Error("pas connecté au relais de la Guilde"));
+    return new Promise<OnlineOffer[]>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.listing = this.listing.filter((l) => l !== entry);
+        reject(new Error("le relais n'a pas répondu à temps"));
+      }, LIST_TIMEOUT_MS);
+      const entry = {
+        resolve: (items: OnlineOffer[]) => (clearTimeout(timer), resolve(items)),
+        reject: (e: Error) => (clearTimeout(timer), reject(e)),
+      };
+      // Une seule question au relais pour tous les appels en attente.
+      if (this.listing.push(entry) === 1) this.send({ type: "list" });
+    });
+  }
 
   /** Demande à la Guilde : premier fournisseur qui se propose, contenu chiffré pour son appareil. */
   async ask(target: { tag?: string; to?: number; offerId?: string }, text: string, signal?: AbortSignal): Promise<AskResult> {

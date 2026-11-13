@@ -79,7 +79,7 @@ const guild = (over: Record<string, unknown> = {}): Guild =>
     ...over,
   });
 
-async function setup(g: Guild) {
+async function setup(g: Guild, token: (fresh?: boolean) => Promise<string | undefined> = async () => "jeton-de-test") {
   const socket = new FakeSocket();
   const keys = generateDeviceKeys();
   const events: [string, unknown][] = [];
@@ -87,7 +87,7 @@ async function setup(g: Guild) {
   const link = new GuildLink({
     relayUrl: "wss://guilde.test/v1",
     keys,
-    token: async () => "jeton-de-test",
+    token,
     loadGuild: () => g,
     run,
     emit: (e, d) => events.push([e, d]),
@@ -174,6 +174,22 @@ describe("lien avec le relais (fournisseur)", () => {
   });
 });
 
+describe("lien avec le relais (connexion)", () => {
+  it("renouvelle avec un jeton NEUF : le même jeton ne repousserait pas l'échéance au relais", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const token = vi.fn(async (fresh?: boolean) => (fresh ? "jeton-neuf" : "jeton-de-test"));
+      const { socket, link } = await setup(guild(), token);
+      await socket.next("offers");
+      vi.advanceTimersByTime(13 * 60_000);
+      expect(await socket.next("reauth")).toEqual({ type: "reauth", token: "jeton-neuf" });
+      link.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("lien avec le relais (demandeur)", () => {
   it("choisit le premier fournisseur, chiffre pour son appareil et déchiffre la réponse", async () => {
     const { socket, keys, link } = await setup(guild());
@@ -191,6 +207,42 @@ describe("lien avec le relais (demandeur)", () => {
     socket.push({ type: "answer", id: ask.id, sealed: seal("c'est relu", keys.publicKey, ask.id, "answer") });
     await expect(pending).resolves.toMatchObject({ answer: "c'est relu", provider: { name: "aroun" }, fingerprint: fingerprint(provider.publicKey) });
     link.stop();
+  });
+
+  it("demande une offre choisie dans la liste : membre et offre précis, sans compétence", async () => {
+    const { socket, link } = await setup(guild());
+    const pending = link.ask({ to: 1, offerId: "jane" }, "bonjour Jane");
+    const ask = await socket.next("ask");
+    expect(ask).toMatchObject({ to: 1, offerId: "jane" });
+    expect(ask).not.toHaveProperty("tag");
+    socket.push({ type: "expired", id: ask.id, reason: "ce membre n'est pas disponible" });
+    await expect(pending).rejects.toThrow(/pas disponible/);
+    link.stop();
+  });
+
+  it("liste les offres en ligne des autres membres (une seule question au relais)", async () => {
+    const { socket, link } = await setup(guild());
+    const jane = { member: aroun, offerId: "jane", name: "Jane", tags: [], model: "qwen3:4b" };
+    const both = Promise.all([link.offers(), link.offers()]);
+    await socket.next("list");
+    expect(socket.sent.find((m) => m.type === "list")).toBeUndefined();
+    socket.push({ type: "catalog", items: [jane] });
+    await expect(both).resolves.toEqual([[jane], [jane]]);
+    link.stop();
+  });
+
+  it("liste : relais pas encore à jour ou coupé = erreur claire, pas d'attente sans fin", async () => {
+    const { socket, link } = await setup(guild());
+    const old = link.offers();
+    await socket.next("list");
+    socket.push({ type: "error", code: "bad_message", message: "message invalide" });
+    await expect(old).rejects.toThrow(/lister les offres/);
+
+    const cut = link.offers();
+    cut.catch(() => undefined);
+    link.stop();
+    await expect(cut).rejects.toThrow(/coupée/);
+    await expect(link.offers()).rejects.toThrow(/pas connecté/);
   });
 
   it("remonte l'échec quand personne ne se propose", async () => {

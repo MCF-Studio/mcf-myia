@@ -9,6 +9,7 @@ import {
   Moon,
   Plus,
   Power,
+  RefreshCw,
   Save,
   ScrollText,
   Send,
@@ -210,7 +211,8 @@ function editOffer(o: Offer) {
 const tagInput = ref("");
 function addTag() {
   const t = tagInput.value.trim().toLowerCase();
-  if (editing.value && t && !editing.value.tags.includes(t) && editing.value.tags.length < 8) editing.value.tags.push(t);
+  // Deux caractères au moins : même règle que le relais, qui refuserait sinon toutes tes offres d'un coup.
+  if (editing.value && t.length >= 2 && !editing.value.tags.includes(t) && editing.value.tags.length < 8) editing.value.tags.push(t);
   tagInput.value = "";
 }
 
@@ -305,26 +307,72 @@ async function rejectPending(id: string) {
   await call("guild.reject", { id }).catch((e) => toast((e as Error).message, "error"));
 }
 
+// Offres en ligne des autres membres : on en choisit une, ou on demande une compétence à qui l'annonce.
+interface OnlineOffer {
+  member: Member;
+  offerId: string;
+  name: string;
+  tags: string[];
+  model: string;
+}
+const online = ref<OnlineOffer[]>([]);
+const onlineError = ref("");
+const loadingOnline = ref(false);
+const picked = ref<OnlineOffer>();
+const sameOffer = (a: OnlineOffer, b?: OnlineOffer) => !!b && a.member.id === b.member.id && a.offerId === b.offerId;
+const onlineTags = computed(() => [...new Set(online.value.flatMap((o) => o.tags))].sort());
+
+async function loadOnline() {
+  if (relay.value.state !== "online" || loadingOnline.value) return;
+  loadingOnline.value = true;
+  try {
+    online.value = await call<OnlineOffer[]>("guild.offers");
+    onlineError.value = "";
+    if (picked.value && !online.value.some((o) => sameOffer(o, picked.value))) picked.value = undefined;
+  } catch (e) {
+    online.value = [];
+    picked.value = undefined;
+    onlineError.value = (e as Error).message;
+  } finally {
+    loadingOnline.value = false;
+  }
+}
+
 const askForm = reactive({ tag: "", text: "" });
 const askingNow = ref(false);
 const askResult = ref<{ answer: string; provider: Member; offer: { name: string; model: string }; fingerprint: string }>();
 const askError = ref("");
 
 async function askGuild() {
-  if (!askForm.tag.trim() || askForm.text.trim().length < 3) return;
+  const tag = askForm.tag.trim().toLowerCase();
+  if ((!picked.value && tag.length < 2) || askForm.text.trim().length < 3) return;
+  const target = picked.value ? { to: picked.value.member.id, offerId: picked.value.offerId } : { tag };
   askingNow.value = true;
   askResult.value = undefined;
   askError.value = "";
   try {
-    askResult.value = await call("guild.ask", { tag: askForm.tag.trim().toLowerCase(), text: askForm.text });
+    askResult.value = await call("guild.ask", { ...target, text: askForm.text });
   } catch (e) {
     askError.value = (e as Error).message;
+    void loadOnline(); // l'offre a pu disparaître entre-temps
   } finally {
     askingNow.value = false;
   }
 }
 
 const offStatus = on("guild.status", (s) => (relay.value = s as LinkState));
+watch(
+  () => relay.value.state,
+  (s) => {
+    if (s === "online") void loadOnline();
+    else {
+      online.value = [];
+      picked.value = undefined;
+    }
+  },
+);
+// Les offres vont et viennent avec les connexions des membres : liste rafraîchie tant que la page est ouverte.
+const onlineTimer = setInterval(() => void loadOnline(), 30_000);
 const offPending = on("guild.pending", (list) => (pending.value = list as PendingRequest[]));
 // Liste blanche liée à un compte par le cœur (demande acceptée) : on reprend ses entrées sans toucher au reste.
 const offChanged = on("guild.changed", async () => {
@@ -342,6 +390,7 @@ const offServed = on("guild.served", (d) => {
     .catch(() => undefined);
 });
 onBeforeUnmount(() => {
+  clearInterval(onlineTimer);
   offStatus();
   offPending();
   offChanged();
@@ -456,11 +505,58 @@ onMounted(async () => {
     <section v-if="relay.state === 'online'" class="card ask">
       <div class="card-head"><h3><Send :size="17" /> Demander à la Guilde</h3></div>
       <p class="tiny muted">
-        Le premier membre en ligne qui a une offre avec cette compétence, et qui accepte, te répond. Ton texte est chiffré pour son seul
-        appareil ; il ne voit ni tes fichiers ni tes conversations.
+        Choisis une offre en ligne, ou demande une compétence : le premier membre qui l'annonce et qui accepte te répond. Ton texte est
+        chiffré pour son seul appareil ; il ne voit ni tes fichiers ni tes conversations.
+      </p>
+      <div class="online-head">
+        <strong class="small">En ligne maintenant</strong>
+        <span class="badge">{{ online.length }} offre{{ online.length > 1 ? "s" : "" }}</span>
+        <span class="spacer" />
+        <button type="button" class="btn sm ghost" :disabled="loadingOnline" @click="loadOnline"><RefreshCw :size="14" /> Actualiser</button>
+      </div>
+      <p v-if="onlineError" class="small acc-error">{{ onlineError }}</p>
+      <div v-else-if="online.length" class="online-list">
+        <button
+          v-for="o in online"
+          :key="`${o.member.id}/${o.offerId}`"
+          type="button"
+          class="online-offer"
+          :class="{ on: sameOffer(o, picked) }"
+          :aria-pressed="sameOffer(o, picked)"
+          @click="picked = sameOffer(o, picked) ? undefined : o"
+        >
+          <strong>{{ o.name }}</strong>
+          <span class="small muted">
+            {{ o.member.name }} <BadgeCheck v-if="o.member.certified" :size="12" class="certified" aria-label="certifié" />
+          </span>
+          <span class="mono tiny muted">{{ o.model }}</span>
+          <span v-if="o.tags.length" class="tags">
+            <span v-for="t in o.tags" :key="t" class="badge">{{ t }}</span>
+          </span>
+        </button>
+      </div>
+      <p v-else-if="!loadingOnline" class="empty small">
+        Aucune offre en ligne pour l'instant : il faut qu'un autre membre ait MyIA ouvert, la Guilde activée et une offre active.
       </p>
       <form class="ask-form" @submit.prevent="askGuild">
-        <input v-model="askForm.tag" class="input" maxlength="24" placeholder="Compétence (ex. relecture, code, traduction)" required />
+        <div v-if="picked" class="picked small">
+          Demande pour <strong>{{ picked.name }}</strong> ({{ picked.member.name }})
+          <button type="button" class="btn sm ghost" @click="picked = undefined"><X :size="14" /> Demander plutôt une compétence</button>
+        </div>
+        <template v-else>
+          <input
+            v-model="askForm.tag"
+            class="input"
+            list="guild-online-tags"
+            minlength="2"
+            maxlength="24"
+            placeholder="Compétence (ex. relecture, code, traduction)"
+            required
+          />
+          <datalist id="guild-online-tags">
+            <option v-for="t in onlineTags" :key="t" :value="t" />
+          </datalist>
+        </template>
         <textarea v-model="askForm.text" class="input" rows="4" maxlength="20000" placeholder="Ta demande, complète : l'autre membre ne voit rien d'autre." required />
         <div class="ask-actions">
           <button v-if="askingNow" type="button" class="btn sm" @click="call('guild.cancelAsk')">Annuler</button>
@@ -640,6 +736,13 @@ onMounted(async () => {
               <span v-for="(t, i) in editing.tags" :key="t" class="chip">{{ t }} <button type="button" @click="editing.tags.splice(i, 1)"><X :size="11" /></button></span>
               <input v-model="tagInput" class="chip-input" maxlength="24" placeholder="rédaction, traduction…" @keydown.enter.prevent="addTag" @blur="addTag" />
             </div>
+            <span class="tiny muted">
+              {{
+                editing.tags.length
+                  ? "Entrée pour ajouter. Les membres qui demandent une de ces compétences te trouvent."
+                  : "Sans compétence, cette offre ne reçoit que les demandes des membres qui la choisissent dans la liste des offres en ligne."
+              }}
+            </span>
           </div>
           <label class="field">
             <span class="small">Consignes <em class="muted">(visibles par toi seul ; elles orientent les réponses)</em></span>
@@ -755,6 +858,51 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.online-head,
+.picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.online-head {
+  margin-top: 10px;
+}
+.online-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.online-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline);
+  background: var(--bg-elevated);
+}
+.online-offer:hover {
+  border-color: var(--border);
+}
+.online-offer.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
+}
+.online-offer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.online-offer .certified {
+  color: var(--accent);
+  vertical-align: -2px;
 }
 .ask-result {
   margin-top: 12px;
