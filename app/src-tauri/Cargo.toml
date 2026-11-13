@@ -1,6 +1,6 @@
 [package]
 name = "myia"
-version = "0.5.0"
+version = "0.5.1"
 description = "MyIA : agent local du quotidien (MCF Studio)"
 authors = ["MCF Studio"]
 license = "AGPL-3.0-only"

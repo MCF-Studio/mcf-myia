@@ -120,7 +120,7 @@ s'ouvre sur `<site>/autoriser`, le site renvoie vers `http://127.0.0.1:<port>/ca
 l'échange ; l'état (`state`) est vérifié (un code injecté par un tiers est refusé). Jeton d'accès 15 min en mémoire
 seulement ; jeton de renouvellement (rotation) dans le coffre Windows ; déconnexion = révocation sur le site.
 
-**Relais de la Guilde** (`wss://guilde.mcfstudio.fr/v1`, `core/guild-link.ts`, spec du site
+**Relais de la Guilde** (`wss://myia.mcfstudio.fr/guilde/v1`, `core/guild-link.ts`, spec du site
 `2026-11-11-guilde-relais-design.md`) : connexion dès que le compte est lié. Clé X25519 **par appareil** dans le coffre
 Windows (`guild_device_key`) ; tout contenu est scellé pour l'appareil destinataire (ECDH éphémère, HKDF-SHA256,
 AES-256-GCM, données associées = demande ‖ sens) : le relais ne lit rien. Fournisseur : seules les métadonnées des

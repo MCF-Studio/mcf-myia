@@ -4,7 +4,7 @@ import { fingerprint, open, seal, type DeviceKeys } from "./guild-crypto.js";
 import { decide, journal, readJournal, type Guild, type Offer } from "./guild.js";
 
 /**
- * Lien de cette machine avec le relais de la Guilde (wss://guilde.mcfstudio.fr/v1, spec relais §3).
+ * Lien de cette machine avec le relais de la Guilde (wss://myia.mcfstudio.fr/guilde/v1, spec relais §3).
  * - Fournisseur : publie les offres activées (métadonnées seulement), se propose quand les règles locales le
  *   permettent, déchiffre la demande, la traite dans le bac à sable (mode auto) ou la soumet au propriétaire.
  * - Demandeur : envoie une demande, choisit le premier fournisseur qui se propose, chiffre pour SON appareil.

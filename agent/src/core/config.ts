@@ -43,7 +43,7 @@ export const ConfigSchema = z.object({
       relayUrl: z
         .string()
         .regex(/^(wss:\/\/[a-z0-9.-]+(\/[a-z0-9]+)*|ws:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/[a-z0-9]+)*)$/i, "adresse wss du relais attendue")
-        .default("wss://guilde.mcfstudio.fr/v1"),
+        .default("wss://myia.mcfstudio.fr/guilde/v1"),
     })
     .prefault({}),
   /** Comment l'agent appelle son utilisateur (prompts système). */
