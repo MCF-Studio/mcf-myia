@@ -40,7 +40,7 @@ import { applyPttKey, ptt } from "../lib/ptt";
 import { claudeApi, loadClaudeApi } from "../lib/terminals";
 
 type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "system" | "about";
-const section = ref<Section>("appearance");
+const section = ref<Section>("general");
 const sections: { id: Section; label: string; icon: unknown }[] = [
   { id: "general", label: "Général", icon: SlidersHorizontal },
   { id: "appearance", label: "Apparence", icon: Palette },

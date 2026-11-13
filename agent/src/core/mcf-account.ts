@@ -198,9 +198,21 @@ export class McfAccount {
     return token ? decodeAccount(token) : undefined;
   }
 
-  /** Jeton d'accès valide (pour le relais) ; renouvelé avec rotation quand il expire. */
-  async accessToken(): Promise<string | undefined> {
-    if (this.access && this.access.exp > this.now()) return this.access.token;
+  private refreshing?: Promise<string | undefined>;
+
+  /**
+   * Jeton d'accès valide (pour le relais) ; renouvelé avec rotation quand il expire. `fresh` : en obtenir un nouveau
+   * même si l'actuel est encore valide (le relais coupe à l'expiration du jeton qu'on lui a présenté : lui renvoyer le
+   * même ne prolonge rien).
+   */
+  async accessToken(opts: { fresh?: boolean } = {}): Promise<string | undefined> {
+    if (!opts.fresh && this.access && this.access.exp > this.now()) return this.access.token;
+    // Un seul renouvellement à la fois : le jeton de renouvellement ne sert qu'une fois (rotation).
+    this.refreshing ??= this.refresh().finally(() => (this.refreshing = undefined));
+    return this.refreshing;
+  }
+
+  private async refresh(): Promise<string | undefined> {
     const refresh = this.store.get();
     if (!refresh) return undefined;
     try {

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Config } from "./config.js";
 import { isInside, paths } from "./paths.js";
+import { assertLocalPath } from "./programs.js";
 
 /**
  * Où les agents peuvent lire, chercher et (avec confirmation) écrire.
@@ -96,6 +97,30 @@ export function deniedFor(cfg: Config, cloud: boolean): string[] {
       }),
     ),
   ];
+}
+
+/**
+ * Espace de travail d'un agent ou d'une équipe : un dossier local existant, choisi par l'utilisateur. Refusés : un
+ * disque entier, le dossier personnel (ou plus large) et les emplacements protégés. Renvoie le chemin réel.
+ */
+export function checkWorkspace(p: string): string {
+  const abs = assertLocalPath(p);
+  if (!fs.statSync(abs, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`dossier introuvable : ${abs}`);
+  const real = fs.realpathSync.native(abs);
+  if (path.parse(real).root === real) throw new Error("un espace de travail est un dossier, pas un disque entier");
+  if (isInside(real, os.homedir())) throw new Error("dossier trop large pour un espace de travail : choisis le dossier d'un projet");
+  if (isSensitive(real)) throw new Error(`${real} est un emplacement protégé (système, données d'applications, clés ou config de MyIA)`);
+  return real;
+}
+
+/** L'espace de travail s'il est utilisable MAINTENANT (le disque peut être débranché, le dossier déplacé). */
+export function usableWorkspace(p: string | undefined): string | undefined {
+  if (!p) return undefined;
+  try {
+    return checkWorkspace(p);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Dossiers choisis par l'utilisateur (sans les disques entiers de l'accès à tout le PC ; sans la mémoire en ligne). */

@@ -44,11 +44,27 @@ impl Ptys {
     }
 }
 
-/// Dossiers où une console peut s'ouvrir : workspace, `projectRoots` et `projects` de config/agent.json.
+/// Espaces de travail des agents (config/agents.json) ou des équipes (config/teams.json) : champ `workspace` de
+/// chaque entrée de la liste `key`. Écrits par le cœur après contrôle (access.ts → checkWorkspace).
+fn workspaces_of(file: &Path, key: &str) -> Vec<PathBuf> {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get(key)?.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|x| x.get("workspace")?.as_str().map(PathBuf::from))
+        .collect()
+}
+
+/// Dossiers où une console peut s'ouvrir : workspace, `projectRoots` et `projects` de config/agent.json, et les
+/// espaces de travail des agents et des équipes.
 /// Lu ici, côté Rust : l'interface ne peut pas imposer un dossier arbitraire.
 fn allowed_roots() -> Vec<PathBuf> {
     let home = crate::sidecar::home();
     let mut roots = vec![home.join("workspace")];
+    roots.extend(workspaces_of(&home.join("config").join("agents.json"), "agents"));
+    roots.extend(workspaces_of(&home.join("config").join("teams.json"), "teams"));
     let cfg = std::fs::read_to_string(home.join("config").join("agent.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
@@ -192,7 +208,7 @@ pub fn pty_spawn(
         return Err(format!("dossier introuvable : {cwd}"));
     }
     if !is_allowed(&dir) {
-        return Err("dossier non autorisé : seuls le workspace et les projets de la configuration sont acceptés".into());
+        return Err("dossier non autorisé : seuls le workspace, les projets de la configuration et les espaces de travail des agents sont acceptés".into());
     }
     let pair = native_pty_system().openpty(clamp_size(cols, rows)).map_err(|e| format!("pty : {e}"))?;
 
