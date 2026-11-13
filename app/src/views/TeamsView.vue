@@ -127,6 +127,42 @@ async function talk() {
   await createConversation(draft.value.root.agentId, draft.value.id).catch((e) => toast(e.message, "error"));
 }
 
+/* Déplacement de la carte en la faisant glisser à la souris (le tactile défile déjà nativement).
+   Ce que la carte ne peut pas absorber verticalement fait défiler la page, pour atteindre le bas d'un grand arbre. */
+const canvas = ref<HTMLElement>();
+let pan: { id: number; x: number; y: number; moved: boolean } | undefined;
+
+function panStart(e: PointerEvent) {
+  if (e.pointerType !== "mouse" || e.button !== 0) return;
+  if ((e.target as HTMLElement).closest("button, select, input, a, label")) return;
+  pan = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+}
+function panMove(e: PointerEvent) {
+  const el = canvas.value;
+  if (!pan || !el || e.pointerId !== pan.id) return;
+  const dx = e.clientX - pan.x;
+  const dy = e.clientY - pan.y;
+  if (!pan.moved) {
+    if (Math.hypot(dx, dy) < 4) return;
+    pan.moved = true;
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("panning");
+  }
+  pan.x = e.clientX;
+  pan.y = e.clientY;
+  el.scrollLeft -= dx;
+  const top = el.scrollTop;
+  el.scrollTop -= dy;
+  const rest = dy - (top - el.scrollTop);
+  const page = el.closest<HTMLElement>(".page");
+  if (rest && page) page.scrollTop -= rest;
+}
+function panEnd(e: PointerEvent) {
+  if (!pan || e.pointerId !== pan.id) return;
+  canvas.value?.classList.remove("panning");
+  pan = undefined;
+}
+
 watch(
   () => state.teams,
   (teams) => {
@@ -211,7 +247,14 @@ watch(
           </div>
         </div>
 
-        <div class="canvas card">
+        <div
+          ref="canvas"
+          class="canvas card"
+          @pointerdown="panStart"
+          @pointermove="panMove"
+          @pointerup="panEnd"
+          @pointercancel="panEnd"
+        >
           <div class="legend tiny muted">
             <span><i class="l-sub" /> sous-agent : reçoit une tâche déléguée</span>
             <span><i class="l-peer" /> coéquipier : même niveau, vient en renfort avec ses propres agents</span>
@@ -235,6 +278,11 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--gap);
+}
+/* .page a une hauteur fixe : sans ça, les blocs se tassent au lieu de faire défiler la page
+   et le bas de l'organigramme déborde hors de la zone défilable. */
+.teams > * {
+  flex-shrink: 0;
 }
 .warn-banner {
   display: flex;
@@ -267,7 +315,6 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--gap);
-  min-height: 0;
 }
 .team-list {
   display: flex;
@@ -370,7 +417,11 @@ watch(
 }
 .canvas {
   overflow: auto;
-  min-height: 420px;
+  overscroll-behavior-x: contain;
+  min-height: min(420px, 60vh);
+  /* reste dans la fenêtre : les deux barres de défilement de la carte restent atteignables */
+  max-height: max(320px, calc(100vh - var(--titlebar-h, 0px) - 2 * var(--pad)));
+  cursor: grab;
   background:
     radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text-muted) 18%, transparent) 1px, transparent 0) 0 0 / 22px 22px,
     var(--bg-elevated);
@@ -400,9 +451,57 @@ watch(
   padding: 6px 6px 20px;
   min-width: 100%;
 }
+.canvas.panning {
+  cursor: grabbing;
+  user-select: none;
+}
+.canvas :is(button, select, input) {
+  cursor: pointer;
+}
 .note {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Fenêtres étroites : les champs et budgets passent en colonne, les boutons reviennent à la ligne. */
+@media (max-width: 900px) {
+  .budgets {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 24px;
+  }
+  .head-stats {
+    grid-column: 1 / -1;
+    max-width: none;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 640px) {
+  .warn-banner {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+  .head-fields,
+  .budgets {
+    grid-template-columns: 1fr;
+  }
+  .workspace .row,
+  .head-actions {
+    flex-wrap: wrap;
+  }
+  .ws-label {
+    flex-basis: 100%;
+  }
+  .head-actions .spacer {
+    display: none;
+  }
+  .legend {
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .canvas {
+    padding: 12px;
+  }
 }
 </style>
