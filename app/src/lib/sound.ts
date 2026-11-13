@@ -8,7 +8,8 @@ import { settings } from "./settings";
 let ctx: AudioContext | undefined;
 const audio = () => (ctx ??= new AudioContext());
 
-export type SoundKind = "reply" | "confirm" | "error" | "done";
+/** listen / stop : début et fin d'écoute de la touche « parler à MASTER ». */
+export type SoundKind = "reply" | "confirm" | "error" | "done" | "listen" | "stop";
 export const SOUND_PACKS = {
   ember: "Braise (doux, chaud)",
   crystal: "Cristal (clair)",
@@ -17,9 +18,9 @@ export const SOUND_PACKS = {
 export type SoundPack = keyof typeof SOUND_PACKS;
 
 const NOTES: Record<SoundPack, Record<SoundKind, number[]>> = {
-  ember: { reply: [523.25, 783.99], confirm: [659.25, 659.25, 880], error: [311.13, 233.08], done: [523.25, 659.25, 783.99] },
-  crystal: { reply: [1046.5, 1567.98], confirm: [1318.5, 1760], error: [622.25, 466.16], done: [1046.5, 1318.5, 1567.98] },
-  pulse: { reply: [440], confirm: [440, 554.37], error: [220], done: [440, 659.25] },
+  ember: { reply: [523.25, 783.99], confirm: [659.25, 659.25, 880], error: [311.13, 233.08], done: [523.25, 659.25, 783.99], listen: [587.33, 880], stop: [880, 587.33] },
+  crystal: { reply: [1046.5, 1567.98], confirm: [1318.5, 1760], error: [622.25, 466.16], done: [1046.5, 1318.5, 1567.98], listen: [1174.66, 1760], stop: [1760, 1174.66] },
+  pulse: { reply: [440], confirm: [440, 554.37], error: [220], done: [440, 659.25], listen: [440, 880], stop: [880, 440] },
 };
 
 export function playSound(kind: SoundKind, force = false) {
@@ -28,6 +29,8 @@ export function playSound(kind: SoundKind, force = false) {
   const vol = (s.master / 100) * (s.notifVolume / 100);
   if (vol <= 0) return;
   const a = audio();
+  // Fenêtre cachée : WebView2 peut suspendre le contexte audio.
+  if (a.state === "suspended") void a.resume();
   const notes = NOTES[s.notifSound as SoundPack]?.[kind] ?? NOTES.ember[kind];
   const wave: OscillatorType = s.notifSound === "pulse" ? "square" : s.notifSound === "crystal" ? "triangle" : "sine";
   let t = a.currentTime + 0.01;
