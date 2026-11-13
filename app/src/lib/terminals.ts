@@ -42,6 +42,22 @@ export function loadClaudeModels(): Promise<void> {
   return modelsLoad;
 }
 
+/** Agents sur l'API Claude (clé d'API de l'utilisateur) : modèles proposés et état de la clé (jamais la clé). */
+export interface ClaudeApiStatus {
+  configured: boolean;
+  hint?: string;
+  effort?: string;
+  models: ClaudeModelInfo[];
+}
+export const claudeApi = ref<ClaudeApiStatus>({ configured: false, models: [] });
+export async function loadClaudeApi(): Promise<void> {
+  try {
+    claudeApi.value = await call<ClaudeApiStatus>("claudeApi.status");
+  } catch {
+    // cœur pas encore prêt : on réessaiera
+  }
+}
+
 /** Abonnement du compte Claude Code connecté sur cette machine. */
 export interface ClaudeAccount {
   loggedIn: boolean;

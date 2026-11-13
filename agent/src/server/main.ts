@@ -11,8 +11,11 @@ import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
 import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
 import { CLAUDE_MODEL_INFO, CLAUDE_MODELS, claudeAccount, triageTask } from "../core/claude-coach.js";
-import { decide, journal, loadGuild, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
+import { API_KEY_SECRET, apiKeyStatus, CLAUDE_API_MODELS, verifyApiKey } from "../core/claude-api-llm.js";
+import { deleteSecret, setSecret } from "../core/secrets.js";
+import { decide, journal, loadGuild, OfferSchema, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
+import { AgentsMap, mapNames } from "../core/agents-map.js";
 import { deviceKeys } from "../core/guild-crypto.js";
 import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
@@ -23,6 +26,7 @@ import { installOllama } from "../core/ollama-install.js";
 import { createLlm } from "../core/llm-factory.js";
 import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
 import { makeTeamRoot } from "../core/team-runner.js";
+import { appControlTools, type AppControl } from "../services/app-control.js";
 import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
 import { isInside, paths } from "../core/paths.js";
 import { ProjectRegistry } from "../core/projects.js";
@@ -37,7 +41,7 @@ import {
 import type { AgentUI, Service } from "../core/types.js";
 import { buildServices } from "../services/index.js";
 import { RpcError, RpcPeer } from "./rpc.js";
-import { ConversationStore, type Conversation } from "./store.js";
+import { ConversationStore, type Conversation, type DisplayMessage } from "./store.js";
 import { deleteTheme, installTheme, listThemes } from "./themes.js";
 
 // stdout = protocole. Tout le reste part sur stderr (journal du sidecar côté app).
@@ -76,7 +80,15 @@ process.on("unhandledRejection", (e) => {
 
 // ─── état ────────────────────────────────────────────────────────────────────
 
-let cfg: Config = loadConfig();
+const cfg: Config = loadConfig();
+/**
+ * Applique une nouvelle configuration EN PLACE : les services et les agents gardent une référence à `cfg`, ils voient
+ * donc tout de suite les nouveaux réglages (dossiers de mémoire, accès aux fichiers…) sans redémarrage.
+ */
+function setCfg(next: Config) {
+  for (const k of Object.keys(cfg)) delete (cfg as Record<string, unknown>)[k];
+  Object.assign(cfg, next);
+}
 let services: Service[] = buildServices(cfg);
 let profiles: AgentProfile[] = loadProfiles();
 let teams: Team[] = loadTeams();
@@ -90,6 +102,8 @@ interface Live {
   running?: AbortController;
   /** Équipe : budget remis à zéro à chaque message de l'utilisateur. */
   budget?: TeamBudget;
+  /** Agent MASTER : messages à d'autres agents pendant la demande en cours. */
+  masterBudget?: { used: number };
 }
 const live = new Map<string, Live>();
 const pulls = new Map<string, AbortController>();
@@ -106,15 +120,25 @@ async function agentFor(c: Conversation): Promise<Live> {
   if (!l || l.signature !== signature) {
     let agent: Agent;
     let budget: TeamBudget | undefined;
+    let masterBudget: { used: number } | undefined;
     if (team) {
       budget = new TeamBudget(team.maxCalls, team.maxDepth);
       agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders) });
+    } else if (profile.master) {
+      masterBudget = { used: 0 };
+      agent = new Agent(cfg, services, profile, {
+        memory: memoryFor(cfg.memory.folders),
+        extraTools: appControlTools(appControl, profile, masterBudget),
+        teamNote:
+          `Tu es l'agent principal de ${cfg.user.name} (MASTER) : tu pilotes l'app MyIA. Tu peux lister et créer des agents, ouvrir des conversations, ` +
+          "consulter la Guilde et écrire aux autres agents (app_agent_message) quand une tâche relève de leur rôle. Fais toi-même ce qui est simple.",
+      });
     } else {
       agent = new Agent(cfg, services, profile, { memory: memoryFor(cfg.memory.folders) });
     }
     agent.importHistory(c.history);
     await agent.refreshServices();
-    l = { agent, signature, running: l?.running, budget };
+    l = { agent, signature, running: l?.running, budget, masterBudget };
     live.set(c.id, l);
   }
   return l;
@@ -183,14 +207,16 @@ rpc.method("agents.list", () => profiles.map((p) => ({ ...p, model: p.model, eff
 
 rpc.method("agents.save", (params) => {
   const p = parse(AgentProfileSchema, params);
-  const next = profiles.some((x) => x.id === p.id) ? profiles.map((x) => (x.id === p.id ? p : x)) : [...profiles, p];
-  saveProfiles(next);
-  profiles = next;
+  saveProfile(p);
   return p;
 });
 
 rpc.method("agents.delete", (params) => {
-  const { id } = parse(z.object({ id: z.string() }), params);
+  deleteAgent(parse(z.object({ id: z.string() }), params).id);
+  return true;
+});
+
+function deleteAgent(id: string) {
   if (profiles.length <= 1) throw new Error("il faut garder au moins un agent");
   const used = store.list().filter((c) => c.agentId === id).length;
   if (used) throw new Error(`${used} conversation(s) utilisent encore cet agent`);
@@ -198,8 +224,7 @@ rpc.method("agents.delete", (params) => {
   if (inTeams.length) throw new Error(`cet agent fait partie de : ${inTeams.join(", ")}`);
   profiles = profiles.filter((p) => p.id !== id);
   saveProfiles(profiles);
-  return true;
-});
+}
 
 rpc.method("agents.import", (params) => {
   const { json } = parse(z.object({ json: z.string().max(64_000) }), params);
@@ -209,7 +234,8 @@ rpc.method("agents.import", (params) => {
   } catch {
     throw new Error("fichier d'agent : JSON invalide");
   }
-  const p = parse(AgentProfileSchema, raw);
+  // Le rôle MASTER ne s'attribue que depuis l'écran Agents, jamais par un fichier importé.
+  const p = { ...parse(AgentProfileSchema, raw), master: undefined };
   if (profiles.some((x) => x.id === p.id)) throw new Error(`un agent « ${p.id} » existe déjà`);
   profiles = [...profiles, p];
   saveProfiles(profiles);
@@ -316,24 +342,38 @@ rpc.method("conversations.cancel", (params) => {
   return true;
 });
 
-rpc.method("conversations.send", async (params) => {
-  const { id, text } = parse(z.object({ id: z.string().uuid(), text: z.string().trim().min(1).max(20_000) }), params);
-  const c = store.get(id);
+interface SendOptions {
+  /** Expéditeur affiché quand ce n'est pas l'utilisateur (ex. MASTER). */
+  from?: string;
+  /** Les confirmations passent par cette interface (celle de l'agent appelant) au lieu de la conversation. */
+  confirmVia?: AgentUI;
+  signal?: AbortSignal;
+}
+
+/** Envoie un message dans une conversation et attend la réponse de son agent (utilisateur ou MASTER). */
+async function sendTo(c: Conversation, text: string, opts: SendOptions = {}): Promise<DisplayMessage> {
+  const id = c.id;
   const l = await agentFor(c);
   if (l.running) throw new Error("l'agent répond déjà dans cette conversation");
 
-  const emit = (msg: ReturnType<typeof store.push>) => rpc.notify("conversation.message", { conversationId: id, message: msg });
-  emit(store.push(c, { role: "user", text }));
-  if (c.messages.filter((m) => m.role === "user").length === 1 && c.title === "Nouvelle conversation") {
+  const emit = (msg: DisplayMessage) => rpc.notify("conversation.message", { conversationId: id, message: msg });
+  emit(store.push(c, { role: "user", text, ...(opts.from ? { from: opts.from } : {}) }));
+  if (!opts.from && c.messages.filter((m) => m.role === "user").length === 1 && c.title === "Nouvelle conversation") {
     c.title = text.replace(/\s+/g, " ").slice(0, 60);
     store.save(c);
     rpc.notify("conversation.updated", { conversationId: id, title: c.title });
   }
 
   const running = new AbortController();
+  if (opts.signal) {
+    if (opts.signal.aborted) running.abort();
+    else opts.signal.addEventListener("abort", () => running.abort(), { once: true });
+  }
   l.running = running;
   if (l.budget) l.budget.calls = 0;
+  if (l.masterBudget) l.masterBudget.used = 0;
   rpc.notify("conversation.busy", { conversationId: id, busy: true });
+  const agentName = profileOf(c.agentId).name;
 
   const ui: AgentUI = {
     async confirm(title, details) {
@@ -341,7 +381,9 @@ rpc.method("conversations.send", async (params) => {
       emit(m);
       let ok = false;
       try {
-        ok = (await rpc.call<boolean>("ui.confirm", { conversationId: id, messageId: m.id, title, details }, running.signal)) === true;
+        ok = opts.confirmVia
+          ? await opts.confirmVia.confirm(`${agentName} · ${title}`, details)
+          : (await rpc.call<boolean>("ui.confirm", { conversationId: id, messageId: m.id, title, details }, running.signal)) === true;
       } catch {
         ok = false;
       }
@@ -356,7 +398,8 @@ rpc.method("conversations.send", async (params) => {
   };
 
   try {
-    const answer = await l.agent.handle(text, ui, running.signal);
+    // Un message d'un autre agent n'est pas l'utilisateur : ses liens ne sont pas de confiance.
+    const answer = await l.agent.handle(text, ui, running.signal, opts.from ? false : undefined);
     c.history = l.agent.exportHistory();
     const m = store.push(c, { role: "assistant", text: answer });
     emit(m);
@@ -371,7 +414,70 @@ rpc.method("conversations.send", async (params) => {
     l.running = undefined;
     rpc.notify("conversation.busy", { conversationId: id, busy: false });
   }
+}
+
+rpc.method("conversations.send", async (params) => {
+  const { id, text } = parse(z.object({ id: z.string().uuid(), text: z.string().trim().min(1).max(20_000) }), params);
+  return sendTo(store.get(id), text);
 });
+
+// ─── MASTER : ce que l'agent principal peut faire dans l'app ─────────────────
+
+/** Enregistre un profil ; un seul MASTER à la fois. */
+function saveProfile(p: AgentProfile) {
+  let next = profiles.some((x) => x.id === p.id) ? profiles.map((x) => (x.id === p.id ? p : x)) : [...profiles, p];
+  if (p.master) next = next.map((x) => (x.id !== p.id && x.master ? { ...x, master: undefined } : x));
+  saveProfiles(next);
+  profiles = next;
+}
+
+const summary = (c: { id: string; title: string; agentId: string; teamId?: string; updatedAt: string }) => ({ id: c.id, title: c.title, agentId: c.agentId, teamId: c.teamId, updatedAt: c.updatedAt });
+
+const appControl: AppControl = {
+  agents: () => profiles,
+  teams: () => teams.map((t) => ({ id: t.id, name: t.name, description: t.description })),
+  conversations: () => store.list().map(summary),
+  installedModels: async () => (await engine().listModels()).map((m) => m.name),
+  createAgent(p) {
+    const parsed = parse(AgentProfileSchema, { ...p, master: undefined });
+    if (profiles.some((x) => x.id === parsed.id)) throw new Error(`un agent « ${parsed.id} » existe déjà`);
+    saveProfile(parsed);
+    rpc.notify("agents.changed", {});
+    return parsed;
+  },
+  deleteAgent(id) {
+    deleteAgent(id);
+    rpc.notify("agents.changed", {});
+  },
+  createConversation(agentId, title) {
+    const { history: _h, ...c } = store.create(agentId, title);
+    rpc.notify("conversations.changed", {});
+    return summary(c);
+  },
+  guild: () => {
+    const g = loadGuild();
+    return { enabled: g.enabled, relay: relayStatus(), offers: g.offers };
+  },
+  publishOffer(offer) {
+    const g = loadGuild();
+    const o = parse(OfferSchema, offer);
+    const saved = saveGuild({ ...g, offers: [...g.offers.filter((x) => x.id !== o.id), o] });
+    link?.publishOffers();
+    return saved.offers.find((x) => x.id === o.id)!;
+  },
+  async messageAgent(fromName, agentId, text, confirmVia, signal) {
+    const target = profileOf(agentId);
+    const title = `${fromName} ↔ ${target.name}`;
+    let convId = store.list().find((x) => x.agentId === agentId && !x.teamId && x.title === title)?.id;
+    if (!convId) {
+      convId = store.create(agentId, title).id;
+      rpc.notify("conversations.changed", {});
+    }
+    const m = await sendTo(store.get(convId), text, { from: fromName, confirmVia, signal });
+    if (m.role === "error") throw new Error(m.text);
+    return m.text;
+  },
+};
 
 // ─── modèles ─────────────────────────────────────────────────────────────────
 
@@ -431,7 +537,7 @@ rpc.method("models.setDefault", async (params) => {
   const raw = JSON.parse(fs.readFileSync(paths.config, "utf8")) as { llm?: Record<string, unknown> };
   raw.llm = { ...(raw.llm ?? {}), model: name };
   writeJsonAtomic(paths.config, raw);
-  cfg = loadConfig();
+  setCfg(loadConfig());
   return true;
 });
 
@@ -463,7 +569,7 @@ rpc.method("themes.delete", (params) => {
 
 /** Modifie un réglage simple de config/agent.json sans toucher au reste du fichier. */
 function patchConfig(mutate: (raw: Record<string, any>) => void) {
-  cfg = patchConfigFile(mutate);
+  setCfg(patchConfigFile(mutate));
   live.clear();
 }
 
@@ -471,6 +577,47 @@ function patchConfig(mutate: (raw: Record<string, any>) => void) {
 
 // Compte mcfstudio.fr (OAuth + PKCE, boucle locale) : jeton de renouvellement dans le coffre Windows.
 let mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
+
+// ─── Carte des agents de mcfstudio.fr (option, noms d'agents seulement) ─────────
+let agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser);
+agentsMap.start();
+let mapLogin: AbortController | undefined;
+
+const mapStatus = () => {
+  const s = agentsMap.state();
+  return { ...s, site: cfg.site.url, refused: mapNames(profiles, s.agents).refused };
+};
+
+rpc.method("map.status", () => mapStatus());
+
+const MapAgentsParam = z.object({ agents: z.array(z.string().max(40)).max(12) });
+
+rpc.method("map.enable", async (params) => {
+  const { agents } = parse(MapAgentsParam, params);
+  if (mapLogin) throw new Error("autorisation déjà en cours dans le navigateur");
+  mapLogin = new AbortController();
+  try {
+    await agentsMap.enable(agents, mapLogin.signal);
+  } finally {
+    mapLogin = undefined;
+  }
+  return mapStatus();
+});
+
+rpc.method("map.cancelLogin", () => {
+  mapLogin?.abort();
+  return true;
+});
+
+rpc.method("map.setAgents", async (params) => {
+  await agentsMap.setAgents(parse(MapAgentsParam, params).agents);
+  return mapStatus();
+});
+
+rpc.method("map.disable", async () => {
+  await agentsMap.disable();
+  return mapStatus();
+});
 let mcfLogin: AbortController | undefined;
 
 // Lien avec le relais (wss://guilde.mcfstudio.fr) : clé d'appareil X25519 dans le coffre, contenu chiffré de bout en bout.
@@ -696,6 +843,30 @@ rpc.method("claude.account", () => claudeAccount(cfg.claude.command, paths.home)
 /** Modèles Claude proposés dans l'interface : une seule liste, celle du cœur. */
 rpc.method("claude.models", () => CLAUDE_MODELS.map((id) => ({ id, ...CLAUDE_MODEL_INFO[id] })));
 
+// ─── Agents sur l'API Claude : clé d'API de l'utilisateur ───────────────────
+// La clé ne fait que l'aller (interface → coffre Windows) : aucune méthode ne la renvoie, seule sa fin est affichée.
+
+/** Modèles proposés pour un agent « claude-api:<alias> », et état de la clé. */
+rpc.method("claudeApi.status", () => ({
+  ...apiKeyStatus(),
+  effort: cfg.claudeApi.effort,
+  models: Object.entries(CLAUDE_API_MODELS).map(([alias, m]) => ({ id: alias, label: m.label, hint: m.hint })),
+}));
+
+rpc.method("claudeApi.setKey", async (params) => {
+  const { key } = parse(z.object({ key: z.string().trim().min(10).max(400) }), params);
+  await verifyApiKey(key);
+  setSecret(API_KEY_SECRET, key);
+  audit({ event: "claude_api_key", action: "set" });
+  return apiKeyStatus();
+});
+
+rpc.method("claudeApi.deleteKey", () => {
+  deleteSecret(API_KEY_SECRET);
+  audit({ event: "claude_api_key", action: "delete" });
+  return apiKeyStatus();
+});
+
 /** Passation d'une console : le fichier existe-t-il (et a-t-il fini d'être écrit) ? Dossiers autorisés uniquement. */
 rpc.method("handoff.status", (params) => {
   const { cwd, file } = parse(z.object({ cwd: z.string().max(500), file: z.string().regex(/^\.myia\/handoff-[0-9-]{8,20}\.md$/) }), params);
@@ -713,14 +884,14 @@ rpc.method("programs.list", () => listPrograms());
 rpc.method("programs.add", (params) => {
   const p = parse(z.object({ name: z.string(), path: z.string().max(500), description: z.string().max(200).optional() }), params);
   const added = addProgram(p.name.trim(), p.path, p.description);
-  cfg = loadConfig();
+  setCfg(loadConfig());
   live.clear(); // les agents verront le nouveau programme dans la description de program_launch
   return added;
 });
 
 rpc.method("programs.remove", (params) => {
   removeProgram(parse(z.object({ name: z.string() }), params).name);
-  cfg = loadConfig();
+  setCfg(loadConfig());
   live.clear();
   return true;
 });
@@ -732,6 +903,7 @@ rpc.method("config.get", () => ({
   projectRoots: cfg.projectRoots,
   configPath: paths.config,
   claudeBypassPermissions: cfg.claude.bypassPermissions,
+  filesFullAccess: cfg.files.fullAccess,
   engine: {
     flashAttention: cfg.llm.flashAttention,
     kvCache: cfg.llm.kvCache,
@@ -886,6 +1058,14 @@ rpc.method("llamacpp.uninstall", (params) => {
   return true;
 });
 
+/** Accès des agents à tout le PC (lecture et recherche ; écriture toujours confirmée hors Documents\MyIA). */
+rpc.method("config.setFilesFullAccess", (params) => {
+  const { enabled } = parse(z.object({ enabled: z.boolean() }), params);
+  patchConfig((raw) => (raw.files = { ...(raw.files ?? {}), fullAccess: enabled }));
+  audit({ event: "files_full_access", ok: enabled });
+  return true;
+});
+
 rpc.method("config.setClaudeBypassPermissions", (params) => {
   const { enabled } = parse(z.object({ enabled: z.boolean() }), params);
   patchConfig((raw) => (raw.claude = { ...(raw.claude ?? {}), bypassPermissions: enabled }));
@@ -925,7 +1105,7 @@ rpc.method("config.setProjectRoots", (params) => {
 });
 
 rpc.method("config.reload", async () => {
-  cfg = loadConfig();
+  setCfg(loadConfig());
   await Promise.allSettled(services.map((s) => s.close?.()));
   services = buildServices(cfg);
   profiles = loadProfiles();
@@ -933,6 +1113,9 @@ rpc.method("config.reload", async () => {
   registry = undefined;
   live.clear();
   mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
+  agentsMap.stop();
+  agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser);
+  agentsMap.start();
   stopLink();
   void startLink();
   return true;

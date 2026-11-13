@@ -4,6 +4,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Bell,
   BookOpen,
+  AlertTriangle,
   AppWindow,
   Download,
   FilePlus2,
@@ -35,6 +36,8 @@ import { refreshOverview, refreshSidecar, refreshThemes, restartSidecar, state, 
 import { BUILTIN_THEMES, exportTheme } from "../lib/themes";
 import type { Theme } from "../lib/types";
 import { checkForUpdate, update } from "../lib/update";
+import { applyPttKey, ptt } from "../lib/ptt";
+import { claudeApi, loadClaudeApi } from "../lib/terminals";
 
 type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "system" | "about";
 const section = ref<Section>("appearance");
@@ -188,12 +191,14 @@ async function loadConfigBits() {
       userName: string;
       projectRoots: { path: string; depth: number }[];
       claudeBypassPermissions?: boolean;
+      filesFullAccess?: boolean;
       engine?: Engine;
     }>("config.get");
     if (c.engine) engine.value = c.engine;
     userName.value = c.userName === "l'utilisateur" ? "" : c.userName;
     roots.value = c.projectRoots;
     claudeBypass.value = c.claudeBypassPermissions === true;
+    fullAccess.value = c.filesFullAccess === true;
   } catch {
     /* cœur arrêté */
   }
@@ -221,8 +226,116 @@ async function checkUpdate() {
   }
 }
 
+// ─── Clé d'API Claude (agents « claude-api:… ») ──────────────────────────────
+// La clé part vers le cœur, qui la vérifie puis la range dans le coffre Windows ; elle n'est jamais relue ici.
+const apiKeyInput = ref("");
+const apiKeyBusy = ref(false);
+const apiKeyHint = computed(() =>
+  claudeApi.value.configured
+    ? `Enregistrée (${claudeApi.value.hint}) dans le coffre Windows. Utilisée par les agents dont le modèle est « API Claude ». Chaque réponse est facturée sur ton compte : fixe une limite de dépense sur platform.claude.com.`
+    : "Pour créer des agents sur l'API Claude (facturés à l'usage). Crée une clé sur platform.claude.com → API Keys. Elle est vérifiée puis rangée dans le coffre Windows, jamais dans un fichier.",
+);
+
+async function saveApiKey() {
+  const key = apiKeyInput.value.trim();
+  if (!key) return;
+  apiKeyBusy.value = true;
+  try {
+    await call("claudeApi.setKey", { key }, 30_000);
+    apiKeyInput.value = "";
+    await loadClaudeApi();
+    toast("Clé d'API vérifiée et enregistrée dans le coffre Windows", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    apiKeyBusy.value = false;
+  }
+}
+
+async function deleteApiKey() {
+  if (!confirm("Supprimer la clé d'API Claude ? Les agents sur l'API Claude ne pourront plus répondre.")) return;
+  try {
+    await call("claudeApi.deleteKey");
+    await loadClaudeApi();
+    toast("Clé d'API supprimée", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
 // ─── Consoles Claude Code : lancement sans demande d'autorisation ────────────
 const claudeBypass = ref(false);
+
+// ─── Carte des agents de mcfstudio.fr ────────────────────────────────────────
+interface MapSt {
+  enabled: boolean;
+  agents: string[];
+  lastSyncAt?: string;
+  lastError?: string;
+  site: string;
+  refused: string[];
+}
+const mapState = ref<MapSt>({ enabled: false, agents: [], site: "https://mcfstudio.fr", refused: [] });
+const mapSelection = ref<string[]>([]);
+const mapBusy = ref(false);
+const mapChanged = computed(() => [...mapSelection.value].sort().join() !== [...mapState.value.agents].sort().join());
+
+async function loadMap() {
+  try {
+    mapState.value = await call<MapSt>("map.status");
+    mapSelection.value = [...mapState.value.agents];
+  } catch {
+    /* cœur arrêté */
+  }
+}
+
+async function runMap(method: string, params: object, done: string) {
+  mapBusy.value = true;
+  try {
+    mapState.value = await call<MapSt>(method, params, 6 * 60_000);
+    mapSelection.value = [...mapState.value.agents];
+    toast(done, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+    await loadMap();
+  } finally {
+    mapBusy.value = false;
+  }
+}
+
+function setMapEnabled(enabled: boolean) {
+  if (enabled) void runMap("map.enable", { agents: mapSelection.value }, "Carte activée : tes agents cochés apparaîtront sur mcfstudio.fr");
+  else void runMap("map.disable", {}, "Tes agents ont été retirés de la carte");
+}
+
+function saveMapSelection() {
+  void runMap("map.setAgents", { agents: mapSelection.value }, "Sélection envoyée à la carte");
+}
+
+// ─── Accès des agents à tout le PC ───────────────────────────────────────────
+const fullAccess = ref(false);
+
+async function setFullAccess(enabled: boolean) {
+  if (
+    enabled &&
+    !confirm(
+      "Donner à tes agents l'accès à tout le PC ?\n\nIls pourront parcourir tous tes disques, chercher et lire tes fichiers. " +
+        "Tu es seul responsable des consignes que tu donnes à ton IA. MyIA et MCF Studio ne récoltent rien.",
+    )
+  ) {
+    fullAccess.value = false;
+    return;
+  }
+  const before = fullAccess.value;
+  fullAccess.value = enabled;
+  try {
+    await call("config.setFilesFullAccess", { enabled });
+    toast(enabled ? "Accès à tout le PC activé" : "Accès limité à tes dossiers habituels", enabled ? "info" : "success");
+  } catch (e) {
+    fullAccess.value = before;
+    toast((e as Error).message, "error");
+  }
+}
 
 async function setClaudeBypass(enabled: boolean) {
   const before = claudeBypass.value;
@@ -347,6 +460,22 @@ async function searchProg() {
   }
 }
 
+// ─── Touche « parler à MASTER » ──────────────────────────────────────────────
+const pttDraft = ref(settings.general.pttKey);
+
+async function savePttKey() {
+  const key = pttDraft.value.trim();
+  try {
+    await applyPttKey(key);
+    settings.general.pttKey = key;
+    toast(key ? `Touche « parler à MASTER » : ${key}` : "Touche « parler à MASTER » désactivée", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+    // On revient à la touche précédente, qui reste enregistrée.
+    await applyPttKey().catch(() => undefined);
+  }
+}
+
 // ─── Dictée (whisper.cpp) ─────────────────────────────────────────────────────
 interface WhisperSt {
   ready: boolean;
@@ -398,6 +527,8 @@ onMounted(async () => {
   loadVoices();
   void loadConfigBits();
   void loadPrograms();
+  void loadClaudeApi();
+  void loadMap();
   void loadMemory();
   void loadLlama();
   void loadOllama();
@@ -450,6 +581,28 @@ const shortcuts: [string, string][] = [
       </section>
 
       <section class="card">
+        <h3 class="sec-title">Clé d'API Claude</h3>
+        <SettingRow
+          label="Clé d'API Anthropic"
+          :hint="apiKeyHint"
+        >
+          <div class="row-actions">
+            <input
+              v-model="apiKeyInput"
+              class="input w-220"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              :placeholder="claudeApi.configured ? 'Remplacer la clé…' : 'sk-ant-…'"
+              @keydown.enter="saveApiKey"
+            />
+            <button class="btn sm" :disabled="apiKeyBusy || !apiKeyInput.trim()" @click="saveApiKey">{{ apiKeyBusy ? "Vérification…" : "Enregistrer" }}</button>
+            <button v-if="claudeApi.configured" class="btn sm danger" @click="deleteApiKey">Supprimer</button>
+          </div>
+        </SettingRow>
+      </section>
+
+      <section class="card">
         <h3 class="sec-title">Consoles Claude Code</h3>
         <SettingRow
           label="Lancer en mode bypass permissions"
@@ -486,8 +639,9 @@ const shortcuts: [string, string][] = [
           <button class="btn sm" @click="addMemoryFolder"><FolderPlus :size="14" /> Ajouter un dossier</button>
         </div>
         <p class="tiny muted">
-          Documents texte (.md, .txt) que l'IA consulte pour connaître tes projets : les passages utiles sont joints à chaque demande.
-          Ils restent sur ce PC et ne sont jamais partagés avec la Guilde.
+          Documents texte (.md, .txt) que l'IA consulte pour connaître tes projets : les passages utiles sont joints à chaque demande, et les
+          agents peuvent aussi y lire et chercher des fichiers. Ils restent sur ce PC : jamais partagés avec la Guilde, ni transmis aux agents
+          qui tournent sur Claude.
         </p>
         <div v-for="f in memFolders" :key="f" class="root-row">
           <BookOpen :size="16" />
@@ -498,6 +652,53 @@ const shortcuts: [string, string][] = [
         <p v-else class="tiny muted">
           {{ memDocs.length }} document(s){{ memDocs.length ? " : " + memDocs.slice(0, 8).map((d) => d.title).join(", ") + (memDocs.length > 8 ? "…" : "") : "" }}
         </p>
+      </section>
+
+      <section class="card">
+        <h3 class="sec-title">Carte des agents</h3>
+        <SettingRow
+          label="Montrer mes agents sur la carte de mcfstudio.fr"
+          hint="Les noms des agents cochés et ton pseudo apparaissent sur la page publique Carte des agents, où ils se baladent au hasard. Rien d'autre ne part : ni consignes, ni modèle, ni conversations. Une à deux mises à jour par jour. L'activer ouvre ton navigateur pour autoriser MyIA sur mcfstudio.fr."
+        >
+          <Toggle :model-value="mapState.enabled" :disabled="mapBusy" @update:model-value="setMapEnabled" />
+        </SettingRow>
+        <div class="map-agents">
+          <label v-for="a in state.agents" :key="a.id" class="map-agent">
+            <input v-model="mapSelection" type="checkbox" :value="a.id" :disabled="mapBusy" />
+            <span>{{ a.name }}</span>
+          </label>
+        </div>
+        <p v-if="mapState.refused.length" class="tiny err-text">
+          Noms refusés par le site (lettres, chiffres, espaces et . _ ' - seulement, 40 caractères) : {{ mapState.refused.join(", ") }}
+        </p>
+        <div class="row-actions">
+          <button v-if="mapState.enabled" class="btn sm" :disabled="mapBusy || !mapChanged" @click="saveMapSelection">Envoyer la sélection</button>
+          <button v-if="mapBusy" class="btn sm" @click="call('map.cancelLogin')">Annuler</button>
+          <a class="tiny" :href="`${mapState.site}/agents`">Voir la carte</a>
+          <span class="tiny muted">
+            {{ mapState.lastSyncAt ? `Dernier envoi : ${new Date(mapState.lastSyncAt).toLocaleString("fr-FR")}` : mapState.enabled ? "Pas encore envoyé" : "" }}
+          </span>
+        </div>
+        <p v-if="mapState.lastError" class="tiny err-text">{{ mapState.lastError }}</p>
+      </section>
+
+      <section class="card">
+        <h3 class="sec-title">Accès aux fichiers</h3>
+        <SettingRow
+          label="Accès à tout le PC"
+          hint="Les agents peuvent parcourir tous tes disques, chercher et lire tes fichiers, au lieu de tes seuls dossiers habituels (Documents, Bureau, Téléchargements…), projets et mémoire. Écrire reste soumis à ta confirmation hors Documents\MyIA."
+        >
+          <Toggle :model-value="fullAccess" @update:model-value="setFullAccess" />
+        </SettingRow>
+        <div class="access-warn" :class="{ on: fullAccess }">
+          <AlertTriangle :size="16" />
+          <p class="tiny">
+            Cette option donne à tes agents une vue d'ensemble de ton PC. <strong>Tu es seul responsable des consignes que tu donnes à ton IA</strong>
+            et de ce qu'elle fait avec cet accès. <strong>MyIA et MCF Studio ne récoltent rien</strong> : tout est traité sur ton PC. Exception : un
+            agent qui tourne sur Claude (abonnement ou clé d'API) envoie à Anthropic ce qu'il lit. Restent toujours fermés : Windows, Program
+            Files, AppData (mots de passe des navigateurs…), tes clés (.ssh…) et la configuration de MyIA.
+          </p>
+        </div>
       </section>
 
       <section class="card">
@@ -666,6 +867,19 @@ const shortcuts: [string, string][] = [
               <button :class="{ on: wModel === 'large-v3-turbo' }" @click="wModel = 'large-v3-turbo'">large-v3-turbo · 834 Mo</button>
               <button :class="{ on: wModel === 'small' }" @click="wModel = 'small'">small · 466 Mo</button>
             </div>
+          </SettingRow>
+          <SettingRow
+            label="Touche « parler à MASTER »"
+            hint="Maintiens-la enfoncée, parle, relâche : ta demande part dans la conversation de ton agent MASTER (créée au besoin), même quand MyIA est en arrière-plan. F1–F24, Pause, ou Ctrl/Alt/Maj + touche. Vide = désactivée."
+          >
+            <div class="row-actions">
+              <input v-model="pttDraft" class="input w-120 mono" maxlength="30" placeholder="F9" spellcheck="false" @keydown.enter="savePttKey" />
+              <button class="btn sm" :disabled="pttDraft.trim() === settings.general.pttKey" @click="savePttKey">Appliquer</button>
+            </div>
+          </SettingRow>
+          <p v-if="ptt.error" class="tiny err-text">{{ ptt.error }}</p>
+          <SettingRow label="Lire la réponse de MASTER à voix haute" hint="Pour une demande faite avec la touche « parler ».">
+            <Toggle v-model="s.pttSpeak" />
           </SettingRow>
           <SettingRow label="Langue">
             <select v-model="s.dictationLang" class="input select w-220">
@@ -886,6 +1100,53 @@ const shortcuts: [string, string][] = [
   </div>
 </template>
 
+.map-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 8px 0;
+}
+.map-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+.access-warn {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  color: var(--text-muted);
+}
+.access-warn.on {
+  border-color: var(--warning);
+  color: var(--text);
+}
+.access-warn svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+.access-warn p {
+  margin: 0;
+}
+.err-text {
+  color: var(--danger);
+  margin: 0 0 6px;
+}
+.w-120 {
+  width: 120px;
+}
+.row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 <style scoped>
 .settings {
   display: flex;

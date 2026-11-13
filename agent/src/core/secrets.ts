@@ -8,6 +8,8 @@ const NAME = /^[a-z0-9_]{2,64}$/;
 export const KNOWN_SECRETS: Record<string, string> = {
   telegram_bot_token: "Jeton du bot Telegram (BotFather)",
   discord_bot_token: "Jeton du bot Discord (Developer Portal > Bot)",
+  anthropic_api_key: "Clé d'API Anthropic des agents sur l'API Claude (platform.claude.com)",
+  mcfstudio_map_refresh: "Autorisation « carte des agents » de mcfstudio.fr (gérée par MyIA)",
 };
 
 function entry(name: string): Entry {

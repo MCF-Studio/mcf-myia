@@ -138,8 +138,8 @@ watch(
         <strong>Fonctionnalité très cool… mais potentiellement très coûteuse.</strong>
         <p>
           Chaque délégation fait réfléchir un agent de plus. Trop d'agents, des boucles de délégation mal pensées ou des modèles différents
-          (qui se relaient en VRAM) peuvent rendre une réponse très lente et faire chauffer la machine. Si des agents délèguent à Claude Code,
-          ça consomme aussi ton quota Claude. Garde des équipes petites, un rôle clair par agent, et un budget d'appels serré.
+          (qui se relaient en VRAM) peuvent rendre une réponse très lente et faire chauffer la machine. Si des agents délèguent à Claude Code
+          ou tournent sur Claude, ça consomme ton quota Claude ; un agent sur l'API Claude est facturé à chaque réponse sur ta clé d'API. Garde des équipes petites, un rôle clair par agent, et un budget d'appels serré.
         </p>
       </div>
     </div>

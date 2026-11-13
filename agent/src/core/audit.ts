@@ -5,7 +5,7 @@ import { paths } from "./paths.js";
 const SENSITIVE_KEY = /token|secret|password|passwd|api[_-]?key|authorization/i;
 
 export interface AuditEvent {
-  event: "tool_call" | "session_start" | "session_end" | "crash" | "ollama_install";
+  event: "tool_call" | "session_start" | "session_end" | "crash" | "ollama_install" | "claude_api_usage" | "claude_api_key" | "files_full_access" | "map_sync";
   /** Version installée (event "ollama_install"). */
   version?: string;
   tool?: string;
@@ -17,6 +17,14 @@ export interface AuditEvent {
   durationMs?: number;
   /** Pile d'appel d'une erreur fatale (event "crash"). */
   stack?: string;
+  /** API Claude (events "claude_api_*") : agent, modèle servi, jetons consommés, action sur la clé (jamais la clé). */
+  agent?: string;
+  model?: string;
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  action?: "set" | "delete";
 }
 
 function scrub(value: unknown, depth = 0): unknown {

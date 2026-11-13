@@ -4,7 +4,7 @@ import { reactive } from "vue";
 import { call, inTauri, on, onRequest, reply, startRpc } from "./rpc";
 import { settings } from "./settings";
 import { playSound, speak } from "./sound";
-import { checkClaudeLogin, loadClaudeModels, startTerminals } from "./terminals";
+import { checkClaudeLogin, loadClaudeApi, loadClaudeModels, startTerminals } from "./terminals";
 import { refreshDictation } from "./dictation";
 import type {
   AgentProfile,
@@ -242,6 +242,9 @@ export async function boot() {
     void refreshSidecar();
   });
   on("ready", () => void afterReady());
+  // MASTER a créé ou supprimé un agent, ouvert une conversation.
+  on("agents.changed", () => void refreshAgents());
+  on("conversations.changed", () => void refreshConversations());
   onRequest((method, params, id) => {
     if (method === "ui.confirm") state.confirms[params.messageId] = id;
     else void reply(id, null);
@@ -261,6 +264,7 @@ async function afterReady() {
   }
   state.ready = true;
   void loadClaudeModels();
+  void loadClaudeApi();
   void checkClaudeLogin();
   await Promise.all([refreshAgents(), refreshTeams(), refreshConversations(), refreshThemes(), refreshOverview(), refreshDictation()]);
   // Les onglets restaurés doivent encore exister.

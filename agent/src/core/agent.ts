@@ -1,7 +1,7 @@
 import { audit } from "./audit.js";
 import type { Config } from "./config.js";
 import { createLlm } from "./llm-factory.js";
-import type { ChatMessage, LlmClient, ToolSpec } from "./llm.js";
+import { CLOUD_ENGINES, type ChatMessage, type LlmClient, type ToolSpec } from "./llm.js";
 import { DEFAULT_PROFILE, type AgentProfile } from "./profiles.js";
 import { truncate, type AgentUI, type Availability, type Service, type Tool } from "./types.js";
 import type { Memory } from "./memory.js";
@@ -76,12 +76,16 @@ export class Agent {
     readonly profile: AgentProfile = DEFAULT_PROFILE,
     private readonly opts: AgentOptions = {},
   ) {
-    this.llm = createLlm(cfg.llm, profile.model ?? cfg.llm.model, cfg.claude.command);
+    this.llm = createLlm(cfg.llm, profile.model ?? cfg.llm.model, cfg.claude.command, {
+      ...cfg.claudeApi,
+      onUsage: (u) => audit({ event: "claude_api_usage", agent: profile.id, ...u }),
+    });
     // Un profil peut restreindre les services auxquels l'agent a accès (liste blanche d'ids).
     const allow = profile.services;
     const allowed = allow ? services.filter((s) => allow.includes(s.id)) : services;
-    // Agent confié à Claude : ses échanges partent chez Anthropic, il n'a donc pas non plus les outils de mémoire.
-    this.services = this.llm.engine === "claude" ? allowed.filter((s) => s.id !== "memory") : allowed;
+    // Agent confié à Claude (abonnement ou clé d'API) : ses échanges partent chez Anthropic, il n'a donc pas non plus
+    // les outils de mémoire.
+    this.services = this.cloud ? allowed.filter((s) => s.id !== "memory") : allowed;
   }
 
   /** Modèle utilisé par cet agent (avec llama.cpp, un nom Ollama non installé revient au modèle par défaut). */
@@ -89,9 +93,14 @@ export class Agent {
     return this.llm.model;
   }
 
-  /** Historique brut (pour la persistance des conversations). */
+  /** Vrai si le modèle de cet agent est en ligne (Claude) : rien de la mémoire ne lui est confié. */
+  get cloud(): boolean {
+    return CLOUD_ENGINES.has(this.llm.engine);
+  }
+
+  /** Historique brut (pour la persistance des conversations), sans les blocs d'API propres à la demande en cours. */
   exportHistory(): ChatMessage[] {
-    return structuredClone(this.history);
+    return structuredClone(this.history).map(({ blocks: _b, ...m }) => m);
   }
 
   importHistory(history: ChatMessage[]) {
@@ -188,22 +197,29 @@ export class Agent {
   }
 
   /** Traite un message utilisateur jusqu'à la réponse finale. */
-  async handle(input: string, ui: AgentUI, signal?: AbortSignal): Promise<string> {
-    if (this.opts.trustInput !== false) this.trust.addFrom(input);
+  /**
+   * `trusted` : faux quand le message vient d'un autre agent (MASTER) et non de l'utilisateur ; ses liens ne
+   * deviennent alors pas des liens de confiance.
+   */
+  async handle(input: string, ui: AgentUI, signal?: AbortSignal, trusted = this.opts.trustInput !== false): Promise<string> {
+    if (trusted) this.trust.addFrom(input);
     try {
       // La mémoire ne quitte jamais le PC (SPEC) : un agent confié à Claude ne la reçoit pas dans son prompt.
-      this.memoryContext = this.llm.engine === "claude" ? "" : (this.opts.memory?.contextFor(input) ?? "");
+      this.memoryContext = this.cloud ? "" : (this.opts.memory?.contextFor(input) ?? "");
     } catch {
       this.memoryContext = "";
     }
     this.history.push({ role: "user", content: input });
     const specs = this.toolSpecs();
     let nudged = false;
+    // Prompt système figé pour toute la demande : stable d'une étape à l'autre (cache de l'API Claude, réflexions
+    // signées valides entre deux appels d'outils).
+    const system = this.systemPrompt();
 
     for (let step = 0; step < this.cfg.maxSteps; step++) {
-      const messages: ChatMessage[] = [{ role: "system", content: this.systemPrompt() }, ...this.trimmedHistory()];
+      const messages: ChatMessage[] = [{ role: "system", content: system }, ...this.trimmedHistory()];
       const reply = await this.llm.chat(messages, specs, signal);
-      this.history.push({ role: "assistant", content: reply.content ?? "", tool_calls: reply.tool_calls });
+      this.history.push({ role: "assistant", content: reply.content ?? "", tool_calls: reply.tool_calls, ...(reply.blocks ? { blocks: reply.blocks } : {}) });
 
       if (!reply.tool_calls?.length) {
         const text = reply.content?.trim() ?? "";
@@ -221,7 +237,12 @@ export class Agent {
 
       for (const call of reply.tool_calls) {
         const result = await this.execute(call.function.name, call.function.arguments, ui, signal);
-        this.history.push({ role: "tool", tool_name: call.function.name, content: truncate(result, TOOL_RESULT_MAX) });
+        this.history.push({
+          role: "tool",
+          tool_name: call.function.name,
+          ...(call.id ? { tool_call_id: call.id } : {}),
+          content: truncate(result, TOOL_RESULT_MAX),
+        });
       }
     }
     return "J'ai atteint le nombre maximal d'étapes pour cette demande. Reformule-la ou découpe-la.";
@@ -263,7 +284,7 @@ export class Agent {
 
     const t0 = Date.now();
     try {
-      const out = await tool.run(args, { ui, signal, trust: this.trust });
+      const out = await tool.run(args, { ui, signal, trust: this.trust, cloud: this.cloud });
       audit({ event: "tool_call", tool: name, risk: tool.risk, args, decision, ok: true, durationMs: Date.now() - t0 });
       return out;
     } catch (e) {

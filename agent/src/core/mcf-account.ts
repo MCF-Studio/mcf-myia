@@ -31,11 +31,16 @@ export interface TokenStore {
   clear(): void;
 }
 
-export const vaultStore: TokenStore = {
-  get: () => getSecret(REFRESH_SECRET),
-  set: (t) => setSecret(REFRESH_SECRET, t),
-  clear: () => void deleteSecret(REFRESH_SECRET),
-};
+/** Jeton de renouvellement dans le coffre Windows ; un secret par portée (Guilde, carte des agents). */
+export function vaultStoreFor(name: string): TokenStore {
+  return {
+    get: () => getSecret(name),
+    set: (t) => setSecret(name, t),
+    clear: () => void deleteSecret(name),
+  };
+}
+
+export const vaultStore: TokenStore = vaultStoreFor(REFRESH_SECRET);
 
 interface Tokens {
   access_token: string;
@@ -78,6 +83,8 @@ export class McfAccount {
       store?: TokenStore;
       openBrowser: (url: string) => void;
       now?: () => number;
+      /** Portée demandée : « guild » (défaut) ou « map » (carte des agents, autorisation séparée sur le site). */
+      scope?: "guild" | "map";
     },
   ) {}
 
@@ -168,7 +175,7 @@ export class McfAccount {
           client_id: CLIENT_ID,
           redirect_uri: redirectUri,
           response_type: "code",
-          scope: "guild",
+          scope: this.opts.scope ?? "guild",
           state,
           code_challenge: challenge,
           code_challenge_method: "S256",

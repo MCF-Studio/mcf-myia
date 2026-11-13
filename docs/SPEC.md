@@ -163,6 +163,27 @@ du §3. La conversation et les résultats d'outils de cet agent partent chez Ant
 dit dans l'écran Agents. Il ne reçoit ni le contexte de mémoire ni les outils `memory_*` (test), et la Guilde refuse
 un tel modèle (un membre extérieur ne consomme pas l'abonnement de l'utilisateur).
 
+**Agent sur l'API Claude** (modèle `claude-api:<alias>` dans un profil ; alias `haiku`, `sonnet`, `opus`, `fable`
+→ `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-2`, liste fermée) : même principe que
+l'agent confié à Claude, mais par l'API Messages avec la clé d'API de l'utilisateur, facturée à l'usage. Les outils de
+MyIA sont décrits en appel d'outils natif et exécutés par MyIA avec les règles du §3 ; aucun outil serveur d'Anthropic
+n'est activé. Il fonctionne dans les équipes comme n'importe quel agent (le budget d'appels de l'équipe borne aussi
+le coût), ne reçoit ni la mémoire ni les outils `memory_*`, et la Guilde le refuse (tests).
+- *Qui voit quoi* : la clé n'est connue que du cœur. L'interface l'envoie une fois (`claudeApi.setKey`), le cœur la
+  vérifie (`GET /v1/models`, sans jeton consommé) puis la range dans le coffre Windows (`anthropic_api_key`) ; aucune
+  méthode ne la renvoie, seuls ses 4 derniers caractères sont affichés. Anthropic reçoit le prompt système, la
+  conversation et les résultats d'outils de cet agent, rien d'autre.
+- *Menaces et mesures* : clé détournée vers un autre serveur → adresse `https://api.anthropic.com` figée,
+  `ANTHROPIC_BASE_URL` ignorée ; clé dans un journal ou un message d'erreur → erreurs passées par `redact`, audit
+  limité à l'action (`claude_api_key` set/delete) ; dépense incontrôlée → `claudeApi.maxTokens` par réponse,
+  `maxSteps` par demande, budget d'appels des équipes, consommation de chaque appel au journal d'audit
+  (`claude_api_usage`), et limite de dépense à fixer sur platform.claude.com (rappelé dans Paramètres) ; injection
+  par un résultat d'outil → mêmes confirmations qu'un agent local, résultats d'outils traités comme des données ;
+  appel d'outil tronqué (`max_tokens`) → rien n'est exécuté.
+- *Réflexions signées* : le prompt système est figé pour toute une demande ; les blocs d'origine (réflexion comprise)
+  ne sont renvoyés que pour la demande en cours et jamais persistés, ce qui revient à retirer toutes les réflexions
+  de tête, comme l'API le permet. Repli côté serveur (`fallbacks: "default"`) en cas de refus de sécurité, sauf Haiku.
+
 **Installation d'Ollama** (Paramètres → Système, Windows) : le script officiel `https://ollama.com/install.ps1` est
 enregistré puis lancé seulement si sa signature Authenticode est valide et au nom d'Ollama Inc. ; les variables qui le
 détournent (`OLLAMA_DOWNLOAD_URL`…) ne lui sont pas transmises. Avant un téléchargement de modèle, le registre Ollama
@@ -188,6 +209,56 @@ plus pertinents (recherche par mots-clés, sans réseau) sont joints au prompt ;
 `memory_read` (lecture seule) donnent le reste. Limites : 300 fichiers, 200 Ko par fichier, 2 Mo au total. La
 mémoire ne quitte jamais le PC : ni l'agent de la Guilde (bac à sable) ni un agent confié à Claude ne la reçoivent,
 ce que vérifient des tests.
+
+**Agent MASTER** (profil `master: true`, un seul à la fois ; il garde son nom) : l'assistant du quotidien, qui pilote
+l'app. En plus de ses services, il reçoit les outils `app_*` :
+- lecture, sans confirmation : agents, équipes, conversations, Guilde (état, offres publiées), marketplace (« pas encore
+  disponible » tant qu'il n'existe pas : jamais de contenu inventé) ;
+- créer une conversation : sans confirmation (rien ne sort, rien n'est détruit) ;
+- créer ou supprimer un agent, publier une offre sur la Guilde : **confirmation à chaque fois**, avec le contenu
+  complet dans la confirmation (nom, modèle, consignes, services ; texte de l'offre) ;
+- `app_agent_message` : écrire à un autre agent et récupérer sa réponse. L'échange se fait dans une vraie
+  conversation « MASTER ↔ agent », visible dans l'app (messages marqués « de MASTER »). Les confirmations demandées
+  par l'agent appelé remontent dans la conversation de MASTER. Sans confirmation seulement si l'agent appelé n'a pas
+  plus de pouvoirs que MASTER ; confirmé s'il a des services que MASTER n'a pas, ou si l'un tourne sur Claude et
+  l'autre en local (ce qui passe entre eux, mémoire ou fichiers compris, partirait chez Anthropic). Un message
+  venu de MASTER n'ajoute pas ses liens aux liens de confiance (ce n'est pas l'utilisateur). Le rôle MASTER ne
+  s'attribue que dans l'écran Agents, jamais par un fichier importé.
+*Qui voit quoi* : MASTER voit les noms, descriptions, modèles et consignes des agents, les titres des conversations et
+l'état de la Guilde ; il ne lit pas le contenu des autres conversations (seulement les réponses aux messages qu'il
+envoie). Il n'a **aucun** outil pour les réglages : clés d'API, accès à tout le PC, mode bypass, dossiers de mémoire,
+mises à jour.
+*Menaces et mesures* : injection par un résultat d'outil (page web, fichier) qui pousse MASTER à créer, supprimer ou
+publier → ces actions sont toujours confirmées, contenu complet affiché ; un agent créé par MASTER ne peut pas être
+MASTER et ne peut pas recevoir un modèle hors liste ; boucle ou coût incontrôlé entre agents → 6 messages à d'autres
+agents au plus par demande, l'agent appelé n'a pas `app_agent_message` (profondeur 1), MASTER ne s'écrit pas à
+lui-même, une conversation déjà occupée est refusée ; suppression de MASTER par lui-même → refusée ; offre de la Guilde
+→ mêmes règles que l'écran Guilde (modèle local seulement, schéma `OfferSchema`).
+
+**Touche « parler à MASTER »** (par défaut F9, Paramètres → Son et voix) : appuyer pour parler, même fenêtre cachée.
+La touche est enregistrée côté Rust (`src-tauri/src/ptt.rs`) ; la page n'a PAS la permission des raccourcis globaux
+(elle ne peut pas écouter le clavier hors de l'app) et ne reçoit que « enfoncée / relâchée » pour cette touche. Touches
+permises : F1–F24, Pause, Inser, Arrêt défil, ou Ctrl/Alt/Maj + lettre, chiffre ou espace (jamais Alt+F4, jamais une
+lettre seule qui volerait la frappe). La voix est transcrite en local (whisper.cpp) puis envoyée comme un message
+normal dans la conversation de MASTER (créée au besoin) : mêmes confirmations que si la demande était tapée.
+
+**Carte des agents de mcfstudio.fr** (Paramètres → Carte des agents, désactivée par défaut ; spec du site
+`docs/superpowers/specs/2026-11-13-carte-agents-design.md`) : MyIA envoie au site les **noms** des agents cochés,
+rien d'autre (ni consignes, ni modèle, ni conversations), avec une autorisation OAuth de portée `map` distincte de
+celle de la Guilde (jeton de renouvellement dans le coffre : `mcfstudio_map_refresh`). Envois : au démarrage si le
+dernier date de plus de 12 h, puis toutes les 12 h, et quand l'utilisateur change sa sélection (le site en refuse plus
+de 4 par jour). Un nom hors des règles du site est signalé et n'est pas envoyé. Désactiver retire les agents du site
+tout de suite puis révoque l'autorisation. Chaque envoi est journalisé (nombre de noms, jamais les noms).
+
+**Accès aux fichiers** : par défaut, les agents lisent, cherchent (`files_find`, `folder_list`, `file_read`) et
+écrivent (`file_write`, confirmé hors Documents\MyIA) dans les dossiers habituels, les projets et les dossiers de
+mémoire. L'option « Accès à tout le PC » (`files.fullAccess`, désactivée par défaut, Paramètres → Accès aux fichiers,
+journalisée) étend ces outils à tous les disques locaux fixes ; l'activer demande une confirmation qui rappelle que
+l'utilisateur est seul responsable des consignes données à son IA et que MyIA / MCF Studio ne récoltent rien (un agent
+sur Claude envoie toutefois à Anthropic ce qu'il lit, c'est écrit à côté de l'option). Restent fermés dans tous les cas
+: Windows, Program Files, ProgramData, AppData (profils de navigateur, jetons), les clés (`.ssh`, `.aws`, `.claude`…) —
+sauf dossier choisi explicitement par l'utilisateur — et, sans exception, `config/` et `data/` de MyIA (tests). Les
+réglages s'appliquent sans redémarrage : la configuration est mise à jour en place pour tous les services.
 
 **Marketplace (à venir)** : registre sur mcfstudio.fr, publications par des membres certifiés. Tant qu'il n'existe pas,
 l'app n'affiche aucun contenu fictif ; seule l'installation depuis un fichier local est proposée.

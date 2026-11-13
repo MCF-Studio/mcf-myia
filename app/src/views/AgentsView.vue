@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Camera, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
+import { Bot, Camera, Crown, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import Toggle from "../components/Toggle.vue";
@@ -7,7 +7,7 @@ import { downloadText, pickAvatar, pickTextFile } from "../lib/files";
 import { agentColor } from "../lib/format";
 import { call } from "../lib/rpc";
 import { createConversation, refreshAgents, refreshOverview, state, toast } from "../lib/store";
-import { claudeModels, loadClaudeModels } from "../lib/terminals";
+import { claudeApi, claudeModels, loadClaudeApi, loadClaudeModels } from "../lib/terminals";
 import type { AgentProfile, ModelInfo } from "../lib/types";
 
 const SWATCHES = ["#ff7a1a", "#e0a412", "#ff5247", "#f2c14e", "#45c98a", "#4cc9f0", "#8b7bff", "#ff6fae"];
@@ -28,7 +28,11 @@ const form = reactive({
   instructions: "",
   restrict: false,
   services: [] as string[],
+  master: false,
 });
+
+/** Autre agent déjà MASTER (il perdra ce rôle si celui-ci le prend). */
+const masterOther = computed(() => state.agents.find((a) => a.master && a.id !== form.id)?.name);
 
 const usage = computed(() => new Map((state.overview?.agents ?? []).map((a) => [a.id, a])));
 
@@ -56,6 +60,7 @@ function load(a?: AgentProfile) {
   form.avatar = a?.avatar ?? "";
   form.instructions = a?.instructions ?? "";
   form.restrict = !!a?.services;
+  form.master = !!a?.master;
   form.services = a?.services ? [...a.services] : services.value.map((s) => s.id);
 }
 
@@ -74,6 +79,7 @@ function toProfile(): AgentProfile {
   if (form.avatar) p.avatar = form.avatar;
   if (form.instructions.trim()) p.instructions = form.instructions.trim();
   if (form.restrict) p.services = [...form.services];
+  if (form.master) p.master = true;
   return p;
 }
 
@@ -142,6 +148,7 @@ async function copyJson() {
 
 onMounted(async () => {
   void loadClaudeModels();
+  void loadClaudeApi();
   const [svc, mod] = await Promise.all([
     call<{ id: string; label: string }[]>("services.list").catch(() => []),
     call<{ installed: ModelInfo[] }>("models.list").catch(() => ({ installed: [] })),
@@ -226,7 +233,18 @@ onMounted(async () => {
               <optgroup label="Claude (ton abonnement, en ligne)">
                 <option v-for="m in claudeModels" :key="m.id" :value="`claude:${m.id}`">Claude {{ m.label }} · {{ m.hint }}</option>
               </optgroup>
+              <optgroup label="Claude par clé d'API (facturé à l'usage, en ligne)">
+                <option v-for="m in claudeApi.models" :key="m.id" :value="`claude-api:${m.id}`">
+                  API Claude {{ m.label }} · {{ m.hint }}{{ claudeApi.configured ? "" : " — clé manquante" }}
+                </option>
+              </optgroup>
             </select>
+            <em v-if="form.model.startsWith('claude-api:')" class="tiny muted">
+              Cet agent réfléchit avec l'API Claude, payée avec ta clé d'API (chaque réponse est facturée sur ton compte Anthropic) : ses
+              conversations et les résultats de ses outils partent chez Anthropic. Les outils restent ceux de MyIA, avec les mêmes confirmations. Il
+              n'a pas accès à ta mémoire et ne peut pas être proposé à la Guilde. Il fonctionne aussi comme membre d'une équipe.
+              <strong v-if="!claudeApi.configured">Aucune clé enregistrée : ajoute-la dans Paramètres → Clé d'API Claude.</strong>
+            </em>
             <em v-if="form.model.startsWith('claude:')" class="tiny muted">
               Cet agent réfléchit avec Claude : ses conversations et les résultats de ses outils partent chez Anthropic et comptent dans ton
               abonnement. Les outils restent ceux de MyIA, avec les mêmes confirmations. Il n'a pas accès à ta mémoire, qui ne quitte jamais le PC.
@@ -262,6 +280,19 @@ onMounted(async () => {
             />
             <small class="tiny muted counter">{{ form.instructions.length }} / 4000</small>
           </label>
+
+          <div class="field wide">
+            <div class="row">
+              <span class="grow"><Crown :size="15" /> Agent MASTER</span>
+              <Toggle v-model="form.master" label="Agent MASTER" />
+            </div>
+            <p class="tiny muted">
+              Ton assistant principal : il pilote l'app (liste et crée des agents, ouvre des conversations, consulte la Guilde) et écrit aux
+              autres agents quand une tâche relève de leur rôle ; tu vois leurs échanges dans les conversations. Créer ou supprimer un agent
+              et publier sur la Guilde te sont toujours demandés. Il n'a accès à aucun réglage. Un seul MASTER à la fois.
+              <strong v-if="form.master && masterOther">Il remplacera {{ masterOther }} comme MASTER.</strong>
+            </p>
+          </div>
 
           <div class="field wide">
             <div class="row">

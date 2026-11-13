@@ -125,6 +125,22 @@ export const ConfigSchema = z.object({
         .default(["Read", "Glob", "Grep", "Edit", "Write", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)"]),
     })
     .prefault({}),
+  /**
+   * Fichiers : avec `fullAccess`, les agents peuvent lire et chercher sur tous les disques locaux (et y écrire, toujours
+   * avec confirmation hors Documents\\MyIA), au lieu des seuls dossiers habituels, projets et mémoire. Désactivé par
+   * défaut. Le système, AppData, les clés (.ssh…) et la config de MyIA restent fermés dans tous les cas (core/access.ts).
+   */
+  files: z.object({ fullAccess: z.boolean().default(false) }).prefault({}),
+  /** Agents sur l'API Claude (modèle « claude-api:<alias> »), payés avec la clé d'API du coffre Windows. */
+  claudeApi: z
+    .object({
+      /** Effort de réflexion : coût et profondeur de chaque réponse. */
+      effort: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
+      /** Jetons de sortie au plus par réponse (borne le coût d'un tour). */
+      maxTokens: z.number().int().min(1024).max(128_000).default(32_000),
+      timeoutMinutes: z.number().min(1).max(60).default(10),
+    })
+    .prefault({}),
   projects: z.record(z.string(), ProjectSchema).default({}),
   /** Dossiers parcourus pour trouver les projets automatiquement (depth = niveaux de sous-dossiers). */
   projectRoots: z
