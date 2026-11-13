@@ -620,7 +620,7 @@ rpc.method("map.disable", async () => {
 });
 let mcfLogin: AbortController | undefined;
 
-// Lien avec le relais (wss://guilde.mcfstudio.fr) : clé d'appareil X25519 dans le coffre, contenu chiffré de bout en bout.
+// Lien avec le relais (wss://myia.mcfstudio.fr/guilde) : clé d'appareil X25519 dans le coffre, contenu chiffré de bout en bout.
 function makeLink() {
   return new GuildLink({
     relayUrl: cfg.site.relayUrl,

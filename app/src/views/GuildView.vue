@@ -410,7 +410,7 @@ onMounted(async () => {
           </template>
           <template v-else-if="relay.state === 'connecting'">
             <strong>Connexion au relais…</strong>
-            <span class="small muted">guilde.mcfstudio.fr</span>
+            <span class="small muted">myia.mcfstudio.fr/guilde</span>
           </template>
           <template v-else>
             <strong>Relais hors ligne</strong>
