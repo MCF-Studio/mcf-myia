@@ -881,6 +881,12 @@ const shortcuts: [string, string][] = [
           <SettingRow label="Lire la réponse de MASTER à voix haute" hint="Pour une demande faite avec la touche « parler ».">
             <Toggle v-model="s.pttSpeak" />
           </SettingRow>
+          <SettingRow
+            label="Bip au début et à la fin de l'écoute"
+            hint="Pour savoir que MASTER t'entend, même quand MyIA est en arrière-plan. Une pastille s'affiche aussi dans l'app."
+          >
+            <Toggle v-model="s.pttBeep" />
+          </SettingRow>
           <SettingRow label="Langue">
             <select v-model="s.dictationLang" class="input select w-220">
               <option value="fr">Français</option>

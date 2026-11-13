@@ -36,8 +36,11 @@ export async function refreshDictation() {
   }
 }
 
-/** Démarre l'enregistrement ; la promesse rend le texte transcrit quand on appelle stopDictation(). */
-export async function startDictation(owner: string): Promise<string> {
+/**
+ * Démarre l'enregistrement ; la promesse rend le texte transcrit quand on appelle stopDictation().
+ * `onRecording` est appelé dès que le micro est ouvert et enregistre vraiment.
+ */
+export async function startDictation(owner: string, onRecording?: () => void): Promise<string> {
   if (dictation.state !== "idle") throw new Error("une dictée est déjà en cours");
   stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
   chunks = [];
@@ -54,10 +57,12 @@ export async function startDictation(owner: string): Promise<string> {
     if (dictation.seconds >= MAX_SECONDS) stopDictation();
   }, 1000);
   startMeter(stream);
-  return new Promise<string>((resolve, reject) => {
+  const result = new Promise<string>((resolve, reject) => {
     finish = resolve;
     fail = reject;
   });
+  onRecording?.();
+  return result;
 }
 
 export function stopDictation() {

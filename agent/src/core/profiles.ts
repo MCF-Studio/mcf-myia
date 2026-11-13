@@ -78,3 +78,12 @@ export function writeJsonAtomic(file: string, data: unknown) {
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
   fs.renameSync(tmp, file);
 }
+
+/** Réordonne les profils ; refuse toute liste qui n'est pas une permutation exacte des ids existants. */
+export function reorderProfiles(list: AgentProfile[], ids: string[]): AgentProfile[] {
+  const byId = new Map(list.map((p) => [p.id, p]));
+  if (ids.length !== list.length || new Set(ids).size !== ids.length || !ids.every((id) => byId.has(id))) {
+    throw new Error("ordre des agents invalide (liste périmée ?) : recharge l'écran Agents");
+  }
+  return ids.map((id) => byId.get(id)!);
+}

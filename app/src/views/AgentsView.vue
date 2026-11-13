@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Camera, Crown, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
+import { Bot, Camera, ChevronDown, ChevronUp, Crown, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import Toggle from "../components/Toggle.vue";
@@ -157,6 +157,28 @@ onMounted(async () => {
   models.value = mod.installed;
   load(state.agents.find((a) => a.id === selected.value) ?? state.agents[0]);
 });
+
+/** Monte (-1) ou descend (+1) un agent dans la liste ; l'ordre est enregistré par le cœur et vaut pour toute l'app. */
+let moving = false;
+async function move(id: string, dir: -1 | 1) {
+  const list = [...state.agents];
+  const i = list.findIndex((a) => a.id === id);
+  const j = i + dir;
+  if (moving || i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j]!, list[i]!];
+  const before = state.agents;
+  state.agents = list;
+  moving = true;
+  try {
+    await call("agents.reorder", { ids: list.map((a) => a.id) });
+  } catch (e) {
+    state.agents = before;
+    toast((e as Error).message, "error");
+    await refreshAgents();
+  } finally {
+    moving = false;
+  }
+}
 </script>
 
 <template>
@@ -175,21 +197,37 @@ onMounted(async () => {
 
     <div class="layout">
       <div class="agent-cards">
-        <button
-          v-for="a in state.agents"
-          :key="a.id"
-          class="agent-card card"
-          :class="{ active: selected === a.id && !isNew }"
-          :style="{ '--c': agentColor(a) }"
-          @click="load(a)"
-        >
-          <AgentAvatar :agent="a" :size="42" :busy="(usage.get(a.id)?.busy ?? 0) > 0" />
-          <div class="agent-card-meta">
-            <strong>{{ a.name }}</strong>
-            <span class="mono tiny muted">{{ a.model ?? `${state.overview?.defaultModel ?? ""} (défaut)` }}</span>
-            <span class="tiny muted">{{ usage.get(a.id)?.conversations ?? 0 }} conversation(s)</span>
+        <TransitionGroup name="reorder" tag="div" class="agent-list">
+          <div v-for="(a, i) in state.agents" :key="a.id" class="agent-row">
+            <button
+              class="agent-card card"
+              :class="{ active: selected === a.id && !isNew }"
+              :style="{ '--c': agentColor(a) }"
+              @click="load(a)"
+            >
+              <AgentAvatar :agent="a" :size="42" :busy="(usage.get(a.id)?.busy ?? 0) > 0" />
+              <div class="agent-card-meta">
+                <strong>{{ a.name }}</strong>
+                <span class="mono tiny muted">{{ a.model ?? `${state.overview?.defaultModel ?? ""} (défaut)` }}</span>
+                <span class="tiny muted">{{ usage.get(a.id)?.conversations ?? 0 }} conversation(s)</span>
+              </div>
+            </button>
+            <div v-if="state.agents.length > 1" class="order">
+              <button type="button" :disabled="i === 0" :title="`Monter ${a.name}`" :aria-label="`Monter ${a.name}`" @click="move(a.id, -1)">
+                <ChevronUp :size="15" />
+              </button>
+              <button
+                type="button"
+                :disabled="i === state.agents.length - 1"
+                :title="`Descendre ${a.name}`"
+                :aria-label="`Descendre ${a.name}`"
+                @click="move(a.id, 1)"
+              >
+                <ChevronDown :size="15" />
+              </button>
+            </div>
           </div>
-        </button>
+        </TransitionGroup>
         <button v-if="isNew" class="agent-card card active new">
           <div class="new-glyph"><Plus :size="20" /></div>
           <div class="agent-card-meta"><strong>{{ form.name || "Nouvel agent" }}</strong></div>
@@ -346,6 +384,56 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.agent-row {
+  position: relative;
+}
+.agent-row .agent-card {
+  width: 100%;
+  padding-right: 40px;
+}
+.order {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.agent-row:hover .order,
+.agent-row:focus-within .order {
+  opacity: 1;
+}
+.order button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.order button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--hairline);
+}
+.order button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.reorder-move {
+  transition: transform 0.2s var(--ease);
 }
 .agent-card {
   display: flex;

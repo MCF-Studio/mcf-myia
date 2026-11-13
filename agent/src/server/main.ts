@@ -34,6 +34,7 @@ import {
   AgentProfileSchema,
   DEFAULT_PROFILE,
   loadProfiles,
+  reorderProfiles,
   saveProfiles,
   writeJsonAtomic,
   type AgentProfile,
@@ -209,6 +210,15 @@ rpc.method("agents.save", (params) => {
   const p = parse(AgentProfileSchema, params);
   saveProfile(p);
   return p;
+});
+
+/** Nouvel ordre d'affichage des agents : exactement les ids existants, chacun une fois. */
+rpc.method("agents.reorder", (params) => {
+  const { ids } = parse(z.object({ ids: z.array(z.string().max(64)).max(500) }), params);
+  profiles = reorderProfiles(profiles, ids);
+  saveProfiles(profiles);
+  rpc.notify("agents.changed", {});
+  return profiles.map((p) => p.id);
 });
 
 rpc.method("agents.delete", (params) => {

@@ -11,6 +11,7 @@ import { navigate, restartSidecar, startPolling, state, type View } from "./lib/
 import { applyTheme, BUILTIN_THEMES } from "./lib/themes";
 import { startUpdates, update } from "./lib/update";
 import { startPtt } from "./lib/ptt";
+import PttIndicator from "./components/PttIndicator.vue";
 import AgentsView from "./views/AgentsView.vue";
 import ConversationsView from "./views/ConversationsView.vue";
 import MarketplaceView from "./views/MarketplaceView.vue";
@@ -133,6 +134,7 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
       </div>
     </div>
 
+    <PttIndicator />
     <div class="toasts">
       <TransitionGroup name="toast">
         <div v-for="t in state.toasts" :key="t.id" class="toast" :class="t.kind">
