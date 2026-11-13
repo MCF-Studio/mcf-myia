@@ -6,7 +6,9 @@ import { resolveWritable } from "../services/file-write.js";
 import { accessRoots, isSensitive } from "./access.js";
 import { ConfigSchema } from "./config.js";
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "myia-access-"));
+// Chemin long réel : sur certaines machines (CI), le dossier temporaire a un nom court Windows (RUNNER~1) que
+// resolveWritable refuse à juste titre.
+const tmp = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "myia-access-")));
 
 describe("accès des agents aux fichiers", () => {
   it("les dossiers de mémoire sont lisibles par file_read", () => {
