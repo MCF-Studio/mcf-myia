@@ -120,6 +120,21 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,
   ni 169.254.169.254), taille plafonnée. `web_research` lance Claude Code avec **seulement** WebSearch et WebFetch,
   dans `workspace\` : aucun accès aux fichiers ni aux commandes.
+- **Boîte à outils `tools/`** (expérimentale, détail dans [tools/README.md](../tools/README.md)) : des outils Python
+  (fichiers, recherche, git en lecture, cargo, Godot, images) qu'un agent appelle en lançant `tools/tool_manager.py`.
+  Elle n'est **pas branchée à l'app** : ni l'agent ni l'installateur ne l'utilisent, et ses confirmations ne passent pas
+  par l'interface de MyIA. Elle suit pourtant les mêmes règles, appliquées par son gestionnaire :
+  chaque outil déclare un des quatre niveaux ci-dessus ; un outil `local` ou `external` n'est exécuté qu'avec le drapeau
+  `--confirmed`, posé par l'**appelant** (humain ou harnais) après l'accord de l'utilisateur sur l'aperçu renvoyé, jamais
+  par le modèle de lui-même. Rien ne démarre sans politique locale (`tools/policy.json`, hors dépôt) qui liste les
+  dossiers ouverts en lecture et en écriture ; les permissions qui lancent un programme (`process.exec`,
+  `process.exec.readonly`, `app.launch`) ou ouvrent une adresse (`url.open`, niveau `external`) sont **désactivées par
+  défaut**. Écriture de texte : mêmes formats, mêmes fichiers et mêmes dossiers interdits que `file_write` ; aucune
+  écriture dans `tools/`, ni dans ce dépôt hors `workspace\`, ni dans `.git`, `.vscode`, `.claude`, `.github` ; aucun
+  fichier remplacé sans `overwrite`, une source jamais. Git lancé avec le même durcissement que le service Git.
+  Applications : celles du catalogue local, **liste blanche** d'arguments, chemins soumis à la politique de dossiers.
+  Les outils cargo et Godot exécutent le code du projet (`build.rs`, tests, scripts d'éditeur) : `local`, et jamais sans
+  `process.exec` accordée.
 
 ## 3 bis. App de bureau et contenus partagés
 
@@ -355,6 +370,8 @@ modèle.
 | Moteur ou modèle local piégé (build ou GGUF modifié)                                 | Build figée et empreintes SHA-256 ; GGUF hors catalogue vérifié par l'empreinte Hugging Face |
 | Page web ou programme local qui appelle le serveur llama.cpp                          | 127.0.0.1 seulement ; clé d'API aléatoire (coffre), hors ligne de commande              |
 | Console « Local » détournée vers un serveur tiers (fuite du code du projet)           | Adresse, modèle et clé lus côté Rust ; jamais fournis par l'interface                   |
+| Boîte `tools/` : écrire un fichier puis le faire exécuter (`build.rs` + cargo, `.git/config` + git, projet Godot) | Écriture limitée aux formats texte, hors fichiers qui pilotent un outil et hors `.git`/`.cargo`/`.github` ; outils qui lancent un programme désactivés par défaut puis confirmés ; git durci ; arguments d'application en liste blanche |
+| Boîte `tools/` : fuite par ouverture d'adresse, écrasement d'un fichier, modification de la boîte elle-même | `url_open` = `external`, toujours confirmé ; aucun écrasement sans `overwrite`, jamais d'une source ; `tools/` et le dépôt fermés en écriture ; politique et catalogue locaux hors dépôt |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

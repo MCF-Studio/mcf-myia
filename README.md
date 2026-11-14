@@ -122,6 +122,7 @@ agent\        cœur TypeScript (moteur, services, console, sidecar JSON-RPC de l
 app\          app de bureau : src-tauri\ (Rust) + src\ (Vue 3)
 config\       agent.example.json (agent.json et agents.json restent locaux)
 docs\         spécification
+tools\        boîte à outils Python pour agents : expérimentale, non branchée à l'app (tools\README.md)
 ```
 
 Dossiers créés à l'usage et jamais publiés : `data\` (conversations, réglages, thèmes installés, journal), `runtime\`,
