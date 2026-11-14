@@ -1,0 +1,75 @@
+{
+  "name": "image_sprite_sheet",
+  "version": "1.0.0",
+  "description": "Planche de sprites : 'pack' assemble un dossier d'images en une planche (+ atlas JSON ; option légendes = vue d'ensemble d'un dossier) ; 'split' découpe une planche en tuiles.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "pack : dossier d'images. split : planche (fichier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "pack : fichier planche (.png). split : dossier de tuiles.",
+      "kind": "path"
+    },
+    "mode": {
+      "type": "string",
+      "description": "pack | split (défaut : selon que path est un dossier ou un fichier).",
+      "kind": "text"
+    },
+    "columns": {
+      "type": "integer",
+      "description": "Colonnes (pack : défaut ~racine du nombre d'images ; split : avec rows)."
+    },
+    "rows": {
+      "type": "integer",
+      "description": "split : lignes."
+    },
+    "cell_width": {
+      "type": "integer",
+      "description": "pack : largeur de cellule (défaut : la plus grande image)."
+    },
+    "cell_height": {
+      "type": "integer",
+      "description": "pack : hauteur de cellule."
+    },
+    "padding": {
+      "type": "integer",
+      "description": "pack : espace entre cellules."
+    },
+    "background": {
+      "type": "string",
+      "description": "pack : couleur de fond (défaut transparent)."
+    },
+    "labels": {
+      "type": "boolean",
+      "description": "pack : écrire le nom de fichier sous chaque image."
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "pack : inclure les sous-dossiers."
+    },
+    "tile_width": {
+      "type": "integer",
+      "description": "split : largeur d'une tuile."
+    },
+    "tile_height": {
+      "type": "integer",
+      "description": "split : hauteur d'une tuile."
+    },
+    "skip_empty": {
+      "type": "boolean",
+      "description": "split : ignorer les tuiles entièrement transparentes (défaut true)."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

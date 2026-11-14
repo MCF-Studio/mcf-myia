@@ -1,0 +1,31 @@
+{
+  "name": "file_search",
+  "version": "1.0.0",
+  "description": "Cherche des fichiers par fragment de nom et/ou extension sous un dossier (dossiers lourds ignorés).",
+  "category": "files",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "directory": {
+      "type": "string",
+      "description": "Dossier de départ.",
+      "required": true,
+      "kind": "path"
+    },
+    "query": {
+      "type": "string",
+      "description": "Fragment de nom (insensible à la casse)."
+    },
+    "extension": {
+      "type": "string",
+      "description": "Extension, ex. .gd"
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Max de résultats (défaut 100)."
+    }
+  },
+  "permissions": [
+    "filesystem.read"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "text_read",
+  "version": "1.0.0",
+  "description": "Lit un fichier texte (ou une plage de lignes) avec numéros de ligne ; sortie plafonnée.",
+  "category": "files",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "description": "Fichier.",
+      "required": true,
+      "kind": "path"
+    },
+    "start": {
+      "type": "integer",
+      "description": "Première ligne (défaut 1)."
+    },
+    "lines": {
+      "type": "integer",
+      "description": "Nombre de lignes (défaut 200)."
+    }
+  },
+  "permissions": [
+    "filesystem.read"
+  ]
+}

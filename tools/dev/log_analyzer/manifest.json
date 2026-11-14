@@ -1,0 +1,14 @@
+{
+  "name": "log_analyzer",
+  "version": "1.0.0",
+  "description": "Regroupe les erreurs et avertissements d'un fichier journal (Godot, Rust, Node, Python, Windows…) : messages identiques regroupés malgré les nombres, chemins et horodatages variables, avec nombre d'occurrences, première et dernière ligne, exemple.",
+  "category": "dev",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "file": {"type": "string", "required": true, "kind": "path", "description": "Fichier journal (texte)."},
+    "tail_mb": {"type": "integer", "description": "Ne lire que la fin du fichier, en Mo (défaut 20)."},
+    "limit": {"type": "integer", "description": "Nombre maximal de groupes renvoyés (défaut 40)."}
+  },
+  "permissions": ["filesystem.read"]
+}

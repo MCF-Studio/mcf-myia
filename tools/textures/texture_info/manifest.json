@@ -1,0 +1,19 @@
+{
+  "name": "texture_info",
+  "version": "1.0.0",
+  "description": "Lit dimensions, format, canaux, alpha et puissance de 2 d'une image.",
+  "category": "textures",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Chemin de l'image.",
+      "kind": "path"
+    }
+  },
+  "permissions": [
+    "filesystem.read"
+  ]
+}

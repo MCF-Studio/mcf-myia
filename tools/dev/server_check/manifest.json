@@ -1,0 +1,14 @@
+{
+  "name": "server_check",
+  "version": "1.0.0",
+  "description": "Vérifie qu'un serveur ou service LOCAL répond (127.0.0.1, localhost, ::1 uniquement) : port TCP ouvert, ou requête HTTP GET avec code de réponse, type de contenu et temps de réponse. Ne suit aucune redirection.",
+  "category": "dev",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "url": {"type": "string", "description": "Adresse HTTP locale, ex. http://127.0.0.1:1420/ (ou bien port)."},
+    "port": {"type": "integer", "description": "Port TCP local à tester (si pas d'url)."},
+    "timeout": {"type": "integer", "description": "Délai en secondes (défaut 5, 30 au plus)."}
+  },
+  "permissions": ["network.local"]
+}

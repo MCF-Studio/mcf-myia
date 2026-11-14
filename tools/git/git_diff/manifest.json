@@ -1,0 +1,32 @@
+{
+  "name": "git_diff",
+  "version": "1.0.0",
+  "description": "Changements non validés (ou indexés) ; résumé par fichier + diff plafonné.",
+  "category": "git",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "repo": {
+      "type": "string",
+      "description": "Dossier du dépôt.",
+      "required": true,
+      "kind": "path"
+    },
+    "staged": {
+      "type": "boolean",
+      "description": "Diff de l'index (défaut non)."
+    },
+    "path": {
+      "type": "string",
+      "description": "Limiter à un fichier.",
+      "kind": "path"
+    },
+    "max_chars": {
+      "type": "integer",
+      "description": "Plafond du diff (défaut 20000)."
+    }
+  },
+  "permissions": [
+    "process.exec.readonly"
+  ]
+}

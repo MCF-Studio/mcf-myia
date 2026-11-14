@@ -1,0 +1,67 @@
+{
+  "name": "image_crop",
+  "version": "1.0.0",
+  "description": "Rogne une image ou un dossier : rectangle exact, rognage automatique des bords vides/transparents (trim), ou recadrage centré sur un ratio (16:9, 1:1...). Un seul mode à la fois.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source OU dossier d'images (traite toutes les images du dossier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
+      "kind": "path"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Dossier : inclure les sous-dossiers (défaut false)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "x": {
+      "type": "integer",
+      "description": "Rectangle : x de départ (défaut 0)."
+    },
+    "y": {
+      "type": "integer",
+      "description": "Rectangle : y de départ (défaut 0)."
+    },
+    "width": {
+      "type": "integer",
+      "description": "Rectangle : largeur."
+    },
+    "height": {
+      "type": "integer",
+      "description": "Rectangle : hauteur."
+    },
+    "trim": {
+      "type": "boolean",
+      "description": "Retire les bords transparents ou de la couleur du coin haut-gauche."
+    },
+    "tolerance": {
+      "type": "integer",
+      "description": "trim : écart toléré 0-255 (défaut 8)."
+    },
+    "padding": {
+      "type": "integer",
+      "description": "trim : marge gardée autour du contenu (défaut 0)."
+    },
+    "ratio": {
+      "type": "string",
+      "description": "Recadrage centré, 'L:H', ex. '16:9'.",
+      "kind": "text"
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "folder_open",
+  "version": "1.0.0",
+  "description": "Ouvre un dossier existant (dans les dossiers autorisés en lecture) dans l'explorateur Windows.",
+  "category": "system",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {"type": "string", "required": true, "kind": "path", "description": "Dossier à ouvrir."}
+  },
+  "permissions": ["app.launch", "filesystem.read"]
+}

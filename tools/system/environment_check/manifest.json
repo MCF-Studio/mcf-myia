@@ -1,0 +1,10 @@
+{
+  "name": "environment_check",
+  "version": "1.0.0",
+  "description": "Vérifie la présence et la version de Python, Rust, Cargo, Git, Node, Godot, Blender.",
+  "category": "system",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {},
+  "permissions": ["process.exec.readonly"]
+}

@@ -1,0 +1,36 @@
+{
+  "name": "code_search",
+  "version": "1.0.0",
+  "description": "Cherche une chaîne ou une regex dans les fichiers texte d'un projet ; renvoie fichier:ligne:texte.",
+  "category": "dev",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "directory": {
+      "type": "string",
+      "description": "Dossier du projet.",
+      "required": true,
+      "kind": "path"
+    },
+    "pattern": {
+      "type": "string",
+      "description": "Texte ou regex.",
+      "required": true
+    },
+    "regex": {
+      "type": "boolean",
+      "description": "Interpréter pattern comme regex (défaut non)."
+    },
+    "extension": {
+      "type": "string",
+      "description": "Limiter à une extension, ex. .rs"
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Max (défaut 100)."
+    }
+  },
+  "permissions": [
+    "filesystem.read"
+  ]
+}

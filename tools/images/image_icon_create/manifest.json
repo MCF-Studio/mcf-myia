@@ -1,0 +1,76 @@
+{
+  "name": "image_icon_create",
+  "version": "1.0.0",
+  "description": "Dessine une icône simple en vectoriel lissé : forme de fond (cercle, carré arrondi, hexagone...), dégradé, bordure, symbole (play, check, gear, home, heart...) et/ou initiales. Pour boutons, favicons, pictos.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (png conseillé).",
+      "kind": "path"
+    },
+    "size": {
+      "type": "integer",
+      "description": "Côté en px 16-1024 (défaut 256)."
+    },
+    "shape": {
+      "type": "string",
+      "description": "circle | square | rounded (défaut) | squircle | hexagon | diamond | triangle | none.",
+      "kind": "text"
+    },
+    "symbol": {
+      "type": "string",
+      "description": "play, pause, stop, check, cross, plus, minus, arrow_right/left/up/down, download, upload, menu, search, home, user, heart, star, bolt, gear, folder, mail, lock, dot, ring.",
+      "kind": "text"
+    },
+    "text": {
+      "type": "string",
+      "description": "Initiales ou chiffre (4 caractères max), centrés.",
+      "kind": "text"
+    },
+    "background": {
+      "type": "string",
+      "description": "Couleur de fond (défaut #3b82f6)."
+    },
+    "background2": {
+      "type": "string",
+      "description": "Si donné : dégradé vertical background -> background2."
+    },
+    "color": {
+      "type": "string",
+      "description": "Couleur du symbole/texte (défaut #ffffff)."
+    },
+    "border_width": {
+      "type": "integer",
+      "description": "Bordure en px (défaut 0)."
+    },
+    "border_color": {
+      "type": "string",
+      "description": "Couleur de bordure (défaut #ffffff)."
+    },
+    "glyph_scale": {
+      "type": "number",
+      "description": "Taille du symbole (1 = défaut, 0.7 = plus petit)."
+    },
+    "stroke": {
+      "type": "number",
+      "description": "Épaisseur des traits du symbole, fraction de la taille (défaut 0.09)."
+    },
+    "font": {
+      "type": "string",
+      "description": "Police système pour le texte.",
+      "kind": "text"
+    },
+    "quality": {
+      "type": "integer",
+      "description": "JPEG/WebP 1-100."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

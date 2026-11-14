@@ -1,0 +1,24 @@
+{
+  "name": "godot_headless_check",
+  "version": "1.0.0",
+  "description": "Ouvre un projet Godot en headless (import + chargement puis arrêt) et renvoie erreurs/avertissements structurés, code de sortie et durée.",
+  "category": "godot",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "project": {
+      "type": "string",
+      "required": true,
+      "description": "Dossier contenant project.godot.",
+      "kind": "path"
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "Délai maximal en secondes (défaut 120)."
+    }
+  },
+  "permissions": [
+    "app.launch",
+    "filesystem.read"
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "name": "image_frame",
+  "version": "1.0.0",
+  "description": "Habille une image ou un dossier : coins arrondis, découpe en cercle, bordure, marge, ombre portée. Tous les effets sont optionnels et combinables.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source OU dossier d'images (traite toutes les images du dossier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
+      "kind": "path"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Dossier : inclure les sous-dossiers (défaut false)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "radius": {
+      "type": "integer",
+      "description": "Rayon des coins arrondis en px."
+    },
+    "circle": {
+      "type": "boolean",
+      "description": "Découpe en cercle (recadre en carré centré)."
+    },
+    "border_width": {
+      "type": "integer",
+      "description": "Épaisseur de bordure en px."
+    },
+    "border_color": {
+      "type": "string",
+      "description": "Couleur de bordure (défaut #ffffff)."
+    },
+    "padding": {
+      "type": "integer",
+      "description": "Marge extérieure en px."
+    },
+    "padding_color": {
+      "type": "string",
+      "description": "Couleur de la marge (défaut transparent)."
+    },
+    "shadow_blur": {
+      "type": "integer",
+      "description": "Flou de l'ombre en px."
+    },
+    "shadow_offset": {
+      "type": "integer",
+      "description": "Décalage de l'ombre en px."
+    },
+    "shadow_color": {
+      "type": "string",
+      "description": "Couleur de l'ombre (défaut #00000099)."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

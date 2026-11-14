@@ -1,0 +1,34 @@
+{
+  "name": "texture_resize",
+  "version": "1.0.0",
+  "description": "Redimensionne une image (LANCZOS) vers width x height, ou à l'échelle si une seule dimension est donnée. Ne modifie jamais la source : écrit dans 'output'.",
+  "category": "textures",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source.",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (différent de la source).",
+      "kind": "path"
+    },
+    "width": {
+      "type": "integer",
+      "description": "Largeur cible en pixels."
+    },
+    "height": {
+      "type": "integer",
+      "description": "Hauteur cible en pixels."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

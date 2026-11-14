@@ -1,0 +1,14 @@
+{
+  "name": "text_patch",
+  "version": "1.0.0",
+  "description": "Remplace un extrait exact 'old' par 'new' dans un fichier. Échoue si 'old' est absent ou présent plusieurs fois (donner plus de contexte). Garde une copie .bak.",
+  "category": "files",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {"type": "string", "required": true, "kind": "path", "description": "Fichier à modifier (dossier autorisé en écriture)."},
+    "old": {"type": "string", "required": true, "description": "Texte exact à remplacer."},
+    "new": {"type": "string", "required": true, "description": "Texte de remplacement."}
+  },
+  "permissions": ["filesystem.write"]
+}

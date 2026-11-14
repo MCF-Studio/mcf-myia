@@ -1,0 +1,47 @@
+{
+  "name": "image_optimize",
+  "version": "1.0.0",
+  "description": "Allège des images (une ou un dossier) : conversion png/jpg/webp, plus grand côté maximal, palette PNG réduite ; supprime les métadonnées EXIF. Rapporte les octets économisés.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source OU dossier d'images (traite toutes les images du dossier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
+      "kind": "path"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Dossier : inclure les sous-dossiers (défaut false)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "format": {
+      "type": "string",
+      "description": "png | jpg | webp (défaut : format d'origine).",
+      "kind": "text"
+    },
+    "max_side": {
+      "type": "integer",
+      "description": "Plus grand côté maximal en px (réduit seulement)."
+    },
+    "png_colors": {
+      "type": "integer",
+      "description": "PNG : palette 2-256 couleurs (gros gain pour icônes/aplats)."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

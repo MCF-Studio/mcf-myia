@@ -1,0 +1,12 @@
+{
+  "name": "url_open",
+  "version": "1.0.0",
+  "description": "Ouvre une URL http(s) dans le navigateur par défaut. Les autres schémas (file:, javascript:, ms-…) sont refusés.",
+  "category": "system",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "url": {"type": "string", "required": true, "description": "URL http:// ou https://."}
+  },
+  "permissions": ["app.launch"]
+}
