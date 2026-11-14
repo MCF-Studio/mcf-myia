@@ -97,7 +97,9 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   `file_write` crée, complète ou remplace sans confirmation un fichier du sous-dossier `journal` (mêmes formats texte,
   mêmes noms et dossiers interdits qu'ailleurs). Tout le reste de l'espace (les règles, les fiches) reste confirmé : ces
   fichiers guident tous les membres. L'état, écrit sans confirmation, est présenté aux agents comme des notes à
-  vérifier, jamais comme des consignes. Il n'est ni exporté ni publié avec l'équipe. Un membre sur Claude lit cet
+  vérifier, jamais comme des consignes. Le journal et l'emplacement du dossier ne sont jamais exportés ni publiés ; les
+  fiches de la racine (`.md`, `.txt`) peuvent l'être, une par une, au choix de l'auteur, et sont posées à l'import dans un
+  dossier choisi par l'utilisateur, après affichage, sans jamais remplacer un fichier (WORKFLOWS.md). Un membre sur Claude lit cet
   espace : ce qu'il contient part alors chez Anthropic (c'est écrit dans l'aide de l'écran).
 - **Scripts d'équipe** (`core/scripts.ts`, détail dans [WORKFLOWS.md](WORKFLOWS.md)) : des serveurs MCP en Python
   rattachés à une équipe, donnés à ses membres et à eux seuls. C'est le seul code exécuté que MyIA accepte de recevoir
@@ -324,6 +326,8 @@ modèle.
 | Agent ou thème partagé piégé                                                        | Formats = données validées par schéma ; un profil ne peut que restreindre ; règles appliquées dans le code |
 | Journal d'équipe empoisonné (un agent trompé par une page y écrit de fausses consignes) | Écriture sans confirmation limitée à `journal/` ; règles et fiches toujours confirmées ; l'état est joint au prompt comme des notes à vérifier ; les confirmations ne dépendent d'aucun texte |
 | Espace de coordination détourné pour écrire sans confirmation dans un projet          | Refusé s'il est un dépôt git ou s'il recoupe l'espace de travail ; recontrôlé à chaque demande ; formats texte seulement |
+| Fiches de coordination piégées dans un workflow (fausses règles pour toute l'équipe)   | Montrées avant installation comme les consignes des agents ; noms simples `.md`/`.txt` seulement, jamais un fichier qui pilote un outil ; posées sans rien remplacer, dans un dossier contrôlé ; les confirmations ne dépendent d'aucun texte |
+| Auteur qui publie par mégarde son journal ou ses accès                                | Le journal ne part jamais ; fiches choisies une par une ; celles dont le nom évoque des accès sont décochées d'office |
 | Workflow piégé (consignes d'agent malveillantes, écrasement d'un agent existant)     | Contenu montré avant installation ; rien n'est écrasé ; ni MASTER ni espace de travail importés ; les confirmations ne dépendent pas des consignes |
 | Script d'équipe malveillant reçu dans un workflow                                    | Code affiché, accord explicite lié à l'empreinte, en attente par défaut ; chaque appel d'outil confirmé ; validation d'un admin avant toute publication publique. **Pas de bac à sable** : un script accepté a les droits de l'utilisateur |
 | Script modifié après l'accord (par un autre programme, ou par un agent)              | Empreinte recalculée à chaque lancement et à chaque vérification ; `data\` fermé aux outils de fichiers |

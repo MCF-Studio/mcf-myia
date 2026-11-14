@@ -5,9 +5,9 @@ import { fileWriteService } from "../services/file-write.js";
 import { checkCoordination, usableCoordination } from "./access.js";
 import { Agent, needsConfirmation } from "./agent.js";
 import { parseConfig } from "./config.js";
-import { initCoordination } from "./coordination.js";
+import { initCoordination, listFiches, readFiches, writeFiches } from "./coordination.js";
 import { paths } from "./paths.js";
-import { exportWorkflow } from "./workflow.js";
+import { exportWorkflow, parseWorkflow } from "./workflow.js";
 
 const cfg = parseConfig({});
 const write = fileWriteService(cfg).tools().find((t) => t.name === "file_write")!;
@@ -159,5 +159,75 @@ describe("espace de coordination : partage", () => {
     );
     expect(json).not.toContain("coordination");
     expect(json).not.toContain("test-coord-");
+  });
+});
+
+describe("fiches : ce qui part dans un workflow", () => {
+  const seed = () => {
+    initCoordination(coord, "Studio 3D", [{ name: "Chef" }], ws);
+    fs.writeFileSync(path.join(coord, "livraison.md"), "# Livraison\n");
+    fs.writeFileSync(path.join(coord, "cles-et-acces.md"), "Où sont les clés.\n");
+    fs.writeFileSync(path.join(coord, "CLAUDE.md"), "consignes pour un autre outil");
+    fs.writeFileSync(path.join(coord, "outil.py"), "print(1)");
+    fs.writeFileSync(path.join(coord, "image.md"), Buffer.from([0x89, 0x50, 0x00, 0x01]));
+    fs.appendFileSync(path.join(coord, "journal", "etat.md"), "- PR #26 fusionnée\n");
+    fs.writeFileSync(path.join(coord, "journal", "2026-11-14.md"), "## 08:00 — journal privé\n");
+  };
+
+  it("ne propose que les fichiers texte de la racine : ni journal, ni script, ni binaire, ni fichier d'un autre outil", () => {
+    seed();
+    expect(listFiches(coord).map((f) => f.path)).toEqual(["cles-et-acces.md", "LISEZ-MOI.md", "livraison.md", "methode.md"]);
+  });
+
+  it("signale les fiches dont le nom évoque des accès", () => {
+    seed();
+    expect(listFiches(coord).filter((f) => f.sensitive).map((f) => f.path)).toEqual(["cles-et-acces.md"]);
+  });
+
+  it("ne lit que des fiches de ce dossier : aucun chemin, aucun fichier du journal", () => {
+    seed();
+    expect(readFiches(coord, ["LISEZ-MOI.md", "livraison.md"]).map((f) => f.path)).toEqual(["LISEZ-MOI.md", "livraison.md"]);
+    for (const bad of ["journal/etat.md", "../projet/x.md", "journal\\2026-11-14.md", "CLAUDE.md", "outil.py", "absente.md", path.join(coord, "methode.md")]) {
+      expect(() => readFiches(coord, [bad]), bad).toThrow(/refusée|introuvable/);
+    }
+  });
+
+  it("le workflow exporté contient les fiches choisies, et rien du journal ni de l'emplacement", () => {
+    seed();
+    const team = { id: "t", name: "Studio 3D", coordination: coord, root: { id: "n-0001", agentId: "chef", subagents: [], teammates: [] }, maxCalls: 8, maxDepth: 3 };
+    const { json } = exportWorkflow(team, [{ id: "chef", name: "Chef" }], [], readFiches(coord, ["LISEZ-MOI.md", "methode.md"]));
+    const wf = parseWorkflow(json);
+    expect(wf.coordination?.files.map((f) => f.path)).toEqual(["LISEZ-MOI.md", "methode.md"]);
+    expect(json).not.toContain("PR #26");
+    expect(json).not.toContain("journal privé");
+    expect(json).not.toContain("Où sont les clés");
+    expect(json).not.toContain("test-coord-");
+  });
+
+  it("un workflow reçu ne peut pas glisser un chemin, un fichier d'outil ou un script parmi ses fiches", () => {
+    const base = { $schema: "myia/workflow@1", name: "X", team: { root: { id: "n-0001", agentId: "a", subagents: [], teammates: [] } }, agents: [{ id: "a", name: "A" }] };
+    const withFiche = (p: string) => JSON.stringify({ ...base, coordination: { files: [{ path: p, content: "x" }] } });
+    expect(parseWorkflow(withFiche("regles.md")).coordination?.files).toHaveLength(1);
+    for (const bad of ["../LISEZ-MOI.md", "journal/etat.md", "a\\b.md", "CLAUDE.md", "agents.md", "run.bat", "x.py", "nul.md", ".env", "C:/x.md"]) {
+      expect(() => parseWorkflow(withFiche(bad)), bad).toThrow(/invalide/);
+    }
+    expect(() => parseWorkflow(JSON.stringify({ ...base, coordination: { files: [{ path: "a.md", content: "x" }, { path: "A.md", content: "y" }] } }))).toThrow(/invalide/);
+  });
+
+  it("à l'import, les fiches sont posées sans rien remplacer, avec un état vierge", () => {
+    fs.writeFileSync(path.join(coord, "methode.md"), "ma méthode à moi");
+    const r = writeFiches(coord, "Studio 3D", [{ path: "LISEZ-MOI.md", content: "règles reçues" }, { path: "methode.md", content: "méthode reçue" }], ws);
+    expect(r.created).toEqual(["LISEZ-MOI.md", "journal/etat.md"]);
+    expect(r.kept).toEqual(["methode.md"]);
+    expect(fs.readFileSync(path.join(coord, "methode.md"), "utf8")).toBe("ma méthode à moi");
+    expect(fs.readFileSync(path.join(coord, "journal", "etat.md"), "utf8")).toContain("État du travail — Studio 3D");
+  });
+
+  it("refuse de poser des fiches dans un projet ou hors d'un dossier valide, sans rien écrire", () => {
+    expect(() => writeFiches(ws, "X", [{ path: "LISEZ-MOI.md", content: "x" }], ws)).toThrow(/en dehors de l'espace de travail/);
+    fs.mkdirSync(path.join(coord, ".git"));
+    expect(() => writeFiches(coord, "X", [{ path: "LISEZ-MOI.md", content: "x" }])).toThrow(/dépôt git/);
+    expect(fs.existsSync(path.join(coord, "LISEZ-MOI.md"))).toBe(false);
+    expect(() => writeFiches(coord, "X", [{ path: "../x.md", content: "x" }])).toThrow();
   });
 });

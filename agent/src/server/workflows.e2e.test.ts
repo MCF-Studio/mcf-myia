@@ -19,8 +19,19 @@ interface Sidecar {
   stop(): void;
 }
 
+/** Dossiers ordinaires (hors AppData, hors dépôt git) pour les espaces de coordination du test. */
+const scratch: string[] = [];
+function plainDir(name: string): string {
+  const base = path.join(agentDir, "..", "workspace");
+  fs.mkdirSync(base, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(base, `e2e-${name}-`));
+  scratch.push(dir);
+  return fs.realpathSync.native(dir);
+}
+
 const running: { child: ChildProcess; home: string }[] = [];
 afterEach(() => {
+  for (const d of scratch.splice(0)) fs.rmSync(d, { recursive: true, force: true });
   for (const r of running.splice(0)) {
     r.child.kill();
     fs.rmSync(r.home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -117,6 +128,32 @@ describe("workflow de bout en bout (sidecar réel)", () => {
     expect(exported.filename).toBe("studio-3d.workflow.json");
     expect(exported.scripts).toBe(1);
 
+    // Fiches de l'espace de coordination : l'auteur les choisit une par une, le journal ne part jamais.
+    const coordA = plainDir("a");
+    expect((await a.call("teams.coordinationInit", { path: coordA, name: "Studio 3D", agentIds: ["chef", "modeleur"] })).created).toEqual([
+      "LISEZ-MOI.md",
+      "methode.md",
+      "journal/etat.md",
+    ]);
+    fs.appendFileSync(path.join(coordA, "journal", "etat.md"), "- secret de fabrication de A\n");
+    fs.writeFileSync(path.join(coordA, "cles-et-acces.md"), "où sont les clés de A\n");
+    const saved = await a.call("teams.list");
+    await a.call("teams.save", { ...saved.find((t: { id: string }) => t.id === "studio-3d"), coordination: coordA });
+    const listed = await a.call("teams.coordinationFiles", { id: "studio-3d" });
+    expect(listed.files.map((f: { path: string; sensitive: boolean }) => `${f.path}:${f.sensitive}`)).toEqual([
+      "cles-et-acces.md:true",
+      "LISEZ-MOI.md:false",
+      "methode.md:false",
+    ]);
+    await expect(a.call("teams.export", { id: "studio-3d", fiches: ["journal/etat.md"] })).rejects.toThrow(/refusée/);
+    const withFiches = await a.call<{ json: string; fiches: number }>("teams.export", { id: "studio-3d", fiches: ["LISEZ-MOI.md", "methode.md"] });
+    expect(withFiches.fiches).toBe(2);
+    expect(withFiches.json).not.toContain("secret de fabrication");
+    expect(withFiches.json).not.toContain("où sont les clés");
+    expect(withFiches.json).not.toContain(path.basename(coordA));
+    // Sans fiches cochées, l'export reste celui d'avant.
+    expect(exported.json).not.toContain("coordination");
+
     // Sur A, tout existe déjà à l'identique : rien de nouveau, seule une seconde équipe serait créée.
     const again = await a.call("workflows.inspect", { json: exported.json });
     expect(again.agents.every((x: { reused: boolean }) => x.reused)).toBe(true);
@@ -163,5 +200,25 @@ describe("workflow de bout en bout (sidecar réel)", () => {
     const done2 = await b.call("workflows.install", { sha256: preview2.sha256, acceptScripts: false });
     expect(done2.team.id).toBe("studio-3d-2");
     expect((await b.call<unknown[]>("teams.list")).length).toBe(2);
+
+    // Workflow avec fiches : montrées avant l'installation, posées dans le dossier choisi, qui devient l'espace de
+    // coordination de l'équipe. Sans dossier choisi, l'équipe est installée sans elles.
+    const preview3 = await b.call("workflows.inspect", { json: withFiches.json });
+    expect(preview3.fiches.map((f: { path: string }) => f.path)).toEqual(["LISEZ-MOI.md", "methode.md"]);
+    expect(preview3.fiches[0].content).toContain("# Studio 3D — règles communes");
+    await expect(b.call("workflows.install", { sha256: preview3.sha256, acceptScripts: false, coordinationDir: path.join(b.home, "refus") })).rejects.toThrow(
+      /introuvable|protégé/,
+    );
+    expect((await b.call<unknown[]>("teams.list")).length).toBe(2); // rien d'installé après le refus
+    const coordB = plainDir("b");
+    const done3 = await b.call("workflows.install", { sha256: preview3.sha256, acceptScripts: false, coordinationDir: coordB });
+    expect(done3.fiches).toEqual({ dir: coordB, created: ["LISEZ-MOI.md", "methode.md", "journal/etat.md"], kept: [] });
+    expect(done3.team.coordination).toBe(coordB);
+    expect(fs.readFileSync(path.join(coordB, "journal", "etat.md"), "utf8")).not.toContain("secret de fabrication");
+
+    const preview4 = await b.call("workflows.inspect", { json: withFiches.json });
+    const done4 = await b.call("workflows.install", { sha256: preview4.sha256, acceptScripts: false });
+    expect(done4).toMatchObject({ fiches: null, fichesSkipped: 2 });
+    expect(done4.team.coordination).toBeUndefined();
   }, 120_000);
 });

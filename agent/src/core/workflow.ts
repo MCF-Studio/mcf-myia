@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { z } from "zod";
+import { FichesSchema, type Fiche } from "./coordination.js";
 import { AgentProfileSchema, type AgentProfile } from "./profiles.js";
 import { ScriptPackSchema, scriptHash, SCRIPTS_PER_TEAM, type ScriptPack } from "./scripts.js";
 import { countNodes, NodeSchema, walk, type Team, type TeamNode } from "./teams.js";
@@ -8,8 +9,11 @@ import { countNodes, NodeSchema, walk, type Team, type TeamNode } from "./teams.
  * Workflow : une équipe exportée pour être partagée (fichier .workflow.json ou marketplace de mcfstudio.fr).
  * Il contient l'équipe (arbre, budgets), les profils de ses agents et ses scripts (core/scripts.ts).
  *
- * Ce qui ne voyage JAMAIS : les espaces de travail (un accès à un dossier de la machine), le rôle MASTER, les
- * conversations, la mémoire, les secrets. À l'import, rien n'est écrasé : un agent ou un script déjà présent sous le
+ * Il peut aussi emporter des fiches de l'espace de coordination de l'équipe (ses règles, sa méthode), choisies une
+ * par une par l'auteur ; jamais son journal.
+ *
+ * Ce qui ne voyage JAMAIS : les espaces de travail (un accès à un dossier de la machine), l'emplacement et le journal
+ * de l'espace de coordination, le rôle MASTER, les conversations, la mémoire, les secrets. À l'import, rien n'est écrasé : un agent ou un script déjà présent sous le
  * même id avec un contenu différent est installé sous un nouvel id.
  */
 
@@ -33,6 +37,8 @@ export const WorkflowSchema = z.object({
   }),
   agents: z.array(PackAgentSchema).min(1).max(MAX_NODES),
   scripts: z.array(ScriptPackSchema).max(SCRIPTS_PER_TEAM).default([]),
+  /** Fiches de l'espace de coordination jointes par l'auteur (règles, méthode). Absent des workflows d'avant la 0.7.0. */
+  coordination: z.object({ files: FichesSchema }).optional(),
 });
 
 export type Workflow = z.infer<typeof WorkflowSchema>;
@@ -88,7 +94,7 @@ export interface ExportResult {
 }
 
 /** Fabrique le workflow d'une équipe : seuls les agents de l'arbre et les scripts de l'équipe sont embarqués. */
-export function exportWorkflow(team: Team, profiles: readonly AgentProfile[], scripts: readonly ScriptPack[]): ExportResult {
+export function exportWorkflow(team: Team, profiles: readonly AgentProfile[], scripts: readonly ScriptPack[], fiches: readonly Fiche[] = []): ExportResult {
   const used = new Set([...walk(team.root)].map((n) => n.agentId));
   const agents = profiles.filter((p) => used.has(p.id)).map(packAgent);
   const missing = [...used].filter((id) => !agents.some((a) => a.id === id));
@@ -102,6 +108,7 @@ export function exportWorkflow(team: Team, profiles: readonly AgentProfile[], sc
         team: { root: team.root, maxCalls: team.maxCalls, maxDepth: team.maxDepth },
         agents: withAvatars ? agents : agents.map(({ avatar: _a, ...a }) => a),
         scripts: scripts.map((s) => ({ id: s.id, name: s.name, ...(s.description ? { description: s.description } : {}), entry: s.entry, files: s.files })),
+        ...(fiches.length ? { coordination: { files: fiches.map((f) => ({ path: f.path, content: f.content })) } } : {}),
       } satisfies Workflow,
       null,
       2,

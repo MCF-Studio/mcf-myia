@@ -18,6 +18,8 @@ import {
   X,
 } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
+import FichesPicker from "../components/FichesPicker.vue";
+import ModalBox from "../components/ModalBox.vue";
 import PublishDialog from "../components/PublishDialog.vue";
 import TeamNodeView from "../components/TeamNodeView.vue";
 import TeamScripts from "../components/TeamScripts.vue";
@@ -191,13 +193,33 @@ async function savedFirst(): Promise<boolean> {
   return !dirty.value;
 }
 
+/** Export : avec un espace de coordination, on demande d'abord quelles fiches joindre. */
+const exportingFiches = ref(false);
+const exportFiches = ref<string[]>([]);
+
 async function exportTeam() {
   if (!(await savedFirst()) || !draft.value) return;
+  if (draft.value.coordination) {
+    exportFiches.value = [];
+    exportingFiches.value = true;
+  } else await doExport([]);
+}
+
+async function doExport(fiches: string[]) {
+  if (!draft.value) return;
+  exportingFiches.value = false;
   try {
-    const r = await call<{ filename: string; json: string; avatarsDropped: boolean; scripts: number }>("teams.export", { id: draft.value.id });
+    const r = await call<{ filename: string; json: string; avatarsDropped: boolean; scripts: number; fiches: number }>("teams.export", {
+      id: draft.value.id,
+      fiches,
+    });
     downloadText(r.filename, r.json);
+    const parts = [
+      ...(r.scripts ? [`${r.scripts} script${r.scripts > 1 ? "s" : ""}`] : []),
+      ...(r.fiches ? [`${r.fiches} fiche${r.fiches > 1 ? "s" : ""}`] : []),
+    ];
     toast(
-      `Workflow exporté : ${r.filename}${r.scripts ? ` (avec ${r.scripts} script${r.scripts > 1 ? "s" : ""})` : ""}${r.avatarsDropped ? ", sans les photos des agents (trop lourdes)" : ""}`,
+      `Workflow exporté : ${r.filename}${parts.length ? ` (avec ${parts.join(" et ")})` : ""}${r.avatarsDropped ? ", sans les photos des agents (trop lourdes)" : ""}`,
       "success",
     );
   } catch (e) {
@@ -380,9 +402,12 @@ watch(
                 lu par tous les membres, y compris ceux qui tournent sur Claude : n'y mets ni clé ni mot de passe, seulement
                 <em>où</em> ils se trouvent.
               </p>
-              <p class="muted">
-                Il reste sur ce PC : il ne part pas quand tu exportes ou publies l'équipe. Choisis un dossier hors du projet (pas un dépôt git).
+              <p>
+                <strong>Quand tu partages l'équipe.</strong> À l'export et à la publication, tu choisis une par une les fiches de la racine à
+                joindre : celui qui installe le workflow les reçoit, dans un dossier qu'il choisit. Le journal ne part jamais, ni l'emplacement
+                du dossier.
               </p>
+              <p class="muted">Choisis un dossier hors du projet (pas un dépôt git).</p>
             </div>
           </div>
           <div class="budgets">
@@ -445,6 +470,18 @@ watch(
         </p>
       </section>
     </div>
+
+    <ModalBox v-if="exportingFiches && draft" :title="`Exporter « ${draft.name} »`" @close="exportingFiches = false">
+      <template #icon><Download :size="20" /></template>
+      <p class="small export-note">
+        Le fichier contient l'équipe, ses agents et ses scripts. Tu peux y joindre les fiches de son espace de coordination.
+      </p>
+      <FichesPicker v-model="exportFiches" :team-id="draft.id" />
+      <template #actions>
+        <button type="button" class="btn ghost" @click="exportingFiches = false">Annuler</button>
+        <button type="button" class="btn primary" @click="doExport(exportFiches)"><Download :size="15" /> Exporter</button>
+      </template>
+    </ModalBox>
 
     <WorkflowPreviewDialog v-if="preview" :preview="preview" @close="preview = undefined" @installed="installed" />
     <PublishDialog v-if="publishing && draft" :team="draft" @close="publishing = false" @published="publishing = false" />
@@ -583,6 +620,9 @@ watch(
 .help.on {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.export-note {
+  margin: 0;
 }
 .help-box {
   display: flex;

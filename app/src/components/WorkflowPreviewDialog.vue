@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { AlertTriangle, Bot, Download, FileCode2, Network, ShieldAlert } from "lucide-vue-next";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { AlertTriangle, Bot, Download, FileCode2, FolderOpen, Network, NotebookPen, ShieldAlert, X } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { call } from "../lib/rpc";
 import { refreshAgents, refreshOverview, refreshTeams, toast } from "../lib/store";
@@ -16,6 +17,13 @@ const props = defineProps<{ preview: WorkflowPreview }>();
 const emit = defineEmits<{ close: []; installed: [WorkflowInstalled] }>();
 
 const accept = ref(false);
+/** Dossier où poser les fiches du workflow (il devient l'espace de coordination de l'équipe) ; vide = sans les fiches. */
+const coordinationDir = ref<string>();
+
+async function chooseDir() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier où poser les fiches de cette équipe (à part de tout projet)" });
+  if (typeof dir === "string") coordinationDir.value = dir;
+}
 const busy = ref(false);
 const openAgent = ref<string>();
 const openScript = ref(props.preview.scripts.find((s) => !s.reused)?.id ?? props.preview.scripts[0]?.id);
@@ -26,8 +34,20 @@ const newScripts = computed(() => props.preview.scripts.filter((s) => !s.reused)
 async function install(withScripts: boolean) {
   busy.value = true;
   try {
-    const r = await call<WorkflowInstalled>("workflows.install", { sha256: props.preview.sha256, acceptScripts: withScripts });
+    const r = await call<WorkflowInstalled>("workflows.install", {
+      sha256: props.preview.sha256,
+      acceptScripts: withScripts,
+      ...(coordinationDir.value ? { coordinationDir: coordinationDir.value } : {}),
+    });
     await Promise.all([refreshAgents(), refreshTeams(), refreshOverview()]);
+    if (r.fiches) {
+      toast(
+        `Fiches posées dans ${r.fiches.dir} : ${r.fiches.created.join(", ") || "aucune nouvelle"}${r.fiches.kept.length ? ` (déjà là, gardées : ${r.fiches.kept.join(", ")})` : ""}`,
+        "info",
+      );
+    } else if (r.fichesSkipped) {
+      toast("Équipe installée sans ses fiches : tu pourras lui donner un espace de coordination depuis l'écran Équipes.", "info");
+    }
     toast(
       r.scriptsPending
         ? `Équipe « ${r.team.name} » installée. Ses scripts attendent ton accord (Équipes → Scripts).`
@@ -53,6 +73,7 @@ async function install(withScripts: boolean) {
       <span class="badge">{{ preview.team.nodes }} agent{{ preview.team.nodes > 1 ? "s" : "" }} dans l'équipe</span>
       <span class="badge">{{ preview.team.maxCalls }} appels max par message</span>
       <span class="badge" :class="{ warn: preview.scripts.length }">{{ preview.scripts.length }} script{{ preview.scripts.length > 1 ? "s" : "" }}</span>
+      <span v-if="preview.fiches.length" class="badge">{{ preview.fiches.length }} fiche{{ preview.fiches.length > 1 ? "s" : "" }}</span>
       <span class="tiny muted mono" :title="preview.sha256">empreinte {{ preview.sha256.slice(0, 12) }}…</span>
     </div>
 
@@ -88,6 +109,24 @@ async function install(withScripts: boolean) {
           <p class="tiny muted">Services autorisés : {{ a.services?.length ? a.services.join(", ") : "tous ceux de ce PC" }}</p>
         </div>
       </div>
+    </section>
+
+    <section v-if="preview.fiches.length" class="part">
+      <h4><NotebookPen :size="15" /> Fiches de l'équipe</h4>
+      <p class="tiny muted">
+        Les règles et la méthode de l'équipe, écrites par l'auteur. Tous les membres en reçoivent le début à chaque demande : lis-les comme
+        tu lis les consignes des agents. Elles ne changent pas les règles de confirmation.
+      </p>
+      <ScriptCode :files="preview.fiches" entry="" />
+      <div class="row dir">
+        <input class="input mono grow" :value="coordinationDir ?? ''" readonly placeholder="Aucun dossier : l'équipe sera installée sans ses fiches" :title="coordinationDir" />
+        <button type="button" class="btn" @click="chooseDir"><FolderOpen :size="15" /> Choisir un dossier…</button>
+        <button v-if="coordinationDir" type="button" class="btn ghost" title="Installer sans les fiches" @click="coordinationDir = undefined"><X :size="15" /></button>
+      </div>
+      <p class="tiny muted">
+        Choisis un dossier vide, à part de tout projet (pas un dépôt git) : il devient l'espace de coordination de cette équipe, qui y tiendra
+        son journal. Un fichier déjà présent n'est jamais remplacé.
+      </p>
     </section>
 
     <section v-if="preview.scripts.length" class="part">
@@ -155,6 +194,13 @@ p {
 .facts {
   flex-wrap: wrap;
   gap: 6px;
+}
+.dir {
+  gap: 8px;
+}
+.dir .grow {
+  flex: 1;
+  min-width: 0;
 }
 .part {
   display: flex;
