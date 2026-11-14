@@ -40,7 +40,7 @@ import { applyPttKey, ptt } from "../lib/ptt";
 import { claudeApi, loadClaudeApi } from "../lib/terminals";
 
 type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "system" | "about";
-const section = ref<Section>("appearance");
+const section = ref<Section>("general");
 const sections: { id: Section; label: string; icon: unknown }[] = [
   { id: "general", label: "Général", icon: SlidersHorizontal },
   { id: "appearance", label: "Apparence", icon: Palette },
@@ -880,6 +880,12 @@ const shortcuts: [string, string][] = [
           <p v-if="ptt.error" class="tiny err-text">{{ ptt.error }}</p>
           <SettingRow label="Lire la réponse de MASTER à voix haute" hint="Pour une demande faite avec la touche « parler ».">
             <Toggle v-model="s.pttSpeak" />
+          </SettingRow>
+          <SettingRow
+            label="Bip au début et à la fin de l'écoute"
+            hint="Pour savoir que MASTER t'entend, même quand MyIA est en arrière-plan. Une pastille s'affiche aussi dans l'app."
+          >
+            <Toggle v-model="s.pttBeep" />
           </SettingRow>
           <SettingRow label="Langue">
             <select v-model="s.dictationLang" class="input select w-220">

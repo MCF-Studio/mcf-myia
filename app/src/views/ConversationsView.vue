@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, Columns2, LayoutGrid, MessageSquarePlus, Network, Pin, PinOff, Search, SquareTerminal, Trash2, X } from "lucide-vue-next";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import ChatPanel from "../components/ChatPanel.vue";
 import TerminalPanel from "../components/TerminalPanel.vue";
@@ -27,6 +27,7 @@ import {
   closeTab,
   createConversation,
   deleteConversation,
+  ensureConversationShown,
   openConversation,
   refreshConversations,
   state,
@@ -36,7 +37,13 @@ import {
 const cs = settings.conversations;
 const query = ref("");
 const pickerOpen = ref(false);
-const confirmDelete = ref<string>();
+/** Conversation dont la suppression attend une confirmation (modal ouvert). */
+const toDelete = ref<{ id: string; title: string }>();
+const deleteCancelBtn = ref<HTMLButtonElement>();
+const deleteConfirmBtn = ref<HTMLButtonElement>();
+const searchInput = ref<HTMLInputElement>();
+/** Élément qui avait le focus avant l'ouverture du modal, pour le lui rendre à la fermeture. */
+let deleteReturnFocus: HTMLElement | null = null;
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -67,6 +74,8 @@ async function closeAny(id: string) {
 const consoleDialog = ref(false);
 const projects = ref<{ name: string; path: string; kinds: string[] }[]>([]);
 const workspace = ref("");
+/** Espaces de travail des agents et des équipes. */
+const workspaces = ref<{ name: string; path: string }[]>([]);
 const consoleDir = ref("");
 const consoleResume = ref(false);
 const launching = ref(false);
@@ -101,22 +110,25 @@ async function askConsole() {
   void claudeAccount()
     .then((a) => (account.value = a))
     .catch(() => (account.value = undefined));
-  if (!projects.value.length) {
-    try {
-      const r = await call<{ workspace: string; projects: { name: string; path: string; kinds: string[] }[] }>("projects.list");
-      projects.value = r.projects;
-      workspace.value = r.workspace;
-      consoleDir.value ||= r.workspace;
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
+  // Relu à chaque ouverture : un espace de travail a pu être ajouté à un agent ou à une équipe entre-temps.
+  try {
+    const r = await call<{ workspace: string; workspaces?: { name: string; path: string }[]; projects: { name: string; path: string; kinds: string[] }[] }>(
+      "projects.list",
+    );
+    projects.value = r.projects;
+    workspaces.value = r.workspaces ?? [];
+    workspace.value = r.workspace;
+    const known = [r.workspace, ...workspaces.value.map((w) => w.path), ...r.projects.map((p) => p.path)];
+    if (!known.includes(consoleDir.value)) consoleDir.value = r.workspace;
+  } catch (e) {
+    toast((e as Error).message, "error");
   }
 }
 
 async function launchConsole() {
   launching.value = true;
   try {
-    const p = projects.value.find((x) => x.path === consoleDir.value);
+    const p = projects.value.find((x) => x.path === consoleDir.value) ?? workspaces.value.find((x) => x.path === consoleDir.value);
     const task = consoleTask.value.trim();
     let model: string | undefined = consoleModel.value || undefined;
     if (model === "auto") model = task ? (advice.value ?? (await adviseModel()))?.model : undefined;
@@ -164,17 +176,50 @@ async function togglePin(id: string, pinned: boolean) {
   await refreshConversations();
 }
 
-async function remove(id: string) {
-  if (confirmDelete.value !== id) {
-    confirmDelete.value = id;
-    setTimeout(() => confirmDelete.value === id && (confirmDelete.value = undefined), 3000);
-    return;
+async function askDelete(c: { id: string; title: string }, e: MouseEvent) {
+  deleteReturnFocus = (e.currentTarget as HTMLElement | null) ?? (document.activeElement as HTMLElement | null);
+  toDelete.value = { id: c.id, title: c.title };
+  await nextTick();
+  deleteCancelBtn.value?.focus();
+}
+
+function closeDelete() {
+  toDelete.value = undefined;
+  const back = deleteReturnFocus;
+  deleteReturnFocus = null;
+  void nextTick(() => {
+    // Le bouton corbeille n'existe plus (conversation supprimée) ou n'est plus visible : on retombe sur la recherche.
+    if (back?.isConnected) back.focus();
+    if (!back?.isConnected || document.activeElement !== back) searchInput.value?.focus();
+  });
+}
+
+async function confirmDeleteConversation() {
+  const target = toDelete.value;
+  if (!target) return;
+  closeDelete();
+  await deleteConversation(target.id).catch((e) => toast(e.message, "error"));
+}
+
+/** Clavier du modal de suppression : Échap annule, Entrée confirme, Tab reste dans le modal. */
+function onDeleteKey(e: KeyboardEvent) {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeDelete();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    void confirmDeleteConversation();
+  } else if (e.key === "Tab") {
+    e.preventDefault();
+    const btns = [deleteCancelBtn.value, deleteConfirmBtn.value].filter((b): b is HTMLButtonElement => !!b);
+    const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+    btns[(i + (e.shiftKey ? btns.length - 1 : 1)) % btns.length]?.focus();
   }
-  confirmDelete.value = undefined;
-  await deleteConversation(id).catch((e) => toast(e.message, "error"));
 }
 
 function onKey(e: KeyboardEvent) {
+  // Modal de suppression ouvert : il capte le clavier, aucun autre raccourci de la vue ne s'applique.
+  if (toDelete.value) return onDeleteKey(e);
   if (e.ctrlKey && e.key === "n") {
     e.preventDefault();
     const first = state.agents[0];
@@ -194,6 +239,11 @@ function onKey(e: KeyboardEvent) {
   }
 }
 onMounted(() => window.addEventListener("keydown", onKey));
+// À chaque arrivée sur la page (la vue est gardée en mémoire) : une conversation est forcément affichée.
+// Avant que le cœur soit prêt, c'est le démarrage (afterReady) qui s'en charge.
+onActivated(() => {
+  if (state.ready) void ensureConversationShown();
+});
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 </script>
 
@@ -235,7 +285,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       </div>
       <label class="search">
         <Search :size="15" />
-        <input v-model="query" placeholder="Rechercher" />
+        <input ref="searchInput" v-model="query" placeholder="Rechercher" />
       </label>
 
       <div class="items">
@@ -262,12 +312,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
               <button class="btn sm ghost icon" :title="c.pinned ? 'Désépingler' : 'Épingler'" @click="togglePin(c.id, !!c.pinned)">
                 <component :is="c.pinned ? PinOff : Pin" :size="14" />
               </button>
-              <button
-                class="btn sm ghost icon danger"
-                :class="{ armed: confirmDelete === c.id }"
-                :title="confirmDelete === c.id ? 'Cliquer encore pour supprimer' : 'Supprimer'"
-                @click="remove(c.id)"
-              >
+              <button class="btn sm ghost icon danger" title="Supprimer" aria-label="Supprimer la conversation" @click="askDelete(c, $event)">
                 <Trash2 :size="14" />
               </button>
             </div>
@@ -370,7 +415,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
             <span class="small">Dossier de travail</span>
             <select v-model="consoleDir" class="input select">
               <option :value="workspace">workspace (dossier de travail MyIA)</option>
-              <option v-for="p in projects" :key="p.path" :value="p.path">{{ p.name }}{{ p.kinds.length ? ` · ${p.kinds.join(", ")}` : "" }}</option>
+              <optgroup v-if="workspaces.length" label="Espaces de travail">
+                <option v-for="w in workspaces" :key="w.path" :value="w.path">{{ w.name }} · {{ w.path }}</option>
+              </optgroup>
+              <optgroup v-if="projects.length" label="Projets">
+                <option v-for="p in projects" :key="p.path" :value="p.path">{{ p.name }}{{ p.kinds.length ? ` · ${p.kinds.join(", ")}` : "" }}</option>
+              </optgroup>
             </select>
           </label>
           <label class="field">
@@ -440,6 +490,34 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
             <button class="btn primary" :disabled="!consoleDir || launching">Ouvrir la console</button>
           </div>
         </form>
+      </div>
+    </Transition>
+
+    <!-- Confirmation de suppression d'une conversation -->
+    <Transition name="pop">
+      <div v-if="toDelete" class="modal-backdrop" @click.self="closeDelete">
+        <div
+          class="modal card delete-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-conv-title"
+          aria-describedby="delete-conv-desc"
+        >
+          <div class="row">
+            <span class="danger-glyph"><Trash2 :size="20" /></span>
+            <div class="delete-text">
+              <h3 id="delete-conv-title">Supprimer la conversation ?</h3>
+              <p id="delete-conv-desc" class="small muted">
+                <strong class="delete-name">« {{ toDelete.title }} »</strong> sera supprimée définitivement. Cette action est irréversible.
+              </p>
+            </div>
+          </div>
+          <div class="row modal-actions">
+            <span class="spacer" />
+            <button ref="deleteCancelBtn" type="button" class="btn ghost" @click="closeDelete">Annuler</button>
+            <button ref="deleteConfirmBtn" type="button" class="btn danger-solid" @click="confirmDeleteConversation">Supprimer</button>
+          </div>
+        </div>
       </div>
     </Transition>
   </div>
@@ -701,12 +779,41 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   border-radius: var(--radius-sm);
   box-shadow: -10px 0 12px var(--surface);
 }
-.item:hover .item-actions {
+.item:hover .item-actions,
+.item:focus-within .item-actions {
   display: flex;
 }
-.armed {
+.danger-glyph {
+  width: 42px;
+  height: 42px;
+  border-radius: 30%;
+  display: grid;
+  place-items: center;
+  flex: none;
   color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.delete-modal {
+  width: min(440px, 92vw);
+}
+.delete-text {
+  min-width: 0;
+}
+.delete-name {
+  color: var(--text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.btn.danger-solid {
+  background: var(--danger);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+.btn.danger-solid:hover {
+  background: color-mix(in srgb, var(--danger) 86%, #000);
+  border-color: transparent;
 }
 .stage {
   flex: 1;

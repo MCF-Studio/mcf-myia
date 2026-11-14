@@ -14,6 +14,25 @@ export function pickTextFile(accept = ".json", maxBytes = 64_000): Promise<strin
   });
 }
 
+/** Lecture de plusieurs fichiers texte choisis par l'utilisateur (un script et ses modules), taille plafonnée. */
+export function pickTextFiles(accept: string, maxFiles: number, maxBytes: number): Promise<{ name: string; content: string }[] | undefined> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.multiple = true;
+    input.onchange = async () => {
+      const files = [...(input.files ?? [])];
+      if (!files.length) return resolve(undefined);
+      if (files.length > maxFiles) return reject(new Error(`trop de fichiers (${files.length}, max ${maxFiles})`));
+      const big = files.find((f) => f.size > maxBytes);
+      if (big) return reject(new Error(`${big.name} est trop gros (${Math.round(big.size / 1024)} Ko, max ${maxBytes / 1000} Ko)`));
+      resolve(await Promise.all(files.map(async (f) => ({ name: f.name, content: await f.text() }))));
+    };
+    input.click();
+  });
+}
+
 /**
  * Choisit une image et la recadre en carré (centre), réduite à `size` px, encodée en WebP.
  * Le recadrage passe par un canvas : seuls des pixels ressortent (pas de métadonnées EXIF, pas de SVG).

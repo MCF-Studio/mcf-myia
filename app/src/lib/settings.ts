@@ -41,6 +41,8 @@ export const DEFAULT_SETTINGS = {
     dictationLang: "fr",
     /** Lire à voix haute la réponse de MASTER à une demande faite avec la touche « parler ». */
     pttSpeak: true,
+    /** Bip au début et à la fin de l'écoute (touche « parler »), audible même quand MyIA est en arrière-plan. */
+    pttBeep: true,
   },
   notifications: {
     desktop: true,

@@ -22,7 +22,7 @@ export interface TeamNode {
   teammates: TeamNode[];
 }
 
-const NodeSchema: z.ZodType<TeamNode> = z.lazy(() =>
+export const NodeSchema: z.ZodType<TeamNode> = z.lazy(() =>
   z.object({
     id: z.string().regex(/^[a-z0-9-]{4,40}$/),
     agentId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
@@ -35,7 +35,19 @@ export const TeamSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
   name: z.string().trim().min(1).max(60),
   description: z.string().max(300).optional(),
+  /** Espace de travail de l'équipe : tous ses membres y travaillent (il remplace celui de chaque agent). */
+  workspace: z.string().trim().min(3).max(500).optional(),
+  /**
+   * Espace de coordination : dossier à part où l'équipe garde ses règles communes et son journal (core/access.ts →
+   * checkCoordination). Propre à CETTE machine : jamais exporté dans un workflow.
+   */
+  coordination: z.string().trim().min(3).max(500).optional(),
   root: NodeSchema,
+  /**
+   * Scripts de l'équipe (ids de core/scripts.ts) : des outils en plus, pour TOUS ses membres et pour eux seuls. Un
+   * script ne tourne qu'après l'accord de l'utilisateur sur son code.
+   */
+  scripts: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/)).max(8).optional(),
   /** Appels d'agents autorisés par message de l'utilisateur (coût maximal d'un message). */
   maxCalls: z.number().int().min(1).max(50).default(8),
   /** Profondeur maximale de délégation (1 = le chef appelle ses agents directs, qui n'appellent personne). */
@@ -56,7 +68,7 @@ export function* walk(n: TeamNode): Generator<TeamNode> {
   for (const c of n.teammates) yield* walk(c);
 }
 
-export function parseTeam(raw: unknown, knownAgents?: Set<string>): Team {
+export function parseTeam(raw: unknown, knownAgents?: Set<string>, knownScripts?: Set<string>): Team {
   const res = TeamSchema.safeParse(raw);
   if (!res.success) {
     throw new Error("Équipe invalide : " + res.error.issues.map((i) => `${i.path.join(".")} : ${i.message}`).join(" ; "));
@@ -68,6 +80,11 @@ export function parseTeam(raw: unknown, knownAgents?: Set<string>): Team {
     if (ids.has(n.id)) throw new Error(`nœud en double : ${n.id}`);
     ids.add(n.id);
     if (knownAgents && !knownAgents.has(n.agentId)) throw new Error(`agent inconnu dans l'équipe : ${n.agentId}`);
+  }
+  if (t.scripts) {
+    t.scripts = [...new Set(t.scripts)];
+    for (const id of t.scripts) if (knownScripts && !knownScripts.has(id)) throw new Error(`script inconnu dans l'équipe : ${id}`);
+    if (!t.scripts.length) delete t.scripts;
   }
   return t;
 }

@@ -19,6 +19,8 @@ export interface TeamContext {
   profileOf(id: string): AgentProfile;
   budget: TeamBudget;
   memory?: Memory;
+  /** Scripts de l'équipe (un service par script) : donnés à chaque membre, en plus de ses services. */
+  scripts?: Service[];
 }
 
 function describe(p: AgentProfile) {
@@ -83,9 +85,13 @@ export function makeTeamAgent(node: TeamNode, ctx: TeamContext, depth: number, c
   if (tool) lines.push("Tu peux confier une partie du travail à ton équipe avec l'outil team_ask (sous-agents : délégation ; coéquipiers : renfort).");
   return new Agent(ctx.cfg, ctx.services, profile, {
     extraTools: tool ? [tool] : [],
+    extraServices: ctx.scripts,
     teamNote: lines.join("\n"),
     trustInput: !caller,
     memory: ctx.memory,
+    // L'espace de travail de l'équipe vaut pour tous ses membres ; sans lui, chacun garde le sien.
+    workspace: ctx.team.workspace ?? profile.workspace,
+    coordination: ctx.team.coordination,
   });
 }
 

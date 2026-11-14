@@ -32,6 +32,11 @@ export const AgentProfileSchema = z.object({
   master: z.boolean().optional(),
   /** Ids des services autorisés ; absent = tous les services disponibles. */
   services: z.array(z.string().max(60)).max(50).optional(),
+  /**
+   * Espace de travail : dossier dans lequel l'agent travaille (access.ts → checkWorkspace). Propre à CETTE machine :
+   * choisi depuis l'écran Agents, jamais repris d'un profil importé ni exporté.
+   */
+  workspace: z.string().trim().min(3).max(500).optional(),
 });
 
 export type AgentProfile = z.infer<typeof AgentProfileSchema>;
@@ -77,4 +82,13 @@ export function writeJsonAtomic(file: string, data: unknown) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
   fs.renameSync(tmp, file);
+}
+
+/** Réordonne les profils ; refuse toute liste qui n'est pas une permutation exacte des ids existants. */
+export function reorderProfiles(list: AgentProfile[], ids: string[]): AgentProfile[] {
+  const byId = new Map(list.map((p) => [p.id, p]));
+  if (ids.length !== list.length || new Set(ids).size !== ids.length || !ids.every((id) => byId.has(id))) {
+    throw new Error("ordre des agents invalide (liste périmée ?) : recharge l'écran Agents");
+  }
+  return ids.map((id) => byId.get(id)!);
 }

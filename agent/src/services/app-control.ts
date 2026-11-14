@@ -187,12 +187,16 @@ export function appControlTools(ctl: AppControl, master: AgentProfile, budget: {
     }),
     defineTool({
       name: "app_marketplace_view",
-      description: "Consulte le marketplace d'agents et de thèmes de mcfstudio.fr.",
+      description: "Dit ce que propose le marketplace de mcfstudio.fr (sans rien lister ni installer).",
       schema: z.object({}),
       risk: "read",
       preview: () => "",
       async run() {
-        return "Le marketplace n'est pas encore ouvert : aucun contenu à consulter. Seule l'installation depuis un fichier local existe (écran Marketplace).";
+        return (
+          "Le marketplace propose des workflows (équipes partagées) : c'est l'utilisateur qui les parcourt et les installe, depuis l'écran Marketplace ; " +
+          "je ne peux ni les lister ni en installer d'ici. Pour les agents et les thèmes, le registre en ligne n'est pas encore ouvert : seule " +
+          "l'installation depuis un fichier local existe (écran Marketplace)."
+        );
       },
     }),
     defineTool({

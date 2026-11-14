@@ -7,8 +7,19 @@ export interface RunResult {
 }
 
 /**
+ * Environnement des programmes lancés par MyIA : celui de MyIA, sans `MYIA_HOME`.
+ * L'app installée donne `MYIA_HOME` (son dossier de données) à ce processus. Hérité tel quel, il ferait travailler
+ * une autre copie de MyIA lancée par un outil (tests ou `npm run dev` du dépôt, via un build ou Claude Code) sur les
+ * données de l'installation au lieu des siennes.
+ */
+export function childEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const { MYIA_HOME: _home, ...rest } = env;
+  return rest;
+}
+
+/**
  * Lance un programme SANS shell (argv fixe), lit la sortie ligne par ligne.
- * Garde les `keep` dernières lignes pour le compte rendu.
+ * Garde les `keep` dernières lignes pour le compte rendu. Sans `env`, le programme reçoit `childEnv()`.
  */
 export function runProcess(
   argv: string[],
@@ -29,7 +40,7 @@ export function runProcess(
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
-      env: opts.env ?? process.env,
+      env: opts.env ?? childEnv(),
       shell: false,
       windowsHide: true,
       stdio: [opts.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Bot, Camera, Crown, Copy, Download, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Bot, Camera, ChevronDown, ChevronUp, Crown, Copy, Download, FolderOpen, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import Toggle from "../components/Toggle.vue";
@@ -29,7 +30,13 @@ const form = reactive({
   restrict: false,
   services: [] as string[],
   master: false,
+  workspace: "",
 });
+
+async function chooseWorkspace() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier dans lequel cet agent travaille" });
+  if (typeof dir === "string") form.workspace = dir;
+}
 
 /** Autre agent déjà MASTER (il perdra ce rôle si celui-ci le prend). */
 const masterOther = computed(() => state.agents.find((a) => a.master && a.id !== form.id)?.name);
@@ -61,6 +68,7 @@ function load(a?: AgentProfile) {
   form.instructions = a?.instructions ?? "";
   form.restrict = !!a?.services;
   form.master = !!a?.master;
+  form.workspace = a?.workspace ?? "";
   form.services = a?.services ? [...a.services] : services.value.map((s) => s.id);
 }
 
@@ -80,6 +88,7 @@ function toProfile(): AgentProfile {
   if (form.instructions.trim()) p.instructions = form.instructions.trim();
   if (form.restrict) p.services = [...form.services];
   if (form.master) p.master = true;
+  if (form.workspace) p.workspace = form.workspace;
   return p;
 }
 
@@ -129,7 +138,9 @@ async function importFile() {
 }
 
 function exportJson() {
-  return JSON.stringify({ $schema: "myia/agent@1", ...toProfile() }, null, 2);
+  // L'espace de travail est un chemin de CETTE machine : il ne part pas dans un profil partagé.
+  const { workspace: _w, ...shared } = toProfile();
+  return JSON.stringify({ $schema: "myia/agent@1", ...shared }, null, 2);
 }
 
 async function choosePhoto() {
@@ -157,6 +168,28 @@ onMounted(async () => {
   models.value = mod.installed;
   load(state.agents.find((a) => a.id === selected.value) ?? state.agents[0]);
 });
+
+/** Monte (-1) ou descend (+1) un agent dans la liste ; l'ordre est enregistré par le cœur et vaut pour toute l'app. */
+let moving = false;
+async function move(id: string, dir: -1 | 1) {
+  const list = [...state.agents];
+  const i = list.findIndex((a) => a.id === id);
+  const j = i + dir;
+  if (moving || i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j]!, list[i]!];
+  const before = state.agents;
+  state.agents = list;
+  moving = true;
+  try {
+    await call("agents.reorder", { ids: list.map((a) => a.id) });
+  } catch (e) {
+    state.agents = before;
+    toast((e as Error).message, "error");
+    await refreshAgents();
+  } finally {
+    moving = false;
+  }
+}
 </script>
 
 <template>
@@ -175,21 +208,37 @@ onMounted(async () => {
 
     <div class="layout">
       <div class="agent-cards">
-        <button
-          v-for="a in state.agents"
-          :key="a.id"
-          class="agent-card card"
-          :class="{ active: selected === a.id && !isNew }"
-          :style="{ '--c': agentColor(a) }"
-          @click="load(a)"
-        >
-          <AgentAvatar :agent="a" :size="42" :busy="(usage.get(a.id)?.busy ?? 0) > 0" />
-          <div class="agent-card-meta">
-            <strong>{{ a.name }}</strong>
-            <span class="mono tiny muted">{{ a.model ?? `${state.overview?.defaultModel ?? ""} (défaut)` }}</span>
-            <span class="tiny muted">{{ usage.get(a.id)?.conversations ?? 0 }} conversation(s)</span>
+        <TransitionGroup name="reorder" tag="div" class="agent-list">
+          <div v-for="(a, i) in state.agents" :key="a.id" class="agent-row">
+            <button
+              class="agent-card card"
+              :class="{ active: selected === a.id && !isNew }"
+              :style="{ '--c': agentColor(a) }"
+              @click="load(a)"
+            >
+              <AgentAvatar :agent="a" :size="42" :busy="(usage.get(a.id)?.busy ?? 0) > 0" />
+              <div class="agent-card-meta">
+                <strong>{{ a.name }}</strong>
+                <span class="mono tiny muted">{{ a.model ?? `${state.overview?.defaultModel ?? ""} (défaut)` }}</span>
+                <span class="tiny muted">{{ usage.get(a.id)?.conversations ?? 0 }} conversation(s)</span>
+              </div>
+            </button>
+            <div v-if="state.agents.length > 1" class="order">
+              <button type="button" :disabled="i === 0" :title="`Monter ${a.name}`" :aria-label="`Monter ${a.name}`" @click="move(a.id, -1)">
+                <ChevronUp :size="15" />
+              </button>
+              <button
+                type="button"
+                :disabled="i === state.agents.length - 1"
+                :title="`Descendre ${a.name}`"
+                :aria-label="`Descendre ${a.name}`"
+                @click="move(a.id, 1)"
+              >
+                <ChevronDown :size="15" />
+              </button>
+            </div>
           </div>
-        </button>
+        </TransitionGroup>
         <button v-if="isNew" class="agent-card card active new">
           <div class="new-glyph"><Plus :size="20" /></div>
           <div class="agent-card-meta"><strong>{{ form.name || "Nouvel agent" }}</strong></div>
@@ -282,6 +331,21 @@ onMounted(async () => {
           </label>
 
           <div class="field wide">
+            <span><FolderOpen :size="15" /> Espace de travail <em class="muted">(optionnel)</em></span>
+            <div class="row">
+              <input class="input grow mono" :value="form.workspace" readonly placeholder="Aucun : dossier workspace de MyIA" :title="form.workspace" />
+              <button type="button" class="btn" @click="chooseWorkspace"><FolderOpen :size="15" /> Choisir…</button>
+              <button v-if="form.workspace" type="button" class="btn ghost" title="Retirer l'espace de travail" @click="form.workspace = ''"><X :size="15" /></button>
+            </div>
+            <p class="tiny muted">
+              Le dossier dans lequel cet agent travaille, sur n'importe quel disque : il peut y lire, chercher et écrire des fichiers (un
+              simple nom de fichier s'y enregistre), et c'est là que Claude Code est lancé quand il lui délègue une tâche. Les
+              confirmations avant d'écrire ou de déléguer restent les mêmes. Dans une équipe qui a son propre espace de travail, c'est
+              celui de l'équipe qui compte.
+            </p>
+          </div>
+
+          <div class="field wide">
             <div class="row">
               <span class="grow"><Crown :size="15" /> Agent MASTER</span>
               <Toggle v-model="form.master" label="Agent MASTER" />
@@ -346,6 +410,56 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.agent-row {
+  position: relative;
+}
+.agent-row .agent-card {
+  width: 100%;
+  padding-right: 40px;
+}
+.order {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.agent-row:hover .order,
+.agent-row:focus-within .order {
+  opacity: 1;
+}
+.order button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.order button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--hairline);
+}
+.order button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.reorder-move {
+  transition: transform 0.2s var(--ease);
 }
 .agent-card {
   display: flex;

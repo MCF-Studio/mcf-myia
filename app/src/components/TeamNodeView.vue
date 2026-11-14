@@ -70,6 +70,17 @@ function addPeer() {
 .tn {
   display: flex;
   align-items: flex-start;
+  /* largeur des cartes et écarts : les liaisons sont calculées à partir de ces valeurs */
+  --tn-w: 210px;
+  --tn-gap: 22px;
+  --tn-peer: 46px;
+}
+@media (max-width: 640px) {
+  .tn {
+    --tn-w: 178px;
+    --tn-gap: 14px;
+    --tn-peer: 30px;
+  }
 }
 .tn-col {
   display: flex;
@@ -88,7 +99,7 @@ function addPeer() {
   border-top: 2px dashed color-mix(in srgb, var(--accent-2) 70%, transparent);
 }
 .tn-card {
-  width: 210px;
+  width: var(--tn-w);
   flex: none;
   padding: 12px;
   border-radius: var(--radius-lg);
@@ -186,11 +197,11 @@ function addPeer() {
   border-style: solid;
 }
 
-/* Branches vers le bas (sous-agents). Les cartes font 210 px et sont alignées à gauche de leur colonne :
-   le centre d'une carte est donc toujours à 105 px du bord gauche de sa branche. */
+/* Branches vers le bas (sous-agents). Les cartes font --tn-w et sont alignées à gauche de leur colonne :
+   le centre d'une carte est donc toujours à --tn-w / 2 du bord gauche de sa branche. */
 .tn-children {
   display: flex;
-  gap: 22px;
+  gap: var(--tn-gap);
   padding-top: 34px;
   position: relative;
   align-self: stretch;
@@ -199,7 +210,7 @@ function addPeer() {
   content: "";
   position: absolute;
   top: 0;
-  left: 105px;
+  left: calc(var(--tn-w) / 2);
   height: 17px;
   border-left: 2px solid var(--branch);
 }
@@ -210,16 +221,16 @@ function addPeer() {
   content: "";
   position: absolute;
   top: -17px;
-  left: -11px;
-  right: -11px;
+  left: calc(var(--tn-gap) / -2);
+  right: calc(var(--tn-gap) / -2);
   border-top: 2px solid var(--branch);
 }
 .tn-child:first-child::before {
-  left: 105px;
+  left: calc(var(--tn-w) / 2);
 }
 .tn-child:last-child::before {
   right: auto;
-  width: 116px;
+  width: calc(var(--tn-w) / 2 + var(--tn-gap) / 2);
 }
 .tn-child:first-child:last-child::before {
   display: none;
@@ -228,7 +239,7 @@ function addPeer() {
   content: "";
   position: absolute;
   top: -17px;
-  left: 105px;
+  left: calc(var(--tn-w) / 2);
   height: 17px;
   border-left: 2px solid var(--branch);
 }
@@ -236,20 +247,20 @@ function addPeer() {
 /* Branches horizontales (coéquipiers) */
 .tn-peer {
   position: relative;
-  padding-left: 46px;
+  padding-left: var(--tn-peer);
 }
 .tn-peer::before {
   content: "";
   position: absolute;
   left: 0;
   top: 56px;
-  width: 46px;
+  width: var(--tn-peer);
   border-top: 2px dashed color-mix(in srgb, var(--accent-2) 70%, transparent);
 }
 .tn-peer::after {
   content: "";
   position: absolute;
-  left: 18px;
+  left: calc(var(--tn-peer) / 2 - 5px);
   top: 51px;
   width: 10px;
   height: 10px;

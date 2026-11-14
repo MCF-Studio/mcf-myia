@@ -45,7 +45,7 @@ Chaque outil a un niveau de risque :
 | `read`     | lister les projets, chercher un addon, recherche web | exécuté sans demander                                  |
 | `launch`   | ouvrir l'éditeur Godot, ouvrir un lien               | sans demander ; `browser_open` demande si le lien ne vient ni d'l'utilisateur ni d'une recherche |
 | `local`    | build, création de projet, délégation, écriture de fichier | confirmation, sauf projet en `autoApprove` ou cas déclaré sans risque par l'outil (ex. nouveau fichier dans Documents\MyIA) |
-| `external` | message Telegram/Discord, tout outil MCP non déclaré | **confirmation toujours**, avec le contenu exact       |
+| `external` | message Telegram/Discord, tout outil MCP non déclaré, tout outil d'un script d'équipe | **confirmation toujours**, avec le contenu exact       |
 
 Limites dures, appliquées dans le code et pas seulement dans le prompt :
 
@@ -83,7 +83,39 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   transport `ext::` interdit. Jamais de force ; **ni commit ni push sur main/master** (on crée une branche, puis une pull
   request) ; un fichier de secrets ou de config locale (`.env`, clés, `config/agent.json`…) ne peut pas entrer dans un
   commit, ni par `paths` ni par `all=true`. Les hooks du dépôt s'exécutent au commit (dépôts du projet = de confiance).
-- Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
+- Délégation Claude Code : `cwd` = projet de la config, sinon espace de travail de l'agent, sinon `workspace\` ;
+  outils autorisés listés par projet.
+- **Espace de travail** d'un agent ou d'une équipe (champ `workspace` de `config/agents.json` / `config/teams.json`,
+  optionnel) : un dossier choisi par l'utilisateur depuis l'écran Agents ou Équipes, sur n'importe quel disque. Contrôlé
+  à l'enregistrement : dossier local existant, ni disque entier, ni dossier personnel, ni emplacement protégé. Il n'est
+  jamais repris d'un profil importé, ni créé par MASTER, ni exporté, et un agent de la Guilde n'en a pas. Pour CET agent
+  (ou tous les membres de l'équipe, dont l'espace remplace celui de chaque agent), le dossier s'ajoute aux dossiers
+  ouverts aux outils de fichiers, un chemin relatif de `file_write`/`file_read` y est résolu et `claude_delegate` sans
+  projet s'y exécute. Les règles ne changent pas : écrire dans un espace de travail et déléguer restent confirmés,
+  mêmes formats, mêmes dossiers interdits. Dossier absent (disque débranché) : l'agent en est prévenu et retombe sur
+  les dossiers habituels.
+- **Espace de coordination** d'une équipe (champ `coordination` de `config/teams.json`, optionnel) : un dossier À PART
+  du projet, choisi par l'utilisateur depuis l'écran Équipes, où l'équipe garde ses règles communes (`LISEZ-MOI.md`,
+  `methode.md`, fiches) et sa mémoire de travail (`journal/etat.md`, `journal/AAAA-MM-JJ.md`). Mêmes contrôles qu'un
+  espace de travail, plus : ce n'est pas un dépôt git et il ne recoupe pas l'espace de travail de l'équipe. Pour les
+  membres de CETTE équipe (jamais un agent seul, MASTER ou la Guilde), le dossier s'ajoute aux dossiers ouverts aux
+  outils de fichiers, et le début de `LISEZ-MOI.md` et de `journal/etat.md` est joint à leur prompt ; `claude_delegate`
+  l'ouvre aussi à Claude Code (`--add-dir`, montré dans la confirmation). **Seule exception aux confirmations d'écriture** :
+  `file_write` crée, complète ou remplace sans confirmation un fichier du sous-dossier `journal` (mêmes formats texte,
+  mêmes noms et dossiers interdits qu'ailleurs). Tout le reste de l'espace (les règles, les fiches) reste confirmé : ces
+  fichiers guident tous les membres. L'état, écrit sans confirmation, est présenté aux agents comme des notes à
+  vérifier, jamais comme des consignes. Le journal et l'emplacement du dossier ne sont jamais exportés ni publiés ; les
+  fiches de la racine (`.md`, `.txt`) peuvent l'être, une par une, au choix de l'auteur, et sont posées à l'import dans un
+  dossier choisi par l'utilisateur, après affichage, sans jamais remplacer un fichier (WORKFLOWS.md). Un membre sur Claude lit cet
+  espace : ce qu'il contient part alors chez Anthropic (c'est écrit dans l'aide de l'écran).
+- **Scripts d'équipe** (`core/scripts.ts`, détail dans [WORKFLOWS.md](WORKFLOWS.md)) : des serveurs MCP en Python
+  rattachés à une équipe, donnés à ses membres et à eux seuls. C'est le seul code exécuté que MyIA accepte de recevoir
+  d'un tiers, et il n'est **pas isolé** : un script accepté a les droits de l'utilisateur. Il ne se lance donc jamais
+  sans l'**accord** de l'utilisateur, donné après affichage du code et lié à l'empreinte SHA-256 de ses fichiers (un
+  fichier modifié, ajouté ou retiré ensuite : plus de lancement). Fichiers dans `data\scripts\<id>`, fermé aux
+  outils de fichiers ; lancement sans shell, par uv (version figée, empreinte vérifiée) ou un Python du PATH, avec un
+  environnement réduit ; tous ses outils sont `external`. Ni MASTER ni un agent ne peut ajouter ou accepter un script :
+  seul l'écran Équipes le fait. Un agent de la Guilde (bac à sable) n'en reçoit jamais.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,
   ni 169.254.169.254), taille plafonnée. `web_research` lance Claude Code avec **seulement** WebSearch et WebFetch,
@@ -99,8 +131,8 @@ est dessinée par l'app). La page n'ouvre jamais de lien elle-même ; les répon
 HTML échappé. (`freezePrototype` est désactivé : incompatible avec xterm.js, le terminal des consoles.)
 
 **Consoles Claude Code** : seule la commande `claude` peut être lancée dans un pseudo-terminal (pas de shell
-libre), uniquement dans le workspace ou un dossier de `projectRoots`/`projects` (vérifié côté Rust à partir de la
-config, pas de l'interface) ; Claude Code y applique ses propres règles de permission. Les consoles meurent avec l'app.
+libre), uniquement dans le workspace, un dossier de `projectRoots`/`projects` ou l'espace de travail d'un agent ou
+d'une équipe (vérifié côté Rust à partir de la config, pas de l'interface) ; Claude Code y applique ses propres règles de permission. Les consoles meurent avec l'app.
 **Mode bypass permissions** (`claude.bypassPermissions`, Paramètres → Général, **désactivé par défaut**) : les consoles
 sont lancées avec `--dangerously-skip-permissions`, Claude Code n'y demande plus d'accord avant de modifier des
 fichiers ou de lancer des commandes. Le réglage est lu dans la config côté Rust à chaque lancement (un appel de
@@ -127,7 +159,7 @@ s'ouvre sur `<site>/autoriser`, le site renvoie vers `http://127.0.0.1:<port>/ca
 l'échange ; l'état (`state`) est vérifié (un code injecté par un tiers est refusé). Jeton d'accès 15 min en mémoire
 seulement ; jeton de renouvellement (rotation) dans le coffre Windows ; déconnexion = révocation sur le site.
 
-**Relais de la Guilde** (`wss://guilde.mcfstudio.fr/v1`, `core/guild-link.ts`, spec du site
+**Relais de la Guilde** (`wss://myia.mcfstudio.fr/guilde/v1`, `core/guild-link.ts`, spec du site
 `2026-11-11-guilde-relais-design.md`) : connexion dès que le compte est lié. Clé X25519 **par appareil** dans le coffre
 Windows (`guild_device_key`) ; tout contenu est scellé pour l'appareil destinataire (ECDH éphémère, HKDF-SHA256,
 AES-256-GCM, données associées = demande ‖ sens) : le relais ne lit rien. Fournisseur : seules les métadonnées des
@@ -219,8 +251,8 @@ ce que vérifient des tests.
 
 **Agent MASTER** (profil `master: true`, un seul à la fois ; il garde son nom) : l'assistant du quotidien, qui pilote
 l'app. En plus de ses services, il reçoit les outils `app_*` :
-- lecture, sans confirmation : agents, équipes, conversations, Guilde (état, offres publiées), marketplace (« pas encore
-  disponible » tant qu'il n'existe pas : jamais de contenu inventé) ;
+- lecture, sans confirmation : agents, équipes, conversations, Guilde (état, offres publiées), marketplace (il dit ce
+  qui existe, sans rien lister ni installer : jamais de contenu inventé) ;
 - créer une conversation : sans confirmation (rien ne sort, rien n'est détruit) ;
 - créer ou supprimer un agent, publier une offre sur la Guilde : **confirmation à chaque fois**, avec le contenu
   complet dans la confirmation (nom, modèle, consignes, services ; texte de l'offre) ;
@@ -267,8 +299,17 @@ sur Claude envoie toutefois à Anthropic ce qu'il lit, c'est écrit à côté de
 sauf dossier choisi explicitement par l'utilisateur — et, sans exception, `config/` et `data/` de MyIA (tests). Les
 réglages s'appliquent sans redémarrage : la configuration est mise à jour en place pour tous les services.
 
-**Marketplace (à venir)** : registre sur mcfstudio.fr, publications par des membres certifiés. Tant qu'il n'existe pas,
-l'app n'affiche aucun contenu fictif ; seule l'installation depuis un fichier local est proposée.
+**Workflows et marketplace** ([WORKFLOWS.md](WORKFLOWS.md)) : une équipe s'exporte en workflow (`myia/workflow@1` :
+arbre, budgets, profils de ses agents, scripts), en fichier ou sur le marketplace de mcfstudio.fr. Ni espace de travail,
+ni rôle MASTER, ni conversation, ni mémoire n'en sortent. À l'import, le contenu est montré avant toute écriture
+(agents et consignes, code des scripts, manques) ; rien n'est écrasé (un id pris par un contenu différent donne un
+nouvel id) ; l'installation porte sur exactement ce qui a été montré (empreinte) ; les scripts restent en attente si
+l'utilisateur ne coche pas l'accord. Marketplace : lecture sans compte ; publication avec une autorisation OAuth de
+portée `workflows` (jeton dans le coffre) ; l'auteur choisit privé ou public, et un workflow public n'est listé
+qu'après validation par un admin du site. Rien de ce qui vient du site n'est de confiance : empreinte du paquet
+recalculée et comparée à celle de la liste, champs affichés bornés, validation complète du format. Agents, thèmes,
+modèles et extensions ne sont pas dans le registre en ligne : pour eux, seule l'installation depuis un fichier local
+est proposée, et l'app n'affiche aucun contenu fictif.
 
 ## 4. Secrets
 
@@ -290,6 +331,17 @@ modèle.
 | Page web piégée (« ouvre ce lien », « envoie ce message »)                          | Contenu marqué comme donnée ; envois toujours confirmés ; `browser_open` confirme les liens venus d'une page |
 | Lecture web vers le réseau local (Ollama, box, NAS), y compris par DNS rebinding     | `web_read` refuse toute IP non publique, vérifiée à chaque redirection ET au moment de la connexion (résolution épinglée) |
 | Agent ou thème partagé piégé                                                        | Formats = données validées par schéma ; un profil ne peut que restreindre ; règles appliquées dans le code |
+| Journal d'équipe empoisonné (un agent trompé par une page y écrit de fausses consignes) | Écriture sans confirmation limitée à `journal/` ; règles et fiches toujours confirmées ; l'état est joint au prompt comme des notes à vérifier ; les confirmations ne dépendent d'aucun texte |
+| Espace de coordination détourné pour écrire sans confirmation dans un projet          | Refusé s'il est un dépôt git ou s'il recoupe l'espace de travail ; recontrôlé à chaque demande ; formats texte seulement |
+| Fiches de coordination piégées dans un workflow (fausses règles pour toute l'équipe)   | Montrées avant installation comme les consignes des agents ; noms simples `.md`/`.txt` seulement, jamais un fichier qui pilote un outil ; posées sans rien remplacer, dans un dossier contrôlé ; les confirmations ne dépendent d'aucun texte |
+| Auteur qui publie par mégarde son journal ou ses accès                                | Le journal ne part jamais ; fiches choisies une par une ; celles dont le nom évoque des accès sont décochées d'office |
+| Workflow piégé (consignes d'agent malveillantes, écrasement d'un agent existant)     | Contenu montré avant installation ; rien n'est écrasé ; ni MASTER ni espace de travail importés ; les confirmations ne dépendent pas des consignes |
+| Script d'équipe malveillant reçu dans un workflow                                    | Code affiché, accord explicite lié à l'empreinte, en attente par défaut ; chaque appel d'outil confirmé ; validation d'un admin avant toute publication publique. **Pas de bac à sable** : un script accepté a les droits de l'utilisateur |
+| Script modifié après l'accord (par un autre programme, ou par un agent)              | Empreinte recalculée à chaque lancement et à chaque vérification ; `data\` fermé aux outils de fichiers |
+| Script qui lit les secrets de l'environnement de MyIA                                | Environnement réduit à une liste fermée de variables système                              |
+| Fichier de script qui sort de son dossier, ou binaire déguisé                        | Chemins relatifs validés, extensions texte seulement, contrôle du chemin résolu avant écriture |
+| Site ou réseau qui sert un autre paquet que celui annoncé                            | Empreinte SHA-256 recalculée et comparée à celle de la liste ; https ; redirections refusées |
+| Moteur Python piégé (uv modifié)                                                     | Version figée, empreinte SHA-256 vérifiée au téléchargement                             |
 | Réponse du modèle contenant du HTML/script (page web lue)                           | Markdown rendu avec HTML échappé ; CSP sans script inline ; liens ouverts hors de l'app |
 | Crash silencieux de la console ou du sidecar                                        | Erreurs fatales journalisées (event `crash`) avec la pile d'appel                       |
 | L'IA fait lancer un programme dangereux ou un shell                                 | Liste fermée de programmes enregistrés ; ajout confirmé ; shells/interpréteurs bloqués |

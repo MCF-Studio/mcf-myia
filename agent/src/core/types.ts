@@ -18,13 +18,27 @@ export interface AgentUI {
   progress(message: string): void;
 }
 
-export interface ToolContext {
+/** Ce qui dépend de l'AGENT qui appelle l'outil (les services, eux, sont partagés entre tous les agents). */
+export interface ToolScope {
+  /** Agent sur un modèle en ligne (Claude) : la mémoire lui reste fermée, y compris par les outils de fichiers. */
+  cloud?: boolean;
+  /**
+   * Espace de travail de l'agent ou de son équipe (dossier choisi par l'utilisateur, déjà contrôlé) : ouvert aux
+   * outils de fichiers, dossier des chemins relatifs et de la délégation à Claude Code sans projet.
+   */
+  workspace?: string;
+  /**
+   * Espace de coordination de l'équipe (dossier choisi par l'utilisateur, déjà contrôlé) : ouvert aux outils de
+   * fichiers ; son sous-dossier `journal` s'écrit sans confirmation (core/access.ts → checkCoordination).
+   */
+  coordination?: string;
+}
+
+export interface ToolContext extends ToolScope {
   ui: AgentUI;
   signal?: AbortSignal;
   /** Liens de confiance de la conversation en cours. */
   trust: UrlTrust;
-  /** Agent sur un modèle en ligne (Claude) : la mémoire lui reste fermée, y compris par les outils de fichiers. */
-  cloud?: boolean;
 }
 
 export interface Tool {
@@ -37,13 +51,13 @@ export interface Tool {
   /** Valide et normalise les arguments venant du modèle (lève une erreur lisible si invalides). */
   parse(raw: unknown): unknown;
   /** Projet concerné, pour la règle autoApprove. */
-  projectOf?(args: unknown): string | undefined;
+  projectOf?(args: unknown, scope?: ToolScope): string | undefined;
   /** Outils `launch` : vrai si ces arguments-là exigent quand même une confirmation. */
-  confirmIf?(args: unknown, trust: UrlTrust): boolean;
+  confirmIf?(args: unknown, trust: UrlTrust, scope?: ToolScope): boolean;
   /** Vérifications préalables (lève une erreur) : faites AVANT de demander une confirmation. */
-  check?(args: unknown): void | Promise<void>;
+  check?(args: unknown, scope?: ToolScope): void | Promise<void>;
   /** Texte exact montré à l'utilisateur avant confirmation. */
-  preview(args: unknown): string | Promise<string>;
+  preview(args: unknown, scope?: ToolScope): string | Promise<string>;
   run(args: unknown, ctx: ToolContext): Promise<string>;
 }
 
@@ -66,10 +80,10 @@ export function defineTool<S extends z.ZodType>(def: {
   description: string;
   schema: S;
   risk: Risk;
-  projectOf?: (args: z.infer<S>) => string | undefined;
-  confirmIf?: (args: z.infer<S>, trust: UrlTrust) => boolean;
-  check?: (args: z.infer<S>) => void | Promise<void>;
-  preview: (args: z.infer<S>) => string | Promise<string>;
+  projectOf?: (args: z.infer<S>, scope: ToolScope) => string | undefined;
+  confirmIf?: (args: z.infer<S>, trust: UrlTrust, scope: ToolScope) => boolean;
+  check?: (args: z.infer<S>, scope: ToolScope) => void | Promise<void>;
+  preview: (args: z.infer<S>, scope: ToolScope) => string | Promise<string>;
   run: (args: z.infer<S>, ctx: ToolContext) => Promise<string>;
 }): Tool {
   const { $schema: _ignored, ...parameters } = z.toJSONSchema(def.schema) as Record<string, unknown>;
@@ -88,10 +102,10 @@ export function defineTool<S extends z.ZodType>(def: {
       }
       return res.data;
     },
-    projectOf: def.projectOf ? (a) => def.projectOf!(a as z.infer<S>) : undefined,
-    confirmIf: def.confirmIf ? (a, t) => def.confirmIf!(a as z.infer<S>, t) : undefined,
-    check: def.check ? (a) => def.check!(a as z.infer<S>) : undefined,
-    preview: (a) => def.preview(a as z.infer<S>),
+    projectOf: def.projectOf ? (a, s = {}) => def.projectOf!(a as z.infer<S>, s) : undefined,
+    confirmIf: def.confirmIf ? (a, t, s = {}) => def.confirmIf!(a as z.infer<S>, t, s) : undefined,
+    check: def.check ? (a, s = {}) => def.check!(a as z.infer<S>, s) : undefined,
+    preview: (a, s = {}) => def.preview(a as z.infer<S>, s),
     run: (a, ctx) => def.run(a as z.infer<S>, ctx),
   };
 }

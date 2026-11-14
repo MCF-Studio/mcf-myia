@@ -1,10 +1,34 @@
 <script setup lang="ts">
-import { AlertTriangle, MessageSquarePlus, Network, Plus, RotateCcw, Save, Trash2 } from "lucide-vue-next";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import {
+  AlertTriangle,
+  CircleHelp,
+  Download,
+  FilePlus2,
+  FileUp,
+  FolderOpen,
+  MessageSquarePlus,
+  Network,
+  NotebookPen,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  UploadCloud,
+  X,
+} from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
+import FichesPicker from "../components/FichesPicker.vue";
+import ModalBox from "../components/ModalBox.vue";
+import PublishDialog from "../components/PublishDialog.vue";
 import TeamNodeView from "../components/TeamNodeView.vue";
+import TeamScripts from "../components/TeamScripts.vue";
+import WorkflowPreviewDialog from "../components/WorkflowPreviewDialog.vue";
+import { downloadText, pickTextFile } from "../lib/files";
+import { focusTeam } from "../lib/focus";
 import { call } from "../lib/rpc";
 import { createConversation, refreshOverview, refreshTeams, state, toast } from "../lib/store";
-import type { Team, TeamNode } from "../lib/types";
+import type { Team, TeamNode, WorkflowInstalled, WorkflowPreview } from "../lib/types";
 
 const selectedId = ref<string>();
 const draft = ref<Team>();
@@ -76,6 +100,48 @@ function slug(s: string) {
   );
 }
 
+async function chooseWorkspace() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier dans lequel cette équipe travaille" });
+  if (typeof dir === "string" && draft.value) draft.value.workspace = dir;
+}
+
+const coordHelp = ref(false);
+
+async function chooseCoordination() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier de coordination de cette équipe (à part du projet)" });
+  if (typeof dir === "string" && draft.value) draft.value.coordination = dir;
+}
+
+/** Pose les fichiers d'exemple dans le dossier choisi (ceux qui existent déjà sont gardés), avec les membres de l'équipe. */
+async function initCoordination() {
+  const t = draft.value;
+  if (!t?.coordination) return;
+  const ids: string[] = [];
+  const collect = (n: TeamNode) => {
+    ids.push(n.agentId);
+    n.subagents.forEach(collect);
+    n.teammates.forEach(collect);
+  };
+  collect(t.root);
+  try {
+    const r = await call<{ dir: string; created: string[]; kept: string[] }>("teams.coordinationInit", {
+      path: t.coordination,
+      name: t.name,
+      workspace: t.workspace,
+      agentIds: ids,
+    });
+    t.coordination = r.dir;
+    toast(
+      r.created.length
+        ? `Créé dans l'espace de coordination : ${r.created.join(", ")}${r.kept.length ? ` (déjà là, gardés : ${r.kept.join(", ")})` : ""}. Complète LISEZ-MOI.md.`
+        : "Les fichiers d'exemple existent déjà : rien n'a été modifié.",
+      r.created.length ? "success" : "info",
+    );
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
 async function save() {
   const t = draft.value;
   if (!t) return;
@@ -114,6 +180,74 @@ async function remove() {
   }
 }
 
+// ─── workflow : l'équipe exportée, importée, publiée ─────────────────────────
+
+const preview = ref<WorkflowPreview>();
+const publishing = ref(false);
+const scriptsPanel = ref<InstanceType<typeof TeamScripts>>();
+
+/** Export et publication portent sur l'équipe ENREGISTRÉE : on enregistre d'abord ce qui est en cours. */
+async function savedFirst(): Promise<boolean> {
+  if (!draft.value) return false;
+  if (dirty.value) await save();
+  return !dirty.value;
+}
+
+/** Export : avec un espace de coordination, on demande d'abord quelles fiches joindre. */
+const exportingFiches = ref(false);
+const exportFiches = ref<string[]>([]);
+
+async function exportTeam() {
+  if (!(await savedFirst()) || !draft.value) return;
+  if (draft.value.coordination) {
+    exportFiches.value = [];
+    exportingFiches.value = true;
+  } else await doExport([]);
+}
+
+async function doExport(fiches: string[]) {
+  if (!draft.value) return;
+  exportingFiches.value = false;
+  try {
+    const r = await call<{ filename: string; json: string; avatarsDropped: boolean; scripts: number; fiches: number }>("teams.export", {
+      id: draft.value.id,
+      fiches,
+    });
+    downloadText(r.filename, r.json);
+    const parts = [
+      ...(r.scripts ? [`${r.scripts} script${r.scripts > 1 ? "s" : ""}`] : []),
+      ...(r.fiches ? [`${r.fiches} fiche${r.fiches > 1 ? "s" : ""}`] : []),
+    ];
+    toast(
+      `Workflow exporté : ${r.filename}${parts.length ? ` (avec ${parts.join(" et ")})` : ""}${r.avatarsDropped ? ", sans les photos des agents (trop lourdes)" : ""}`,
+      "success",
+    );
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+async function importWorkflow() {
+  try {
+    const json = await pickTextFile(".json", 512_000);
+    if (!json) return;
+    preview.value = await call<WorkflowPreview>("workflows.inspect", { json });
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+function installed(r: WorkflowInstalled) {
+  preview.value = undefined;
+  select(state.teams.find((t) => t.id === r.team.id));
+  dirty.value = false;
+  void scriptsPanel.value?.refresh();
+}
+
+async function publish() {
+  if (await savedFirst()) publishing.value = true;
+}
+
 async function talk() {
   if (!draft.value) return;
   if (dirty.value) await save();
@@ -121,10 +255,52 @@ async function talk() {
   await createConversation(draft.value.root.agentId, draft.value.id).catch((e) => toast(e.message, "error"));
 }
 
+/* Déplacement de la carte en la faisant glisser à la souris (le tactile défile déjà nativement).
+   Ce que la carte ne peut pas absorber verticalement fait défiler la page, pour atteindre le bas d'un grand arbre. */
+const canvas = ref<HTMLElement>();
+let pan: { id: number; x: number; y: number; moved: boolean } | undefined;
+
+function panStart(e: PointerEvent) {
+  if (e.pointerType !== "mouse" || e.button !== 0) return;
+  if ((e.target as HTMLElement).closest("button, select, input, a, label")) return;
+  pan = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+}
+function panMove(e: PointerEvent) {
+  const el = canvas.value;
+  if (!pan || !el || e.pointerId !== pan.id) return;
+  const dx = e.clientX - pan.x;
+  const dy = e.clientY - pan.y;
+  if (!pan.moved) {
+    if (Math.hypot(dx, dy) < 4) return;
+    pan.moved = true;
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("panning");
+  }
+  pan.x = e.clientX;
+  pan.y = e.clientY;
+  el.scrollLeft -= dx;
+  const top = el.scrollTop;
+  el.scrollTop -= dy;
+  const rest = dy - (top - el.scrollTop);
+  const page = el.closest<HTMLElement>(".page");
+  if (rest && page) page.scrollTop -= rest;
+}
+function panEnd(e: PointerEvent) {
+  if (!pan || e.pointerId !== pan.id) return;
+  canvas.value?.classList.remove("panning");
+  pan = undefined;
+}
+
 watch(
   () => state.teams,
   (teams) => {
-    if (!draft.value) select(teams[0]);
+    // Équipe demandée par un autre écran (installation depuis le Marketplace) : on l'ouvre dès qu'elle est chargée.
+    const wanted = focusTeam.value ? teams.find((t) => t.id === focusTeam.value) : undefined;
+    if (wanted) {
+      focusTeam.value = undefined;
+      select(wanted);
+      dirty.value = false;
+    } else if (!draft.value) select(teams[0]);
   },
   { immediate: true },
 );
@@ -156,6 +332,7 @@ watch(
         </button>
         <span v-if="!state.teams.length && !isNew" class="small muted">Aucune équipe : un chef, des sous-agents en dessous, des coéquipiers à côté.</span>
         <button class="btn primary sm" @click="select()"><Plus :size="15" /> Nouvelle équipe</button>
+        <button class="btn sm" title="Installer une équipe reçue en fichier .workflow.json" @click="importWorkflow"><FileUp :size="15" /> Importer un workflow</button>
       </aside>
 
       <section v-if="draft" class="editor">
@@ -163,6 +340,75 @@ watch(
           <div class="head-fields">
             <input v-model="draft.name" class="input title" maxlength="60" placeholder="Nom de l'équipe" />
             <input v-model="draft.description" class="input" maxlength="300" placeholder="À quoi sert cette équipe ? (optionnel)" />
+          </div>
+          <div class="workspace">
+            <div class="row">
+              <span class="small ws-label"><FolderOpen :size="15" /> Espace de travail</span>
+              <input class="input grow mono" :value="draft.workspace ?? ''" readonly placeholder="Aucun : chaque agent garde le sien" :title="draft.workspace" />
+              <button type="button" class="btn" @click="chooseWorkspace"><FolderOpen :size="15" /> Choisir…</button>
+              <button v-if="draft.workspace" type="button" class="btn ghost" title="Retirer l'espace de travail" @click="draft.workspace = undefined"><X :size="15" /></button>
+            </div>
+            <span class="tiny muted">
+              Le dossier du projet de cette équipe, sur n'importe quel disque : tous ses membres y lisent, cherchent et écrivent, et
+              Claude Code y est lancé quand ils délèguent. Les confirmations restent les mêmes.
+            </span>
+          </div>
+          <div class="workspace">
+            <div class="row">
+              <span class="small ws-label">
+                <NotebookPen :size="15" /> Espace de coordination
+                <button type="button" class="help" :class="{ on: coordHelp }" :aria-expanded="coordHelp" title="Qu'est-ce que c'est ?" @click="coordHelp = !coordHelp">
+                  <CircleHelp :size="15" />
+                </button>
+              </span>
+              <input class="input grow mono" :value="draft.coordination ?? ''" readonly placeholder="Aucun : l'équipe ne garde pas de mémoire commune" :title="draft.coordination" />
+              <button type="button" class="btn" @click="chooseCoordination"><FolderOpen :size="15" /> Choisir…</button>
+              <button v-if="draft.coordination" type="button" class="btn" title="Créer les fichiers d'exemple qui manquent (rien n'est remplacé)" @click="initCoordination">
+                <FilePlus2 :size="15" /> Créer l'exemple
+              </button>
+              <button v-if="draft.coordination" type="button" class="btn ghost" title="Retirer l'espace de coordination (le dossier n'est pas supprimé)" @click="draft.coordination = undefined"><X :size="15" /></button>
+            </div>
+            <span class="tiny muted">
+              Un dossier à part du projet, où l'équipe note ses règles communes et tient son journal : chaque membre sait où en est le
+              travail en arrivant, et le note en partant.
+            </span>
+            <div v-if="coordHelp" class="help-box small">
+              <p>
+                <strong>À quoi ça sert.</strong> Un agent ne se souvient pas de la conversation d'hier, ni de ce qu'a fait son voisin. L'espace de
+                coordination est la mémoire commune de l'équipe : ce que tout le monde doit savoir, et où en est le travail. Sans lui, chaque
+                membre repart de zéro et tu répètes les mêmes consignes.
+              </p>
+              <p><strong>Ce qu'il contient.</strong> Le bouton « Créer l'exemple » pose cette base, à adapter :</p>
+              <ul>
+                <li><span class="mono">LISEZ-MOI.md</span> : le projet, qui fait quoi dans l'équipe, les règles pour tous. C'est toi qui l'écris.</li>
+                <li><span class="mono">methode.md</span> : comment reprendre le fil en arrivant et rendre compte en partant.</li>
+                <li><span class="mono">journal/etat.md</span> : où en est le travail, réécrit par l'équipe quand ça change.</li>
+                <li><span class="mono">journal/AAAA-MM-JJ.md</span> : un fichier par jour, les comptes rendus dans l'ordre.</li>
+              </ul>
+              <p>Tu peux y ajouter une fiche par sujet qui revient (livraison, commandes utiles, où sont les accès…).</p>
+              <p>
+                <strong>Ce que MyIA en fait.</strong> À chaque demande, chaque membre reçoit le début de <span class="mono">LISEZ-MOI.md</span> et de
+                <span class="mono">journal/etat.md</span>, et la consigne de tenir le journal. Quand un membre délègue à Claude Code, celui-ci
+                reçoit aussi l'accès au dossier et lit <span class="mono">methode.md</span>.
+              </p>
+              <p>
+                <strong>Les confirmations.</strong> L'équipe écrit dans <span class="mono">journal/</span> sans te demander, pour que le journal
+                soit vraiment tenu. Modifier les règles et les fiches (à la racine) te demande toujours confirmation : ce sont elles qui guident
+                tous les membres.
+              </p>
+              <p>
+                <strong>À ne pas confondre.</strong> L'<em>espace de travail</em> est le dossier du projet, celui qu'on construit. La
+                <em>mémoire</em> (Paramètres) contient tes notes personnelles, et ne part jamais chez Claude. L'espace de coordination, lui, est
+                lu par tous les membres, y compris ceux qui tournent sur Claude : n'y mets ni clé ni mot de passe, seulement
+                <em>où</em> ils se trouvent.
+              </p>
+              <p>
+                <strong>Quand tu partages l'équipe.</strong> À l'export et à la publication, tu choisis une par une les fiches de la racine à
+                joindre : celui qui installe le workflow les reçoit, dans un dossier qu'il choisit. Le journal ne part jamais, ni l'emplacement
+                du dossier.
+              </p>
+              <p class="muted">Choisis un dossier hors du projet (pas un dépôt git).</p>
+            </div>
           </div>
           <div class="budgets">
             <label>
@@ -187,13 +433,26 @@ watch(
               <Trash2 :size="15" /> {{ armed ? "Confirmer" : "Supprimer" }}
             </button>
             <button v-if="!isNew && dirty" class="btn ghost" @click="select(state.teams.find((t) => t.id === selectedId))"><RotateCcw :size="15" /> Annuler</button>
+            <button class="btn" :disabled="!draft.name.trim()" title="Enregistrer l'équipe dans un fichier .workflow.json à partager" @click="exportTeam">
+              <Download :size="15" /> Exporter en workflow
+            </button>
+            <button class="btn" :disabled="!draft.name.trim()" title="Publier sur le marketplace de mcfstudio.fr (privé ou public)" @click="publish">
+              <UploadCloud :size="15" /> Publier
+            </button>
             <span class="spacer" />
             <button class="btn" :disabled="!draft.name.trim()" @click="talk"><MessageSquarePlus :size="15" /> Discuter avec l'équipe</button>
             <button class="btn primary" :disabled="!dirty || !draft.name.trim()" @click="save"><Save :size="15" /> Enregistrer</button>
           </div>
         </div>
 
-        <div class="canvas card">
+        <div
+          ref="canvas"
+          class="canvas card"
+          @pointerdown="panStart"
+          @pointermove="panMove"
+          @pointerup="panEnd"
+          @pointercancel="panEnd"
+        >
           <div class="legend tiny muted">
             <span><i class="l-sub" /> sous-agent : reçoit une tâche déléguée</span>
             <span><i class="l-peer" /> coéquipier : même niveau, vient en renfort avec ses propres agents</span>
@@ -203,12 +462,29 @@ watch(
           </div>
         </div>
 
+        <TeamScripts ref="scriptsPanel" v-model="draft.scripts" />
+
         <p class="tiny muted note">
           <Network :size="14" /> Un agent n'appelle que ses sous-agents et coéquipiers directs, jamais un agent déjà
           sollicité pour la même demande (pas de boucle). Les actions sensibles demandent toujours ta confirmation, quel que soit l'agent.
         </p>
       </section>
     </div>
+
+    <ModalBox v-if="exportingFiches && draft" :title="`Exporter « ${draft.name} »`" @close="exportingFiches = false">
+      <template #icon><Download :size="20" /></template>
+      <p class="small export-note">
+        Le fichier contient l'équipe, ses agents et ses scripts. Tu peux y joindre les fiches de son espace de coordination.
+      </p>
+      <FichesPicker v-model="exportFiches" :team-id="draft.id" />
+      <template #actions>
+        <button type="button" class="btn ghost" @click="exportingFiches = false">Annuler</button>
+        <button type="button" class="btn primary" @click="doExport(exportFiches)"><Download :size="15" /> Exporter</button>
+      </template>
+    </ModalBox>
+
+    <WorkflowPreviewDialog v-if="preview" :preview="preview" @close="preview = undefined" @installed="installed" />
+    <PublishDialog v-if="publishing && draft" :team="draft" @close="publishing = false" @published="publishing = false" />
   </div>
 </template>
 
@@ -217,6 +493,11 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--gap);
+}
+/* .page a une hauteur fixe : sans ça, les blocs se tassent au lieu de faire défiler la page
+   et le bas de l'organigramme déborde hors de la zone défilable. */
+.teams > * {
+  flex-shrink: 0;
 }
 .warn-banner {
   display: flex;
@@ -249,7 +530,6 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--gap);
-  min-height: 0;
 }
 .team-list {
   display: flex;
@@ -308,6 +588,62 @@ watch(
 .title {
   font-weight: 650;
 }
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.workspace .grow {
+  flex: 1;
+  min-width: 0;
+}
+.ws-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.help {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.help:hover,
+.help.on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.export-note {
+  margin: 0;
+}
+.help-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--hairline));
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-elevated));
+  line-height: 1.55;
+}
+.help-box p,
+.help-box ul {
+  margin: 0;
+}
+.help-box ul {
+  padding-left: 20px;
+}
+.help-box strong {
+  color: var(--text);
+}
 .budgets {
   display: grid;
   grid-template-columns: 1fr 1fr auto;
@@ -334,9 +670,16 @@ watch(
   border-color: var(--danger);
   color: var(--danger);
 }
+.head-actions {
+  flex-wrap: wrap;
+}
 .canvas {
   overflow: auto;
-  min-height: 420px;
+  overscroll-behavior-x: contain;
+  min-height: min(420px, 60vh);
+  /* reste dans la fenêtre : les deux barres de défilement de la carte restent atteignables */
+  max-height: max(320px, calc(100vh - var(--titlebar-h, 0px) - 2 * var(--pad)));
+  cursor: grab;
   background:
     radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text-muted) 18%, transparent) 1px, transparent 0) 0 0 / 22px 22px,
     var(--bg-elevated);
@@ -366,9 +709,56 @@ watch(
   padding: 6px 6px 20px;
   min-width: 100%;
 }
+.canvas.panning {
+  cursor: grabbing;
+  user-select: none;
+}
+.canvas :is(button, select, input) {
+  cursor: pointer;
+}
 .note {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Fenêtres étroites : les champs et budgets passent en colonne, les boutons reviennent à la ligne. */
+@media (max-width: 900px) {
+  .budgets {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 24px;
+  }
+  .head-stats {
+    grid-column: 1 / -1;
+    max-width: none;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 640px) {
+  .warn-banner {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+  .head-fields,
+  .budgets {
+    grid-template-columns: 1fr;
+  }
+  .workspace .row {
+    flex-wrap: wrap;
+  }
+  .ws-label {
+    flex-basis: 100%;
+  }
+  .head-actions .spacer {
+    display: none;
+  }
+  .legend {
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .canvas {
+    padding: 12px;
+  }
 }
 </style>
