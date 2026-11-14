@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "Vérifie l'environnement Rust : versions de rustc, cargo et rustup, toolchain active, toolchains et cibles installées, composants clippy et rustfmt.",
   "category": "rust",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {},
-  "permissions": ["process.exec.readonly"]
+  "permissions": [
+    "process.exec.readonly"
+  ]
 }

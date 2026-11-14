@@ -3,11 +3,22 @@
   "version": "1.0.0",
   "description": "Affiche une notification Windows (bulle de la zone de notification) avec un titre et un message.",
   "category": "system",
+  "risk": "launch",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "title": {"type": "string", "required": true, "description": "Titre (max 63 caractères)."},
-    "message": {"type": "string", "required": true, "description": "Texte (max 255 caractères)."}
+    "title": {
+      "type": "string",
+      "required": true,
+      "description": "Titre (max 63 caractères)."
+    },
+    "message": {
+      "type": "string",
+      "required": true,
+      "description": "Texte (max 255 caractères)."
+    }
   },
-  "permissions": ["process.exec"]
+  "permissions": [
+    "app.launch"
+  ]
 }

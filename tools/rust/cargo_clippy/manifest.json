@@ -1,15 +1,37 @@
 {
   "name": "cargo_clippy",
   "version": "1.0.0",
-  "description": "Lance Clippy (cargo clippy) dans un projet Rust et présente ses avertissements : lint, message, fichier:ligne, regroupés par lint avec leur nombre.",
+  "description": "Lance Clippy (cargo clippy) dans un projet Rust et présente ses avertissements : lint, message, fichier:ligne, regroupés par lint avec leur nombre. Exécute le code du projet (build.rs, macros, tests) et écrit dans target/ : niveau local, confirmé.",
   "category": "rust",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "project": {"type": "string", "required": true, "kind": "path", "description": "Dossier contenant Cargo.toml."},
-    "package": {"type": "string", "description": "Crate du workspace à analyser (-p)."},
-    "all_targets": {"type": "boolean", "description": "Inclure tests, exemples et benchmarks (--all-targets, défaut true)."},
-    "timeout": {"type": "integer", "description": "Délai maximal en secondes (défaut 900)."}
+    "project": {
+      "type": "string",
+      "required": true,
+      "kind": "path",
+      "description": "Dossier contenant Cargo.toml.",
+      "access": "write"
+    },
+    "package": {
+      "type": "string",
+      "description": "Crate du workspace à analyser (-p)."
+    },
+    "all_targets": {
+      "type": "boolean",
+      "description": "Inclure tests, exemples et benchmarks (--all-targets, défaut true)."
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "Délai maximal en secondes (défaut 900).",
+      "min": 1,
+      "max": 1800
+    }
   },
-  "permissions": ["process.exec", "filesystem.read"]
+  "permissions": [
+    "process.exec",
+    "filesystem.read",
+    "filesystem.write"
+  ]
 }

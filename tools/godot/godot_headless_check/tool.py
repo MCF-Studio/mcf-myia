@@ -3,7 +3,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from common import app_path, resolve_app
+from common import app_path, bounded, resolve_app
 
 LEVEL = re.compile(r"^(SCRIPT ERROR|ERROR|WARNING|USER ERROR|USER WARNING):\s*(.*)$")
 MAX = 50
@@ -16,7 +16,7 @@ def execute(params):
     exe = app_path(resolve_app("godot")[1])
     if not exe:
         raise FileNotFoundError("Godot introuvable (tools/apps.json)")
-    timeout = params.get("timeout", 120)
+    timeout = bounded(params, "timeout", 120, 1, 600)
     t0 = time.time()
     try:
         r = subprocess.run([exe, "--headless", "--path", str(root), "--import", "--quit"],

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Analyse un projet Godot : project.godot, scènes, scripts, ressources, plugins, références res:// manquantes.",
   "category": "godot",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {

@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "Liste les applications du catalogue (tools/apps.json) avec alias et présence de l'exécutable.",
   "category": "system",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {},
-  "permissions": ["filesystem.read"]
+  "permissions": [
+    "filesystem.read"
+  ]
 }

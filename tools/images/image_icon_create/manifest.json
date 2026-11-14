@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Dessine une icône simple en vectoriel lissé : forme de fond (cercle, carré arrondi, hexagone...), dégradé, bordure, symbole (play, check, gear, home, heart...) et/ou initiales. Pour boutons, favicons, pictos.",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -10,7 +11,8 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (png conseillé).",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "size": {
       "type": "integer",
@@ -67,6 +69,10 @@
     "quality": {
       "type": "integer",
       "description": "JPEG/WebP 1-100."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

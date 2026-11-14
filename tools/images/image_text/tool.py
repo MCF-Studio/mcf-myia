@@ -1,6 +1,6 @@
 from PIL import Image, ImageDraw
 
-from imaging import anchor_xy, load_font, parse_color, run_batch
+from imaging import anchor_xy, check_canvas, load_font, parse_color, run_batch
 
 
 def execute(params):
@@ -12,8 +12,10 @@ def execute(params):
     stroke_w, margin = params.get("stroke_width", 0), params.get("margin", 16)
     box = parse_color(params["background"]) if "background" in params else None
     opacity, position = params.get("opacity", 100), params.get("position", "bottom-right")
-    if not 0 <= opacity <= 100 or pct <= 0:
-        raise ValueError("opacity 0-100, size_pct > 0")
+    if not 0 <= opacity <= 100 or not 0 < pct <= 100:
+        raise ValueError("opacity 0-100, size_pct > 0 et <= 100")
+    if (px is not None and not 1 <= px <= 4096) or not 0 <= stroke_w <= 256:
+        raise ValueError("size : 1 à 4096 px, stroke_width : 0 à 256")
     anchor_xy(position, (1, 1), (0, 0))
 
     def process(im, _src):
@@ -23,6 +25,7 @@ def execute(params):
                                               align=params.get("align", "left"))
         pad = round(font.size * .3) if box else 0
         w, h = r - l + 2 * pad, b - t + 2 * pad
+        check_canvas(w, h, "bloc de texte")
         layer = Image.new("RGBA", (w, h), box or (0, 0, 0, 0))
         d = ImageDraw.Draw(layer)
         d.multiline_text((pad - l, pad - t), text, font=font, fill=color, stroke_width=stroke_w,

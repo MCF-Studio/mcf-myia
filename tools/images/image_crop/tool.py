@@ -27,6 +27,8 @@ def execute(params):
     if sum(modes) != 1:
         raise ValueError("un seul mode : trim, ratio, ou rectangle (x, y, width, height)")
     tol, pad = params.get("tolerance", 8), params.get("padding", 0)
+    if not -16384 <= pad <= 16384:
+        raise ValueError("padding : -16384 à 16384")
 
     def process(im, _src):
         W, H = im.size

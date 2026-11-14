@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Génère le jeu d'icônes d'application depuis une image source : preset 'tauri' (icon.ico, icon.icns, icon.png, 32x32, 128x128, 128x128@2x), 'web' (favicon.ico, apple-touch-icon, 192/512), 'windows', ou 'sizes' (tailles libres).",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,7 +17,8 @@
       "type": "string",
       "required": true,
       "description": "Dossier de sortie (ex. app/src-tauri/icons).",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "preset": {
       "type": "string",
@@ -26,6 +28,10 @@
     "sizes": {
       "type": "array",
       "description": "preset sizes : tailles en px, ex. [16, 64, 512]."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

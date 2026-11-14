@@ -1,12 +1,15 @@
 from PIL import Image
 
-from imaging import open_image, save_image, to_hex
+from imaging import guard_output, open_image, save_image, to_hex
 
 
 def execute(params):
     n = params.get("colors", 6)
     if not 1 <= n <= 32:
         raise ValueError("colors : 1 à 32")
+    overwrite = params.get("overwrite", False) is True
+    if params.get("output"):          # avant tout travail : ni l'image analysée, ni un fichier existant
+        guard_output(params["output"], overwrite, [params["path"]])
     im = open_image(params["path"])
     im.thumbnail((200, 200))
     px = [p for p in im.getdata() if p[3] >= 128]       # ignore le transparent
@@ -24,6 +27,6 @@ def execute(params):
         strip = Image.new("RGBA", (sw * len(colors), sw))
         for i, c in enumerate(colors):
             strip.paste(tuple(c["rgb"]) + (255,), (i * sw, 0, (i + 1) * sw, sw))
-        save_image(strip, params["output"])
+        save_image(strip, params["output"], overwrite=overwrite, sources=[params["path"]])
         data["swatch"] = params["output"]
     return {"data": data}

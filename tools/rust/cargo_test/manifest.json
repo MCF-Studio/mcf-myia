@@ -1,15 +1,37 @@
 {
   "name": "cargo_test",
   "version": "1.0.0",
-  "description": "Lance 'cargo test' dans un projet Rust : résultat de chaque test (ok, échec, ignoré), sortie des tests en échec, erreurs de compilation, totaux et durée.",
+  "description": "Lance 'cargo test' dans un projet Rust : résultat de chaque test (ok, échec, ignoré), sortie des tests en échec, erreurs de compilation, totaux et durée. Exécute le code du projet (build.rs, macros, tests) et écrit dans target/ : niveau local, confirmé.",
   "category": "rust",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "project": {"type": "string", "required": true, "kind": "path", "description": "Dossier contenant Cargo.toml."},
-    "filter": {"type": "string", "description": "Ne lancer que les tests dont le nom contient ce texte."},
-    "package": {"type": "string", "description": "Crate du workspace à tester (-p)."},
-    "timeout": {"type": "integer", "description": "Délai maximal en secondes (défaut 900)."}
+    "project": {
+      "type": "string",
+      "required": true,
+      "kind": "path",
+      "description": "Dossier contenant Cargo.toml.",
+      "access": "write"
+    },
+    "filter": {
+      "type": "string",
+      "description": "Ne lancer que les tests dont le nom contient ce texte."
+    },
+    "package": {
+      "type": "string",
+      "description": "Crate du workspace à tester (-p)."
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "Délai maximal en secondes (défaut 900).",
+      "min": 1,
+      "max": 1800
+    }
   },
-  "permissions": ["process.exec", "filesystem.read"]
+  "permissions": [
+    "process.exec",
+    "filesystem.read",
+    "filesystem.write"
+  ]
 }

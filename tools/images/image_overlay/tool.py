@@ -3,15 +3,15 @@ from pathlib import Path
 
 from PIL import Image
 
-from imaging import anchor_xy, open_image, run_batch
+from imaging import anchor_xy, check_canvas, open_image, run_batch
 
 
 def execute(params):
     ov_path = Path(params["overlay"])
     ov = open_image(ov_path)
     scale, opacity = params.get("scale", 20), params.get("opacity", 100)
-    if not 0 <= opacity <= 100 or scale < 0:
-        raise ValueError("opacity 0-100, scale >= 0 (0 = taille d'origine)")
+    if not 0 <= opacity <= 100 or not 0 <= scale <= 1000:
+        raise ValueError("opacity 0-100, scale 0-1000 (% de la largeur ; 0 = taille d'origine)")
     margin, position = params.get("margin", 16), params.get("position", "bottom-right")
     anchor_xy(position, (1, 1), (0, 0))  # valide la position avant de traiter
     ov_real = os.path.normcase(os.path.realpath(ov_path))
@@ -22,7 +22,9 @@ def execute(params):
         o = ov
         if scale > 0:
             w = max(1, round(im.width * scale / 100))
-            o = ov.resize((w, max(1, round(ov.height * w / ov.width))), Image.LANCZOS)
+            oh = max(1, round(ov.height * w / ov.width))
+            check_canvas(w, oh, "logo redimensionné")
+            o = ov.resize((w, oh), Image.LANCZOS)
         if opacity < 100:
             o = o.copy()
             o.putalpha(o.getchannel("A").point(lambda v: v * opacity // 100))
@@ -36,4 +38,4 @@ def execute(params):
         layer.paste(o, (x, y))
         return Image.alpha_composite(im, layer)
 
-    return run_batch(params, process)
+    return run_batch(params, process, protect=[ov_path])   # le logo n'est jamais une sortie

@@ -2,7 +2,7 @@ import ast
 import re
 from pathlib import Path
 
-from common import iter_files
+from common import bounded, iter_files
 
 MAX_FILE = 2_000_000
 
@@ -94,7 +94,7 @@ def execute(params):
     root = Path(params["path"])
     if not root.exists():
         raise FileNotFoundError(f"introuvable : {root}")
-    limit = params.get("limit", 300)
+    limit = bounded(params, "limit", 300, 1, 1000)
     keep_imports = params.get("imports", False)
     files = [root] if root.is_file() else [p for p in iter_files(root) if p.suffix.lower() in SUPPORTED]
     if root.is_file() and root.suffix.lower() not in SUPPORTED:

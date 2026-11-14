@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Allège des images (une ou un dossier) : conversion png/jpg/webp, plus grand côté maximal, palette PNG réduite ; supprime les métadonnées EXIF. Rapporte les octets économisés.",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,7 +17,8 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "recursive": {
       "type": "boolean",
@@ -38,6 +40,10 @@
     "png_colors": {
       "type": "integer",
       "description": "PNG : palette 2-256 couleurs (gros gain pour icônes/aplats)."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

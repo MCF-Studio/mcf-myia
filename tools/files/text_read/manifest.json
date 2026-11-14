@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Lit un fichier texte (ou une plage de lignes) avec numéros de ligne ; sortie plafonnée.",
   "category": "files",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -14,11 +15,14 @@
     },
     "start": {
       "type": "integer",
-      "description": "Première ligne (défaut 1)."
+      "description": "Première ligne (défaut 1).",
+      "min": 1
     },
     "lines": {
       "type": "integer",
-      "description": "Nombre de lignes (défaut 200)."
+      "description": "Nombre de lignes (défaut 200).",
+      "min": 1,
+      "max": 2000
     }
   },
   "permissions": [

@@ -10,12 +10,12 @@ def execute(params):
     if not any(k in params for k in OPS):
         raise ValueError("au moins une opération : " + ", ".join(OPS))
     for k in ("brightness", "contrast", "saturation", "sharpness", "gamma"):
-        if k in params and params[k] <= 0 and k != "sharpness":
-            raise ValueError(f"{k} > 0 (1.0 = inchangé)")
+        if k in params and (params[k] > 100 or (params[k] <= 0 and k != "sharpness")):
+            raise ValueError(f"{k} : > 0 et <= 100 (1.0 = inchangé)")
     if "posterize" in params and not 1 <= params["posterize"] <= 8:
         raise ValueError("posterize : 1 à 8 bits")
-    if params.get("pixelate", 2) < 2 or params.get("blur", 0) < 0:
-        raise ValueError("pixelate >= 2 (taille des blocs en px), blur >= 0")
+    if not 2 <= params.get("pixelate", 2) <= 4096 or not 0 <= params.get("blur", 0) <= 256:
+        raise ValueError("pixelate : 2 à 4096 (taille des blocs en px), blur : 0 à 256")
 
     def process(im, _src):
         a = im.getchannel("A")

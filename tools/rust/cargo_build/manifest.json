@@ -1,16 +1,41 @@
 {
   "name": "cargo_build",
   "version": "1.0.0",
-  "description": "Construit un projet Rust (profil debug ou release) : diagnostics structurés, exécutables produits, code de sortie et durée.",
+  "description": "Construit un projet Rust (profil debug ou release) : diagnostics structurés, exécutables produits, code de sortie et durée. Exécute le code du projet (build.rs, macros, tests) et écrit dans target/ : niveau local, confirmé.",
   "category": "rust",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "project": {"type": "string", "required": true, "kind": "path", "description": "Dossier contenant Cargo.toml."},
-    "profile": {"type": "string", "description": "debug (défaut) ou release."},
-    "package": {"type": "string", "description": "Crate du workspace à construire (-p)."},
-    "bin": {"type": "string", "description": "Binaire à construire (--bin)."},
-    "timeout": {"type": "integer", "description": "Délai maximal en secondes (défaut 1800)."}
+    "project": {
+      "type": "string",
+      "required": true,
+      "kind": "path",
+      "description": "Dossier contenant Cargo.toml.",
+      "access": "write"
+    },
+    "profile": {
+      "type": "string",
+      "description": "debug (défaut) ou release."
+    },
+    "package": {
+      "type": "string",
+      "description": "Crate du workspace à construire (-p)."
+    },
+    "bin": {
+      "type": "string",
+      "description": "Binaire à construire (--bin)."
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "Délai maximal en secondes (défaut 1800).",
+      "min": 1,
+      "max": 3600
+    }
   },
-  "permissions": ["process.exec", "filesystem.read", "filesystem.write"]
+  "permissions": [
+    "process.exec",
+    "filesystem.read",
+    "filesystem.write"
+  ]
 }

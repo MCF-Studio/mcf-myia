@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-from common import iter_files
+from common import bounded, iter_files
 
 DEFAULT = ["TODO", "FIXME", "HACK", "XXX", "BUG"]
 MAX_FILE = 2_000_000
@@ -32,7 +32,7 @@ def execute(params):
     bad = [m for m in markers if not MARKER.match(m)]
     if not markers or bad:
         raise ValueError(f"marqueurs invalides : {', '.join(bad) or '(aucun)'} (lettres seulement)")
-    limit = params.get("limit", 200)
+    limit = bounded(params, "limit", 200, 1, 1000)
     items, totals, total = [], {m: 0 for m in markers}, 0
     for p in iter_files(root):
         if p.suffix.lower() not in TEXT_EXT or p.stat().st_size > MAX_FILE:

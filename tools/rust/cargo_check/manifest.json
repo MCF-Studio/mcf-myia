@@ -1,8 +1,9 @@
 {
   "name": "cargo_check",
   "version": "1.0.0",
-  "description": "Lance 'cargo check' dans un projet Rust et renvoie les diagnostics structurés (niveau, message, fichier:ligne), code de sortie et durée.",
+  "description": "Lance 'cargo check' dans un projet Rust et renvoie les diagnostics structurés (niveau, message, fichier:ligne), code de sortie et durée. Exécute le code du projet (build.rs, macros, tests) et écrit dans target/ : niveau local, confirmé.",
   "category": "rust",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -10,15 +11,19 @@
       "type": "string",
       "required": true,
       "description": "Dossier contenant Cargo.toml (workspace ou crate).",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "timeout": {
       "type": "integer",
-      "description": "Délai maximal en secondes (défaut 600)."
+      "description": "Délai maximal en secondes (défaut 600).",
+      "min": 1,
+      "max": 1800
     }
   },
   "permissions": [
     "process.exec",
-    "filesystem.read"
+    "filesystem.read",
+    "filesystem.write"
   ]
 }

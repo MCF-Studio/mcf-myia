@@ -1,1 +1,2 @@
-Pillow>=10.1
+# Version figée : celle que la CI installe et teste (job « tools » de .github/workflows/ci.yml).
+Pillow==13.0.0

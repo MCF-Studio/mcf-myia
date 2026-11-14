@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "État du dépôt : branche, fichiers modifiés / indexés / non suivis.",
   "category": "git",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {

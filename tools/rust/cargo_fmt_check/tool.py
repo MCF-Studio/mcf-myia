@@ -2,6 +2,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from common import bounded
+
 MAX_FILES = 100
 MAX_DIFF_LINES = 120
 # « Diff in C:\…\src\main.rs:12: » (rustfmt récent) ou « Diff in /…/main.rs at line 12: » (ancien format).
@@ -23,7 +25,7 @@ def execute(params):
     root = Path(params["project"])
     if not (root / "Cargo.toml").is_file():
         raise FileNotFoundError(f"pas de Cargo.toml dans {root}")
-    timeout = params.get("timeout", 120)
+    timeout = bounded(params, "timeout", 120, 1, 600)
     try:
         # --check : rustfmt n'écrit rien, il compare seulement.
         r = subprocess.run(["cargo", "fmt", "--all", "--check"], cwd=root, capture_output=True, text=True,

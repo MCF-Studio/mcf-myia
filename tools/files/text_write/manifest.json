@@ -1,14 +1,31 @@
 {
   "name": "text_write",
   "version": "1.0.0",
-  "description": "Crée un fichier texte (UTF-8). Refuse d'écraser un fichier existant sauf overwrite=true, auquel cas une copie .bak est gardée.",
+  "description": "Crée un fichier texte (UTF-8). Refuse d'écraser un fichier existant sauf overwrite=true, auquel cas une copie .bak est gardée. Formats texte uniquement (txt, md, csv, json, yaml, toml, xml, html, css, sql…) : ni code ni script, ni fichier qui pilote un outil (package.json, Cargo.toml, CLAUDE.md…), jamais dans .git, .vscode, .claude, .github. 1 Mo au plus.",
   "category": "files",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "path": {"type": "string", "required": true, "kind": "path", "description": "Fichier à écrire (dans un dossier autorisé en écriture)."},
-    "content": {"type": "string", "required": true, "description": "Contenu."},
-    "overwrite": {"type": "boolean", "description": "Autoriser l'écrasement (défaut non)."}
+    "path": {
+      "type": "string",
+      "required": true,
+      "kind": "path",
+      "description": "Fichier à écrire (dans un dossier autorisé en écriture).",
+      "access": "write"
+    },
+    "content": {
+      "type": "string",
+      "required": true,
+      "description": "Contenu.",
+      "max_length": 1000000
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Autoriser l'écrasement (défaut non)."
+    }
   },
-  "permissions": ["filesystem.write"]
+  "permissions": [
+    "filesystem.write"
+  ]
 }

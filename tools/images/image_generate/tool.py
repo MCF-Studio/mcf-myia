@@ -2,7 +2,7 @@ import random
 
 from PIL import Image, ImageChops, ImageDraw
 
-from imaging import parse_color, save_image
+from imaging import check_canvas, parse_color, save_image
 
 KINDS = ("solid", "gradient", "radial", "checker", "stripes", "noise")
 
@@ -26,8 +26,8 @@ def _mask(kind, w, h, p):
         return Image.radial_gradient("L").resize((w, h), Image.BILINEAR)         # noir au centre -> blanc au bord
     if kind in ("checker", "stripes"):
         n = p.get("cell", 32)
-        if n < 1:
-            raise ValueError("cell >= 1")
+        if n < 1 or (w // n + 1) * (h // n + 1) > 1_000_000:
+            raise ValueError("cell >= 1, et un million de cases au plus (agrandir cell)")
         m = Image.new("L", (w, h), 0)
         d = ImageDraw.Draw(m)
         for y in range(0, h, n):
@@ -45,8 +45,9 @@ def execute(params):
     w, h, kind = params.get("width", 256), params.get("height", 256), params.get("kind", "solid")
     if not (1 <= w <= 8192 and 1 <= h <= 8192):
         raise ValueError("width/height : 1 à 8192")
+    check_canvas(w, h)
     c1, c2 = parse_color(params.get("color", "#808080")), parse_color(params.get("color2", "#ffffff"))
     mask = _mask(kind, w, h, params)
     out = Image.composite(Image.new("RGBA", (w, h), c2), Image.new("RGBA", (w, h), c1), mask)
-    size, _ = save_image(out, params["output"], params.get("quality", 90))
+    size, _ = save_image(out, params["output"], params.get("quality", 90), overwrite=params.get("overwrite", False) is True)
     return {"data": {"output": params["output"], "kind": kind, "width": w, "height": h, "bytes": size}}

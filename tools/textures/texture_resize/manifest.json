@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Redimensionne une image (LANCZOS) vers width x height, ou à l'échelle si une seule dimension est donnée. Ne modifie jamais la source : écrit dans 'output'.",
   "category": "textures",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,7 +17,8 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (différent de la source).",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "width": {
       "type": "integer",
@@ -25,6 +27,10 @@
     "height": {
       "type": "integer",
       "description": "Hauteur cible en pixels."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

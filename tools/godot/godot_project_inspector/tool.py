@@ -29,7 +29,7 @@ def execute(params):
     settings = {k: v.strip() for k, v in CFG.findall(cfg.read_text(encoding="utf-8", errors="replace"))}
     missing = {}
     for p in files:
-        if p.suffix in (".tscn", ".tres", ".gd", ".godot", ".cfg"):
+        if p.suffix in (".tscn", ".tres", ".gd", ".godot", ".cfg") and p.stat().st_size <= 2_000_000:
             for ref in set(RES.findall(p.read_text(encoding="utf-8", errors="replace"))):
                 if not (root / ref[6:]).exists():
                     missing.setdefault(ref, []).append(rel(p, root))

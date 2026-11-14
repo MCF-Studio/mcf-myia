@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Convertit une image vers le format de l'extension de 'output' (png, jpg, webp, tiff...). Gère l'alpha vers JPEG (aplati sur fond blanc, avec avertissement).",
   "category": "textures",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,11 +17,16 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (différent de la source).",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "quality": {
       "type": "integer",
       "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

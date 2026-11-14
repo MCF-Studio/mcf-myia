@@ -21,7 +21,7 @@ def execute(_params):
     for name, cmd in CHECKS.items():
         path = shutil.which(cmd[0])
         out[name] = {"found": True, "path": path, "version": _version(path)} if path else {"found": False}
-    for name, entry in load_apps().items():  # applis du catalogue (Godot, Blender…)
+    for name, entry in load_apps(missing_ok=True).items():  # applis du catalogue (Godot, Blender…)
         path = app_path(entry)
         out[name] = {"found": True, "path": path, "version": _version(path)} if path else {"found": False}
     return {"data": out}

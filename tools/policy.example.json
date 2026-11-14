@@ -1,0 +1,19 @@
+{
+  "_doc": [
+    "MODÈLE de politique. Copier ce fichier en tools/policy.json (local, ignoré par git) et l'adapter à CE poste.",
+    "Sans tools/policy.json, le gestionnaire refuse de démarrer.",
+    "allowed_dirs : chemins absolus locaux. Un paramètre chemin hors de ces dossiers est refusé (lecture et écriture séparées). Listes vides = aucun fichier accessible. Exemple : \"read\": [\"D:/projets\"], \"write\": [\"D:/projets/sorties\"].",
+    "Toujours refusé en écriture, quoi que dise ce fichier : tools/ lui-même, le dépôt qui le contient (sauf workspace/), et tout dossier .git, .vscode, .claude, .github, .cargo, node_modules…",
+    "granted_permissions : permissions des manifestes accordées. Ce modèle n'accorde que la lecture et l'écriture de fichiers.",
+    "DÉSACTIVÉES PAR DÉFAUT, à ajouter ici en connaissance de cause : process.exec.readonly (git en lecture, versions des outils), process.exec (cargo, Godot sans fenêtre : exécute le code du projet), app.launch (applications de tools/apps.json, Explorateur, notification), url.open (navigateur : canal de sortie de données), network.local (interroge un service sur 127.0.0.1).",
+    "Un outil de niveau local ou external ne s'exécute de toute façon qu'avec --confirmed, posé par l'appelant après l'accord de l'utilisateur."
+  ],
+  "allowed_dirs": {
+    "read": [],
+    "write": []
+  },
+  "granted_permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

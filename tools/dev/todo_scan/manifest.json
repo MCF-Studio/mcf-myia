@@ -3,12 +3,28 @@
   "version": "1.0.0",
   "description": "Recherche les marqueurs TODO, FIXME, HACK, XXX, BUG et NOTE dans un projet : fichier, ligne, marqueur, texte, et totaux par marqueur.",
   "category": "dev",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "directory": {"type": "string", "required": true, "kind": "path", "description": "Dossier du projet."},
-    "markers": {"type": "string", "description": "Marqueurs séparés par des virgules (défaut TODO,FIXME,HACK,XXX,BUG)."},
-    "limit": {"type": "integer", "description": "Nombre maximal de résultats (défaut 200)."}
+    "directory": {
+      "type": "string",
+      "required": true,
+      "kind": "path",
+      "description": "Dossier du projet."
+    },
+    "markers": {
+      "type": "string",
+      "description": "Marqueurs séparés par des virgules (défaut TODO,FIXME,HACK,XXX,BUG)."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Nombre maximal de résultats (défaut 200).",
+      "min": 1,
+      "max": 1000
+    }
   },
-  "permissions": ["filesystem.read"]
+  "permissions": [
+    "filesystem.read"
+  ]
 }
