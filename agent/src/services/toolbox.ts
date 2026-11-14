@@ -175,32 +175,49 @@ export function toolboxService(cfg: Config, opts: ToolboxOptions = {}): Service 
     throw new Error(`« ${name} » est désactivé : sa permission (${known.permissions.join(", ")}) n'est pas accordée dans tools/policy.json`);
   };
 
-  /** Agent sur un modèle en ligne : aucun chemin dans les dossiers de mémoire (SPEC : la mémoire ne quitte jamais le PC). */
+  /** Chemin tel que demandé et chemin réel (liens, jonctions) ; un fichier à créer n'a que le premier. */
+  const forms = (p: string): string[] => {
+    const abs = path.resolve(p);
+    try {
+      return [abs, fs.realpathSync.native(abs)];
+    } catch {
+      return [abs];
+    }
+  };
+
+  /**
+   * Agent sur un modèle en ligne : aucun chemin DANS un dossier de mémoire, ni AU-DESSUS (un outil récursif lancé sur
+   * un dossier parent la parcourrait). SPEC : la mémoire ne quitte jamais le PC.
+   */
   const checkCloudPaths = (t: ToolboxEntry, params: Record<string, unknown>, scope: ToolScope) => {
-    if (!scope.cloud) return;
+    if (!scope.cloud || !cfg.memory.folders.length) return;
+    const memory = cfg.memory.folders.flatMap(forms);
     for (const [name, spec] of Object.entries(t.parameters)) {
       const v = params[name];
       if (typeof v !== "string" || !isPathParam(name, spec)) continue;
-      let real = path.resolve(v);
-      try {
-        real = fs.realpathSync.native(real);
-      } catch {
-        // fichier à créer : le chemin demandé suffit
-      }
-      for (const folder of cfg.memory.folders) {
-        if (isInside(folder, real) || isInside(folder, path.resolve(v))) {
-          throw new Error(`${name} : ce dossier fait partie de la mémoire, fermée aux agents sur un modèle en ligne`);
+      for (const target of forms(v)) {
+        if (memory.some((m) => isInside(m, target) || isInside(target, m))) {
+          throw new Error(`${name} : ce chemin contient ou touche la mémoire, fermée aux agents sur un modèle en ligne`);
         }
       }
     }
   };
 
-  /** Chemins relatifs résolus dans l'espace de travail de l'agent (le gestionnaire n'accepte que des chemins absolus). */
+  /**
+   * Chemins relatifs résolus dans l'espace de travail de l'agent. Sans espace de travail, un chemin relatif est refusé :
+   * il serait contrôlé ici et interprété ailleurs (dossier courant du gestionnaire).
+   */
   const resolveParams = (t: ToolboxEntry, params: Record<string, unknown>, scope: ToolScope = {}): Record<string, unknown> => {
     const out: Record<string, unknown> = { ...params };
     for (const [name, spec] of Object.entries(t.parameters)) {
       const v = out[name];
-      if (typeof v !== "string" || !isPathParam(name, spec) || path.isAbsolute(v) || !scope.workspace) continue;
+      if (typeof v !== "string" || !isPathParam(name, spec)) continue;
+      // Windows : « \dossier » dépend du disque courant, différent ici et chez le gestionnaire. Seul « X:\… » est complet.
+      if (process.platform === "win32" && path.isAbsolute(v) && !/^[A-Za-z]:[\\/]/.test(v)) {
+        throw new Error(`${name} : chemin complet avec la lettre du disque attendu (ex. I:/dossier), pas « ${v} »`);
+      }
+      if (path.isAbsolute(v)) continue;
+      if (!scope.workspace) throw new Error(`${name} : chemin complet attendu (ex. I:/dossier/image.png), « ${v} » est relatif`);
       out[name] = path.resolve(scope.workspace, v);
     }
     return out;

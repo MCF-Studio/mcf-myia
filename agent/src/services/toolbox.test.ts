@@ -215,7 +215,23 @@ describe("boîte à outils", () => {
     expect(calls).toEqual([]);
     // un agent local, lui, peut
     await call(tools, cfg, { tool: "texture_info", params: { path: path.join(mem, "a.png") } }, {});
+    // ni un dossier PARENT de la mémoire (un outil récursif la parcourrait)
+    await expect(call(tools, cfg, { tool: "texture_info", params: { path: dir } }, { cloud: true })).rejects.toThrow(/mémoire/);
+    expect(calls.length).toBe(1);
     // et un agent en ligne garde tout le reste de la boîte
-    await call(tools, cfg, { tool: "texture_info", params: { path: path.join(dir, "a.png") } }, { cloud: true });
+    const other = path.join(dir, "autre");
+    fs.mkdirSync(other, { recursive: true });
+    await call(tools, cfg, { tool: "texture_info", params: { path: path.join(other, "a.png") } }, { cloud: true });
+  });
+
+  it("chemin relatif sans espace de travail : refusé sans appeler le gestionnaire", async () => {
+    const { cfg, tools } = await setup();
+    calls = [];
+    await expect(call(tools, cfg, { tool: "texture_info", params: { path: "sprites/a.png" } })).rejects.toThrow(/chemin complet/);
+    await expect(call(tools, cfg, { tool: "texture_info", params: { path: "C:a.png" } })).rejects.toThrow(/chemin complet/);
+    if (process.platform === "win32") {
+      await expect(call(tools, cfg, { tool: "texture_info", params: { path: "\\data\\a.png" } }, { workspace: dir })).rejects.toThrow(/lettre du disque/);
+    }
+    expect(calls).toEqual([]);
   });
 });

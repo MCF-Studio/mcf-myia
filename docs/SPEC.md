@@ -130,8 +130,9 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   aperçu, sans rien exécuter), montre cet aperçu dans la confirmation de MyIA, et ne pose `--confirmed` qu'après
   l'accord ; `autoApprove` d'un projet ne s'y applique jamais. Le modèle ne compose jamais la ligne de commande
   (paramètres JSON sur l'entrée standard). Exclus du service : les outils qui doublent un outil de l'app mieux intégré
-  (git_status/log/diff, text_read, text_write, app_catalog, app_launch, folder_open, url_open). Agent confié à Claude :
-  aucun chemin dans les dossiers de mémoire. Le gestionnaire applique en plus ses propres règles :
+  (git_status/log/diff, text_read, text_write, app_catalog, app_launch, folder_open, url_open). Chemins relatifs : dans
+  l'espace de travail de l'agent, refusés s'il n'en a pas. Agent confié à Claude : aucun chemin dans un dossier de
+  mémoire ni au-dessus (un outil récursif le parcourrait). Le gestionnaire applique en plus ses propres règles :
   chaque outil déclare un des quatre niveaux ci-dessus ; un outil `local` ou `external` n'est exécuté qu'avec le drapeau
   `--confirmed`, posé par l'**appelant** (humain ou harnais) après l'accord de l'utilisateur sur l'aperçu renvoyé, jamais
   par le modèle de lui-même. Rien ne démarre sans politique locale (`tools/policy.json`, hors dépôt) qui liste les
