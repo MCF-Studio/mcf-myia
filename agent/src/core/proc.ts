@@ -37,8 +37,18 @@ export function runProcess(
     const tail: string[] = [];
     let timedOut = false;
 
+    const flushers: (() => void)[] = [];
     const push = (stream: "out" | "err") => {
       let buf = "";
+      // Fin de flux : la dernière ligne, sans retour à la ligne, ne doit pas être perdue.
+      flushers.push(() => {
+        if (!buf) return;
+        const line = buf.replace(/\r$/, "");
+        buf = "";
+        tail.push(line);
+        if (tail.length > keep) tail.shift();
+        opts.onLine?.(line, stream);
+      });
       return (chunk: Buffer) => {
         buf += chunk.toString("utf8");
         let i: number;
@@ -67,6 +77,7 @@ export function runProcess(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      flushers.forEach((f) => f());
       opts.signal?.removeEventListener("abort", kill);
       resolve({ code, tail, timedOut });
     });

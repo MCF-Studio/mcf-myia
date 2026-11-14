@@ -101,6 +101,20 @@ export function isSecretFile(file: string): boolean {
     /\.(pem|key|pfx|p12|kdbx|keystore|jks)$/i.test(base);
 }
 
+/** Chemins concernés par `git status --porcelain=v1 -z` (hors suppressions) ; un renommage donne « nouveau\0ancien ». */
+export function parsePorcelainZ(out: string): string[] {
+  const parts = out.split("\0");
+  const files: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const e = parts[i]!;
+    if (e.length < 4) continue;
+    const xy = e.slice(0, 2);
+    if (xy.includes("R") || xy.includes("C")) i++; // l'entrée suivante est l'ancien nom
+    if (xy !== " D" && xy !== "D ") files.push(e.slice(3));
+  }
+  return files;
+}
+
 /** Retire l'identifiant éventuel d'une URL de remote avant de l'afficher. */
 export function redactRemote(url: string): string {
   return url.trim().replace(/\/\/[^/@\s]+@/, "//");
@@ -289,10 +303,7 @@ export function gitService(reg: ProjectRegistry): Service {
             const cwd = repo(a.project);
             requireNotProtected(await currentBranch(cwd), "Commit");
             if (a.all) {
-              const st = must(await runGit(cwd, ["status", "--porcelain=v1", "-uall"], { maxChars: 400_000 }), "git status")
-                .split("\n")
-                .filter((l) => l && !l.startsWith(" D") && !l.startsWith("D "))
-                .map((l) => l.slice(3).split(" -> ").pop()!);
+              const st = parsePorcelainZ(must(await runGit(cwd, ["status", "--porcelain=v1", "-z", "-uall"], { maxChars: 400_000 }), "git status"));
               const bad = st.filter(isSecretFile);
               if (bad.length) throw new Error(`Commit refusé, fichiers de secrets ou de config locale : ${bad.slice(0, 5).join(", ")}. Ajoute-les à .gitignore ou liste les fichiers voulus avec paths.`);
               must(await runGit(cwd, ["add", "-A"]), "git add");

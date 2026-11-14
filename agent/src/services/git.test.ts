@@ -7,7 +7,7 @@ import { needsConfirmation } from "../core/agent.js";
 import { parseConfig } from "../core/config.js";
 import { ProjectRegistry } from "../core/projects.js";
 import type { ToolContext } from "../core/types.js";
-import { gitService, isSecretFile, redactRemote, safeBranch, safeRef, safeRel } from "./git.js";
+import { gitService, isSecretFile, parsePorcelainZ, redactRemote, safeBranch, safeRef, safeRel } from "./git.js";
 
 const git = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, encoding: "utf8" });
 const ctx = { ui: { confirm: async () => true, progress: () => undefined } } as unknown as ToolContext;
@@ -51,6 +51,9 @@ describe("git natif : validations", () => {
     for (const f of [".env", "app/.env.local", "id_rsa", "k.pem", "config/agent.json", "x/credentials.json"]) expect(isSecretFile(f), f).toBe(true);
     for (const f of [".env.example", "README.md", "src/agent.ts", "package.json"]) expect(isSecretFile(f), f).toBe(false);
   });
+  it("lit status -z : noms bruts, renommages, suppressions", () => {
+    expect(parsePorcelainZ("?? a b.txt\0 M src/x.ts\0R  nouveau.md\0ancien.md\0 D gone.txt\0")).toEqual(["a b.txt", "src/x.ts", "nouveau.md"]);
+  });
   it("masque l'identifiant dans l'URL du distant", () => {
     expect(redactRemote("https://user:tok@github.com/a/b.git\n")).toBe("https://github.com/a/b.git");
   });
@@ -90,6 +93,13 @@ describe("git natif : sur un vrai dépôt", () => {
     await expect(call("git_commit", { project: "demo", message: "secret", all: true })).rejects.toThrow(/secrets/);
     expect(git(dir, "status", "--short")).toMatch(/\?\? \.env/); // rien n'a été préparé
     fs.rmSync(path.join(dir, ".env"));
+  });
+
+  it("refuse un secret dont le nom est mis entre guillemets par git (tabulation)", async () => {
+    if (process.platform === "win32") return; // Windows interdit la tabulation dans un nom
+    fs.writeFileSync(path.join(dir, ".env\t"), "TOKEN=x\n");
+    await expect(call("git_commit", { project: "demo", message: "secret", all: true })).rejects.toThrow(/secrets/);
+    fs.rmSync(path.join(dir, ".env\t"));
   });
 
   it("push refusé sur main et sans origin", async () => {
