@@ -3,6 +3,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from common import bounded
+
 MAX = 50
 
 
@@ -10,7 +12,7 @@ def execute(params):
     root = Path(params["project"])
     if not (root / "Cargo.toml").is_file():
         raise FileNotFoundError(f"pas de Cargo.toml dans {root}")
-    timeout = params.get("timeout", 600)
+    timeout = bounded(params, "timeout", 600, 1, 1800)
     t0 = time.time()
     try:
         r = subprocess.run(["cargo", "check", "--message-format=json"], cwd=root, capture_output=True,

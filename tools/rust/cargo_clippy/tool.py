@@ -4,6 +4,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from common import bounded
+
 # Lecture des messages JSON de cargo : même code que cargo_build (chargé depuis son dossier, sans copie).
 _spec = importlib.util.spec_from_file_location("cargo_build_tool", Path(__file__).parent.parent / "cargo_build" / "tool.py")
 _build = importlib.util.module_from_spec(_spec)
@@ -16,7 +18,7 @@ def execute(params):
     root = Path(params["project"])
     if not (root / "Cargo.toml").is_file():
         raise FileNotFoundError(f"pas de Cargo.toml dans {root}")
-    timeout = params.get("timeout", 900)
+    timeout = bounded(params, "timeout", 900, 1, 1800)
     cmd = ["cargo", "clippy", "--message-format=json"]
     if params.get("all_targets", True):
         cmd.append("--all-targets")

@@ -4,6 +4,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from common import bounded
+
 MAX_TESTS = 200
 MAX_FAILURE_LINES = 40
 # Noms de crate ou de test : jamais une option (« --… ») glissée dans un paramètre.
@@ -63,7 +65,7 @@ def execute(params):
     root = Path(params["project"])
     if not (root / "Cargo.toml").is_file():
         raise FileNotFoundError(f"pas de Cargo.toml dans {root}")
-    timeout = params.get("timeout", 900)
+    timeout = bounded(params, "timeout", 900, 1, 1800)
     cmd = ["cargo", "test", "--no-fail-fast", "--message-format=json"]
     if params.get("package"):
         cmd += ["-p", _safe("package", params["package"])]

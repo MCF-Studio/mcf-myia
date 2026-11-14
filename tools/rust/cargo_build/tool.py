@@ -4,6 +4,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from common import bounded
+
 MAX = 50
 # Nom de crate ou de binaire : jamais une option glissée dans un paramètre.
 SAFE = re.compile(r"^[A-Za-z0-9_\-]{1,100}$")
@@ -45,7 +47,7 @@ def execute(params):
     profile = params.get("profile", "debug")
     if profile not in ("debug", "release"):
         raise ValueError("profile : debug ou release")
-    timeout = params.get("timeout", 1800)
+    timeout = bounded(params, "timeout", 1800, 1, 3600)
     cmd = ["cargo", "build", "--message-format=json"]
     if profile == "release":
         cmd.append("--release")
