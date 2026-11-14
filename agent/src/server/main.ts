@@ -6,7 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { Agent } from "../core/agent.js";
-import { checkWorkspace, usableWorkspace } from "../core/access.js";
+import { checkCoordination, checkWorkspace, usableWorkspace } from "../core/access.js";
+import { initCoordination } from "../core/coordination.js";
 import { audit } from "../core/audit.js";
 import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
@@ -275,7 +276,11 @@ rpc.method("teams.list", () => teams);
 
 rpc.method("teams.save", (params) => {
   const t = parseTeam(params, new Set(profiles.map((p) => p.id)), new Set(scriptStore.list().map((s) => s.id)));
-  t.workspace = workspaceFor(t.workspace, teams.find((x) => x.id === t.id)?.workspace);
+  const before = teams.find((x) => x.id === t.id);
+  t.workspace = workspaceFor(t.workspace, before?.workspace);
+  // Espace de coordination : recontrôlé dès que lui OU l'espace de travail change (les deux ne doivent pas se recouper).
+  if (!t.coordination) delete t.coordination;
+  else if (t.coordination !== before?.coordination || t.workspace !== before?.workspace) t.coordination = checkCoordination(t.coordination, t.workspace);
   teams = teams.some((x) => x.id === t.id) ? teams.map((x) => (x.id === t.id ? t : x)) : [...teams, t];
   saveTeams(teams);
   return t;
@@ -291,6 +296,27 @@ rpc.method("teams.delete", (params) => {
 });
 
 rpc.method("teams.newNodeId", () => newNodeId());
+
+/**
+ * Remplit un espace de coordination avec la structure d'exemple (règles communes, méthode, journal, état). Ne remplace
+ * aucun fichier existant. Le dossier vient de l'interface : il repasse par tous les contrôles avant toute écriture.
+ */
+rpc.method("teams.coordinationInit", (params) => {
+  const p = parse(
+    z.object({
+      path: z.string().min(3).max(500),
+      name: z.string().max(60).default(""),
+      workspace: z.string().max(500).optional(),
+      agentIds: z.array(z.string().max(40)).max(40).default([]),
+    }),
+    params,
+  );
+  const members = [...new Set(p.agentIds)].flatMap((id) => {
+    const a = profiles.find((x) => x.id === id);
+    return a ? [{ name: a.name, description: a.description }] : [];
+  });
+  return initCoordination(p.path, p.name, members, p.workspace);
+});
 
 // ─── scripts d'équipe (core/scripts.ts) ──────────────────────────────────────
 

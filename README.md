@@ -27,6 +27,11 @@ Deux interfaces sur le même cœur :
 Icône MyIA dans la zone de notification (près de l'horloge) : clic gauche pour ramener la fenêtre, clic droit pour
 ouvrir directement Conversations, Agents, Équipes, Modèles ou Paramètres, ou quitter.
 
+**Équipes** : un chef, des sous-agents, des coéquipiers, un budget d'appels. Une équipe peut avoir un espace de travail (le
+dossier du projet) et un **espace de coordination** : un dossier à part où elle garde ses règles communes et tient son
+journal, pour que chaque membre sache où en est le travail en arrivant (le « ? » de l'écran Équipes explique tout, et
+un bouton crée une structure d'exemple).
+
 Thème par défaut : sombre, lumières orange fusion → jaune foncé.
 
 ### Marketplace

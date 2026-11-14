@@ -28,7 +28,8 @@ script, et ce qui manque sur le PC (modèle non installé, service absent, moteu
 | --- | --- |
 | nom et description de l'équipe, arbre, budgets | espace de travail de l'équipe et des agents |
 | profils des agents de l'arbre : nom, modèle, consignes, couleur, photo, services autorisés | rôle MASTER |
-| scripts de l'équipe (fichiers texte) | conversations, mémoire, secrets, configuration |
+| scripts de l'équipe (fichiers texte) | espace de coordination (règles locales, journal) |
+| | conversations, mémoire, secrets, configuration |
 
 À l'import, **rien n'est écrasé** : un agent ou un script déjà présent à l'identique est réutilisé ; s'il porte le même
 id avec un contenu différent, le nouveau est installé sous un autre id (`chef` → `chef-2`). Importer deux fois le même

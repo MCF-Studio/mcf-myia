@@ -103,6 +103,16 @@ describe("workflow de bout en bout (sidecar réel)", () => {
     );
     await expect(a.call("scripts.delete", { id: "pont-godot" })).rejects.toThrow(/utilisé par : Studio 3D/);
 
+    // Espace de coordination : le dossier venu de l'interface repasse par les contrôles (ici, un dossier sous AppData
+    // ou introuvable), à l'enregistrement comme à la création de l'exemple ; rien n'est écrit en cas de refus.
+    const bad = path.join(a.home, "coordination");
+    fs.mkdirSync(bad);
+    const team = { id: "y", name: "Y", root: { id: "n-0002", agentId: "chef", subagents: [], teammates: [] } };
+    await expect(a.call("teams.save", { ...team, coordination: bad })).rejects.toThrow(/protégé|trop large/);
+    await expect(a.call("teams.coordinationInit", { path: bad, name: "Y", agentIds: ["chef"] })).rejects.toThrow(/protégé|trop large/);
+    expect(fs.readdirSync(bad)).toEqual([]);
+    await expect(a.call("teams.coordinationInit", { path: path.join(bad, "absent"), name: "Y" })).rejects.toThrow(/introuvable/);
+
     const exported = await a.call<{ filename: string; json: string; scripts: number }>("teams.export", { id: "studio-3d" });
     expect(exported.filename).toBe("studio-3d.workflow.json");
     expect(exported.scripts).toBe(1);
