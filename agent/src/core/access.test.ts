@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { resolveWritable } from "../services/file-write.js";
 import { accessRoots, checkWorkspace, isSensitive, usableWorkspace } from "./access.js";
 import { ConfigSchema } from "./config.js";
@@ -12,6 +12,10 @@ import { paths } from "./paths.js";
 const tmp = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "myia-access-")));
 
 describe("accès des agents aux fichiers", () => {
+  // La liste des disques (PowerShell, jusqu'à 8 s sur une machine lente) est demandée une fois ici, avec son propre
+  // délai : sinon elle est comptée dans le premier test qui active l'accès à tout le PC, limité à 5 s.
+  beforeAll(() => void accessRoots(ConfigSchema.parse({ files: { fullAccess: true } }), []), 30_000);
+
   it("les dossiers de mémoire sont lisibles par file_read", () => {
     const mem = tmp();
     fs.writeFileSync(path.join(mem, "studio.md"), "# Studio");
