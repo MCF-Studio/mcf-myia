@@ -222,6 +222,12 @@ describe("boîte à outils", () => {
     const other = path.join(dir, "autre");
     fs.mkdirSync(other, { recursive: true });
     await call(tools, cfg, { tool: "texture_info", params: { path: path.join(other, "a.png") } }, { cloud: true });
+    // le gestionnaire reçoit la mémoire en --deny (règle qui fait foi, sur ses chemins réels et ses parcours)
+    expect(calls.at(-1)!.args).toEqual(["run", "texture_info", "-", "--deny", mem]);
+    // un agent local, non
+    calls = [];
+    await call(tools, cfg, { tool: "texture_info", params: { path: path.join(other, "a.png") } }, {});
+    expect(calls[0]!.args).toEqual(["run", "texture_info", "-"]);
   });
 
   it("chemin relatif sans espace de travail : refusé sans appeler le gestionnaire", async () => {

@@ -186,9 +186,13 @@ export function toolboxService(cfg: Config, opts: ToolboxOptions = {}): Service 
   };
 
   /**
-   * Agent sur un modèle en ligne : aucun chemin DANS un dossier de mémoire, ni AU-DESSUS (un outil récursif lancé sur
-   * un dossier parent la parcourrait). SPEC : la mémoire ne quitte jamais le PC.
+   * Agent sur un modèle en ligne : les dossiers de mémoire sont passés au gestionnaire (`--deny`), qui les ferme sur
+   * ses chemins réels et pendant ses parcours (la règle qui fait foi). SPEC : la mémoire ne quitte jamais le PC.
    */
+  const denyArgs = (scope: ToolScope): string[] =>
+    scope.cloud ? cfg.memory.folders.flatMap((f) => ["--deny", path.resolve(f)]) : [];
+
+  /** Refus anticipé, avec un message clair, avant de lancer le gestionnaire (qui refuserait de toute façon). */
   const checkCloudPaths = (t: ToolboxEntry, params: Record<string, unknown>, scope: ToolScope) => {
     if (!scope.cloud || !cfg.memory.folders.length) return;
     const memory = cfg.memory.folders.flatMap(forms);
@@ -313,7 +317,7 @@ export function toolboxService(cfg: Config, opts: ToolboxOptions = {}): Service 
             if (!t.needs_confirmation) return;
             // Essai sans --confirmed : le gestionnaire vérifie dossiers et permissions et renvoie l'aperçu, sans rien exécuter.
             const params = resolveParams(t, a.params, scope);
-            const r = await runner(["run", t.name, "-"], JSON.stringify(params), LIST_TIMEOUT_MS);
+            const r = await runner(["run", t.name, "-", ...denyArgs(scope)], JSON.stringify(params), LIST_TIMEOUT_MS);
             if (r.code === 2 && r.error?.type === "ConfirmationRequired") {
               previews.set(key(t.name, a.params, scope), formatPreview(t.name, r.data));
               return;
@@ -329,7 +333,7 @@ export function toolboxService(cfg: Config, opts: ToolboxOptions = {}): Service 
             previews.delete(key(t.name, a.params, ctx));
             // Ce run() n'est appelé par l'agent qu'après la confirmation de l'interface quand le manifeste l'exige
             // (core/agent.ts → needsConfirmation) : c'est seulement là que --confirmed est posé.
-            const args = ["run", t.name, "-", ...(t.needs_confirmation ? ["--confirmed"] : [])];
+            const args = ["run", t.name, "-", ...denyArgs(ctx), ...(t.needs_confirmation ? ["--confirmed"] : [])];
             ctx.ui.progress(`Boîte à outils : ${t.name}…`);
             const r = await runner(args, JSON.stringify(params), RUN_TIMEOUT_MS, ctx.signal);
             if (!r.success) throw new Error(formatError(r));

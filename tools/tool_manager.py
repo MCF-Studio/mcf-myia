@@ -211,6 +211,7 @@ def check_policy(manifest, params, policy):
         label = "écriture" if mode == "write" else "lecture"
         try:
             real = safety.resolve(params[k])
+            safety.check_denied(real)
             if mode == "write":
                 safety.check_write_target(real)
             else:
@@ -290,9 +291,22 @@ def listing():
 
 
 def main(argv):
-    """(réponse, code de sortie). `--confirmed` n'est lu que sur la ligne de commande, jamais dans les paramètres."""
-    args = [a for a in argv if a != "--confirmed"]
-    confirmed = len(args) != len(argv)
+    """(réponse, code de sortie). `--confirmed` et `--deny <dossier>` (dossier fermé pour cet appel, répétable) ne sont lus
+    que sur la ligne de commande, jamais dans les paramètres."""
+    args, deny, confirmed, i = [], [], False, 0
+    while i < len(argv):
+        if argv[i] == "--confirmed":
+            confirmed = True
+        elif argv[i] == "--deny" and i + 1 < len(argv):
+            deny.append(argv[i + 1])
+            i += 1
+        else:
+            args.append(argv[i])
+        i += 1
+    try:
+        safety.set_denied(deny)
+    except (ValueError, OSError) as exc:
+        return reply(False, error={"type": "Usage", "message": str(exc)}), 1
     if args[:1] == ["list"] and len(args) == 1 and not confirmed:
         res = listing()
     elif args[:1] == ["run"] and 2 <= len(args) <= 3:
@@ -306,7 +320,7 @@ def main(argv):
                          tool=args[1]), 1
         res = run(args[1], params, confirmed=confirmed)
     else:
-        res = reply(False, error={"type": "Usage", "message": "list | run <outil> [json | -] [--confirmed]"})
+        res = reply(False, error={"type": "Usage", "message": "list | run <outil> [json | -] [--confirmed] [--deny <dossier>]…"})
     code = 0 if res["success"] else 2 if (res["error"] or {}).get("type") == "ConfirmationRequired" else 1
     return res, code
 

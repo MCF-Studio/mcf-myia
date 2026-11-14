@@ -73,6 +73,11 @@ programme ou sort de la machine doit être ajouté **explicitement** à `granted
   Un paramètre est un chemin s'il est `"kind": "path"` OU s'il s'appelle path, file, project, directory, repo, output,
   folder ou dir, quel que soit son `type` (pour un texte qui porte un de ces noms : `"kind": "text"`). Il est contrôlé
   en écriture si le manifeste dit `"access": "write"`.
+- **Parcours de dossiers** (recherches, arborescence, lots d'images, projet Godot) : jamais dans un lien symbolique
+  ni une jonction, et aucun fichier rendu dont le chemin réel sort du dossier demandé ou tombe dans `data/`/`config/`.
+- **`--deny <dossier>`** (répétable, ligne de commande seulement, comme `--confirmed`) : dossier fermé pour cet appel,
+  en lecture et en écriture, pour un chemin dedans comme au-dessus. L'app y passe les dossiers de mémoire quand l'agent
+  tourne sur un modèle en ligne.
 - **Git** : lancé comme dans l'app (`--no-pager`, `core.fsmonitor=false`, `protocol.ext.allow=never`,
   `log.showSignature=false`, `--no-ext-diff`, `--no-textconv`, pathspecs littéraux, aucune variable `GIT_*` héritée,
   pas d'invite). La config d'un dépôt ne peut faire lancer aucune commande.
