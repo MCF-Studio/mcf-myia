@@ -37,6 +37,11 @@ export const TeamSchema = z.object({
   description: z.string().max(300).optional(),
   /** Espace de travail de l'équipe : tous ses membres y travaillent (il remplace celui de chaque agent). */
   workspace: z.string().trim().min(3).max(500).optional(),
+  /**
+   * Espace de coordination : dossier à part où l'équipe garde ses règles communes et son journal (core/access.ts →
+   * checkCoordination). Propre à CETTE machine : jamais exporté dans un workflow.
+   */
+  coordination: z.string().trim().min(3).max(500).optional(),
   root: NodeSchema,
   /**
    * Scripts de l'équipe (ids de core/scripts.ts) : des outils en plus, pour TOUS ses membres et pour eux seuls. Un

@@ -87,6 +87,18 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   projet s'y exécute. Les règles ne changent pas : écrire dans un espace de travail et déléguer restent confirmés,
   mêmes formats, mêmes dossiers interdits. Dossier absent (disque débranché) : l'agent en est prévenu et retombe sur
   les dossiers habituels.
+- **Espace de coordination** d'une équipe (champ `coordination` de `config/teams.json`, optionnel) : un dossier À PART
+  du projet, choisi par l'utilisateur depuis l'écran Équipes, où l'équipe garde ses règles communes (`LISEZ-MOI.md`,
+  `methode.md`, fiches) et sa mémoire de travail (`journal/etat.md`, `journal/AAAA-MM-JJ.md`). Mêmes contrôles qu'un
+  espace de travail, plus : ce n'est pas un dépôt git et il ne recoupe pas l'espace de travail de l'équipe. Pour les
+  membres de CETTE équipe (jamais un agent seul, MASTER ou la Guilde), le dossier s'ajoute aux dossiers ouverts aux
+  outils de fichiers, et le début de `LISEZ-MOI.md` et de `journal/etat.md` est joint à leur prompt ; `claude_delegate`
+  l'ouvre aussi à Claude Code (`--add-dir`, montré dans la confirmation). **Seule exception aux confirmations d'écriture** :
+  `file_write` crée, complète ou remplace sans confirmation un fichier du sous-dossier `journal` (mêmes formats texte,
+  mêmes noms et dossiers interdits qu'ailleurs). Tout le reste de l'espace (les règles, les fiches) reste confirmé : ces
+  fichiers guident tous les membres. L'état, écrit sans confirmation, est présenté aux agents comme des notes à
+  vérifier, jamais comme des consignes. Il n'est ni exporté ni publié avec l'équipe. Un membre sur Claude lit cet
+  espace : ce qu'il contient part alors chez Anthropic (c'est écrit dans l'aide de l'écran).
 - **Scripts d'équipe** (`core/scripts.ts`, détail dans [WORKFLOWS.md](WORKFLOWS.md)) : des serveurs MCP en Python
   rattachés à une équipe, donnés à ses membres et à eux seuls. C'est le seul code exécuté que MyIA accepte de recevoir
   d'un tiers, et il n'est **pas isolé** : un script accepté a les droits de l'utilisateur. Il ne se lance donc jamais
@@ -310,6 +322,8 @@ modèle.
 | Page web piégée (« ouvre ce lien », « envoie ce message »)                          | Contenu marqué comme donnée ; envois toujours confirmés ; `browser_open` confirme les liens venus d'une page |
 | Lecture web vers le réseau local (Ollama, box, NAS), y compris par DNS rebinding     | `web_read` refuse toute IP non publique, vérifiée à chaque redirection ET au moment de la connexion (résolution épinglée) |
 | Agent ou thème partagé piégé                                                        | Formats = données validées par schéma ; un profil ne peut que restreindre ; règles appliquées dans le code |
+| Journal d'équipe empoisonné (un agent trompé par une page y écrit de fausses consignes) | Écriture sans confirmation limitée à `journal/` ; règles et fiches toujours confirmées ; l'état est joint au prompt comme des notes à vérifier ; les confirmations ne dépendent d'aucun texte |
+| Espace de coordination détourné pour écrire sans confirmation dans un projet          | Refusé s'il est un dépôt git ou s'il recoupe l'espace de travail ; recontrôlé à chaque demande ; formats texte seulement |
 | Workflow piégé (consignes d'agent malveillantes, écrasement d'un agent existant)     | Contenu montré avant installation ; rien n'est écrasé ; ni MASTER ni espace de travail importés ; les confirmations ne dépendent pas des consignes |
 | Script d'équipe malveillant reçu dans un workflow                                    | Code affiché, accord explicite lié à l'empreinte, en attente par défaut ; chaque appel d'outil confirmé ; validation d'un admin avant toute publication publique. **Pas de bac à sable** : un script accepté a les droits de l'utilisateur |
 | Script modifié après l'accord (par un autre programme, ou par un agent)              | Empreinte recalculée à chaque lancement et à chaque vérification ; `data\` fermé aux outils de fichiers |

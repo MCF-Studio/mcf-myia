@@ -37,6 +37,8 @@ interface ClaudeRun {
   timeoutMinutes?: number;
   /** Alias Claude Code (haiku, sonnet, opus, fable) ; absent = claude.model de la config. */
   model?: string;
+  /** Dossiers ouverts à Claude Code en plus de `cwd` (espace de coordination de l'équipe). */
+  addDirs?: string[];
 }
 
 async function runClaude(cfg: Config, o: ClaudeRun, ctx: ToolContext): Promise<string> {
@@ -56,6 +58,7 @@ async function runClaude(cfg: Config, o: ClaudeRun, ctx: ToolContext): Promise<s
     String(maxTurns),
     "--append-system-prompt",
     o.appendPrompt,
+    ...(o.addDirs ?? []).flatMap((d) => ["--add-dir", d]),
     ...(model ? ["--model", model] : []),
     ...(fallback ? ["--fallback-model", fallback] : []),
     "--allowedTools",
@@ -135,8 +138,12 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
       name: p?.name,
       cwd: p?.path ?? s.workspace ?? paths.workspace,
       tools: p?.claudeAllowedTools ?? cfg.claude.defaultAllowedTools,
+      // Équipe avec un espace de coordination : Claude Code y lit les règles et l'état, et y tient le journal.
+      coordination: s.coordination,
     };
   };
+  const coordinationPrompt = (dir: string) =>
+    `\n\nEspace de coordination de l'équipe : ${dir} (hors du projet, jamais commité). Avant de commencer, lis-y methode.md s'il existe, puis LISEZ-MOI.md et journal/etat.md. En partant, ajoute ton compte rendu à la fin de journal/AAAA-MM-JJ.md (date du jour) et mets à jour journal/etat.md si l'état a changé. N'y écris que des faits vérifiés, jamais de clé ni de mot de passe.`;
 
   return {
     id: "claude",
@@ -167,19 +174,28 @@ export function claudeService(cfg: Config, reg: ProjectRegistry): Service {
             await choose(a);
           },
           async preview(a, s) {
-            const { cwd, tools } = resolve(a.project, s);
+            const { cwd, tools, coordination } = resolve(a.project, s);
             const t = await choose(a);
             const model = t ? describe(t) : `${cfg.claude.model} (config)`;
-            return `Dossier : ${cwd}\nModèle : ${model}\nOutils accordés : ${tools.join(", ")}\nConsigne :\n────────\n${a.task}\n────────`;
+            const coord = coordination ? `\nEspace de coordination (lecture et écriture) : ${coordination}` : "";
+            return `Dossier : ${cwd}${coord}\nModèle : ${model}\nOutils accordés : ${tools.join(", ")}\nConsigne :\n────────\n${a.task}\n────────`;
           },
           async run(a, ctx) {
-            const { cwd, tools } = resolve(a.project, ctx);
+            const { cwd, tools, coordination } = resolve(a.project, ctx);
             if (!fs.existsSync(cwd)) throw new Error(`dossier introuvable : ${cwd}`);
             const t = await choose(a);
             if (t) ctx.ui.progress(`Modèle Claude : ${t.model} (${t.triage ? `difficulté ${t.triage.difficulty}/5` : "demandé"})`);
             return runClaude(
               cfg,
-              { task: a.task, cwd, tools, permissionMode: "acceptEdits", appendPrompt: APPEND_PROMPT, model: t?.model },
+              {
+                task: a.task,
+                cwd,
+                tools,
+                permissionMode: "acceptEdits",
+                appendPrompt: APPEND_PROMPT + (coordination ? coordinationPrompt(coordination) : ""),
+                model: t?.model,
+                addDirs: coordination ? [coordination] : undefined,
+              },
               ctx,
             );
           },

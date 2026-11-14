@@ -91,6 +91,7 @@ export function makeTeamAgent(node: TeamNode, ctx: TeamContext, depth: number, c
     memory: ctx.memory,
     // L'espace de travail de l'équipe vaut pour tous ses membres ; sans lui, chacun garde le sien.
     workspace: ctx.team.workspace ?? profile.workspace,
+    coordination: ctx.team.coordination,
   });
 }
 

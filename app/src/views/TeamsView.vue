@@ -1,6 +1,22 @@
 <script setup lang="ts">
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, Download, FileUp, FolderOpen, MessageSquarePlus, Network, Plus, RotateCcw, Save, Trash2, UploadCloud, X } from "lucide-vue-next";
+import {
+  AlertTriangle,
+  CircleHelp,
+  Download,
+  FilePlus2,
+  FileUp,
+  FolderOpen,
+  MessageSquarePlus,
+  Network,
+  NotebookPen,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  UploadCloud,
+  X,
+} from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import PublishDialog from "../components/PublishDialog.vue";
 import TeamNodeView from "../components/TeamNodeView.vue";
@@ -85,6 +101,43 @@ function slug(s: string) {
 async function chooseWorkspace() {
   const dir = await openDialog({ directory: true, multiple: false, title: "Dossier dans lequel cette équipe travaille" });
   if (typeof dir === "string" && draft.value) draft.value.workspace = dir;
+}
+
+const coordHelp = ref(false);
+
+async function chooseCoordination() {
+  const dir = await openDialog({ directory: true, multiple: false, title: "Dossier de coordination de cette équipe (à part du projet)" });
+  if (typeof dir === "string" && draft.value) draft.value.coordination = dir;
+}
+
+/** Pose les fichiers d'exemple dans le dossier choisi (ceux qui existent déjà sont gardés), avec les membres de l'équipe. */
+async function initCoordination() {
+  const t = draft.value;
+  if (!t?.coordination) return;
+  const ids: string[] = [];
+  const collect = (n: TeamNode) => {
+    ids.push(n.agentId);
+    n.subagents.forEach(collect);
+    n.teammates.forEach(collect);
+  };
+  collect(t.root);
+  try {
+    const r = await call<{ dir: string; created: string[]; kept: string[] }>("teams.coordinationInit", {
+      path: t.coordination,
+      name: t.name,
+      workspace: t.workspace,
+      agentIds: ids,
+    });
+    t.coordination = r.dir;
+    toast(
+      r.created.length
+        ? `Créé dans l'espace de coordination : ${r.created.join(", ")}${r.kept.length ? ` (déjà là, gardés : ${r.kept.join(", ")})` : ""}. Complète LISEZ-MOI.md.`
+        : "Les fichiers d'exemple existent déjà : rien n'a été modifié.",
+      r.created.length ? "success" : "info",
+    );
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
 }
 
 async function save() {
@@ -278,6 +331,60 @@ watch(
               Claude Code y est lancé quand ils délèguent. Les confirmations restent les mêmes.
             </span>
           </div>
+          <div class="workspace">
+            <div class="row">
+              <span class="small ws-label">
+                <NotebookPen :size="15" /> Espace de coordination
+                <button type="button" class="help" :class="{ on: coordHelp }" :aria-expanded="coordHelp" title="Qu'est-ce que c'est ?" @click="coordHelp = !coordHelp">
+                  <CircleHelp :size="15" />
+                </button>
+              </span>
+              <input class="input grow mono" :value="draft.coordination ?? ''" readonly placeholder="Aucun : l'équipe ne garde pas de mémoire commune" :title="draft.coordination" />
+              <button type="button" class="btn" @click="chooseCoordination"><FolderOpen :size="15" /> Choisir…</button>
+              <button v-if="draft.coordination" type="button" class="btn" title="Créer les fichiers d'exemple qui manquent (rien n'est remplacé)" @click="initCoordination">
+                <FilePlus2 :size="15" /> Créer l'exemple
+              </button>
+              <button v-if="draft.coordination" type="button" class="btn ghost" title="Retirer l'espace de coordination (le dossier n'est pas supprimé)" @click="draft.coordination = undefined"><X :size="15" /></button>
+            </div>
+            <span class="tiny muted">
+              Un dossier à part du projet, où l'équipe note ses règles communes et tient son journal : chaque membre sait où en est le
+              travail en arrivant, et le note en partant.
+            </span>
+            <div v-if="coordHelp" class="help-box small">
+              <p>
+                <strong>À quoi ça sert.</strong> Un agent ne se souvient pas de la conversation d'hier, ni de ce qu'a fait son voisin. L'espace de
+                coordination est la mémoire commune de l'équipe : ce que tout le monde doit savoir, et où en est le travail. Sans lui, chaque
+                membre repart de zéro et tu répètes les mêmes consignes.
+              </p>
+              <p><strong>Ce qu'il contient.</strong> Le bouton « Créer l'exemple » pose cette base, à adapter :</p>
+              <ul>
+                <li><span class="mono">LISEZ-MOI.md</span> : le projet, qui fait quoi dans l'équipe, les règles pour tous. C'est toi qui l'écris.</li>
+                <li><span class="mono">methode.md</span> : comment reprendre le fil en arrivant et rendre compte en partant.</li>
+                <li><span class="mono">journal/etat.md</span> : où en est le travail, réécrit par l'équipe quand ça change.</li>
+                <li><span class="mono">journal/AAAA-MM-JJ.md</span> : un fichier par jour, les comptes rendus dans l'ordre.</li>
+              </ul>
+              <p>Tu peux y ajouter une fiche par sujet qui revient (livraison, commandes utiles, où sont les accès…).</p>
+              <p>
+                <strong>Ce que MyIA en fait.</strong> À chaque demande, chaque membre reçoit le début de <span class="mono">LISEZ-MOI.md</span> et de
+                <span class="mono">journal/etat.md</span>, et la consigne de tenir le journal. Quand un membre délègue à Claude Code, celui-ci
+                reçoit aussi l'accès au dossier et lit <span class="mono">methode.md</span>.
+              </p>
+              <p>
+                <strong>Les confirmations.</strong> L'équipe écrit dans <span class="mono">journal/</span> sans te demander, pour que le journal
+                soit vraiment tenu. Modifier les règles et les fiches (à la racine) te demande toujours confirmation : ce sont elles qui guident
+                tous les membres.
+              </p>
+              <p>
+                <strong>À ne pas confondre.</strong> L'<em>espace de travail</em> est le dossier du projet, celui qu'on construit. La
+                <em>mémoire</em> (Paramètres) contient tes notes personnelles, et ne part jamais chez Claude. L'espace de coordination, lui, est
+                lu par tous les membres, y compris ceux qui tournent sur Claude : n'y mets ni clé ni mot de passe, seulement
+                <em>où</em> ils se trouvent.
+              </p>
+              <p class="muted">
+                Il reste sur ce PC : il ne part pas quand tu exportes ou publies l'équipe. Choisis un dossier hors du projet (pas un dépôt git).
+              </p>
+            </div>
+          </div>
           <div class="budgets">
             <label>
               <span class="small">Appels max par message <strong>{{ draft.maxCalls }}</strong></span>
@@ -459,6 +566,43 @@ watch(
   gap: 6px;
   font-weight: 550;
   white-space: nowrap;
+}
+.help {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.help:hover,
+.help.on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.help-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--hairline));
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-elevated));
+  line-height: 1.55;
+}
+.help-box p,
+.help-box ul {
+  margin: 0;
+}
+.help-box ul {
+  padding-left: 20px;
+}
+.help-box strong {
+  color: var(--text);
 }
 .budgets {
   display: grid;

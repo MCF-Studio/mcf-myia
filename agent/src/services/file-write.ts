@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { Config } from "../core/config.js";
-import { accessRoots, deniedFor, explicitRoots, isSensitive } from "../core/access.js";
+import { accessRoots, COORDINATION_JOURNAL, deniedFor, explicitRoots, isSensitive } from "../core/access.js";
 import { isInside, paths } from "../core/paths.js";
 import { assertLocalPath } from "../core/programs.js";
 import { defineTool, truncate, type Service, type ToolScope } from "../core/types.js";
@@ -48,7 +48,7 @@ export const defaultWriteDir = () => path.join(os.homedir(), "Documents", "MyIA"
 
 function writablePlaces(cfg: Config, s: ToolScope = {}): string[] {
   // Documents\MyIA peut ne pas encore exister : il reste une destination valide.
-  return [...new Set([path.resolve(defaultWriteDir()), ...accessRoots(cfg, knownPlaces(cfg, s.workspace), s.cloud)])];
+  return [...new Set([path.resolve(defaultWriteDir()), ...accessRoots(cfg, knownPlaces(cfg, s.workspace, s.coordination), s.cloud)])];
 }
 
 /** Chemin réel : ancêtre existant le plus profond résolu (liens, jonctions, noms courts), puis le reste du chemin. */
@@ -111,7 +111,7 @@ export function resolveWritable(cfg: Config, p: string, opts: ToolScope & { read
         (cfg.files.fullAccess ? "" : ". L'utilisateur peut activer l'accès à tout le PC dans Paramètres → Accès."),
     );
   }
-  if (isSensitive(real, [path.resolve(defaultWriteDir()), ...explicitRoots(cfg, knownPlaces(cfg, opts.workspace), opts.cloud)], deniedFor(cfg, !!opts.cloud))) throw new Error(`${real} est un emplacement protégé (système, données d'applications, clés ou config de MyIA)`);
+  if (isSensitive(real, [path.resolve(defaultWriteDir()), ...explicitRoots(cfg, knownPlaces(cfg, opts.workspace, opts.coordination), opts.cloud)], deniedFor(cfg, !!opts.cloud))) throw new Error(`${real} est un emplacement protégé (système, données d'applications, clés ou config de MyIA)`);
   const segments = real.split(/[\\/]+/).map((x) => x.toLowerCase());
   const bad = segments.find((x) => AUTORUN_SEGMENTS.has(x));
   if (bad) throw new Error(`écriture refusée dans « ${bad} » : ce dossier peut exécuter du code automatiquement`);
@@ -157,6 +157,10 @@ export function fileWriteService(cfg: Config): Service {
           // y compris l'espace de travail d'un agent, qui est un vrai dossier de projet) : confirmé.
           confirmIf: (a, _trust, s) => {
             const p = resolveWritable(cfg, a.path, s);
+            // Journal de l'espace de coordination de l'équipe : créé, complété ou remplacé sans confirmation (c'est la
+            // mémoire de travail de l'équipe ; dossier à part, hors de tout projet). Le reste de cet espace (règles,
+            // fiches) reste confirmé : ce sont ces fichiers qui guident tous les membres.
+            if (s.coordination && isInside(path.join(s.coordination, COORDINATION_JOURNAL), p)) return false;
             const quick = QUICK_DIRS().some((d) => isInside(d, p));
             return !(quick && a.mode === "create" && !fs.existsSync(p));
           },
@@ -173,7 +177,7 @@ export function fileWriteService(cfg: Config): Service {
             return `${verb} :\n${p}\n(${size.toLocaleString("fr-FR")} octets)\n────────\n${truncate(a.content, 1500)}\n────────`;
           },
           async run(a, ctx) {
-            const s: ToolScope = { cloud: ctx.cloud, workspace: ctx.workspace };
+            const s: ToolScope = { cloud: ctx.cloud, workspace: ctx.workspace, coordination: ctx.coordination };
             const p = resolveWritable(cfg, a.path, s);
             fs.mkdirSync(path.dirname(p), { recursive: true });
             // Recontrôle juste avant d'écrire (un lien a pu apparaître entre-temps), puis après.
@@ -194,7 +198,7 @@ export function fileWriteService(cfg: Config): Service {
           risk: "read",
           preview: () => "",
           async run(a, ctx) {
-            const p = resolveWritable(cfg, a.path, { read: true, cloud: ctx.cloud, workspace: ctx.workspace }); // mêmes dossiers, mêmes contrôles de chemin
+            const p = resolveWritable(cfg, a.path, { read: true, cloud: ctx.cloud, workspace: ctx.workspace, coordination: ctx.coordination }); // mêmes dossiers, mêmes contrôles de chemin
             if (!fs.existsSync(p)) throw new Error(`introuvable : ${p}`);
             const buf = fs.readFileSync(p);
             if (buf.subarray(0, 8000).includes(0)) throw new Error("fichier binaire : lecture texte impossible");

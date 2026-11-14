@@ -103,14 +103,45 @@ export function deniedFor(cfg: Config, cloud: boolean): string[] {
  * Espace de travail d'un agent ou d'une équipe : un dossier local existant, choisi par l'utilisateur. Refusés : un
  * disque entier, le dossier personnel (ou plus large) et les emplacements protégés. Renvoie le chemin réel.
  */
-export function checkWorkspace(p: string): string {
+export function checkWorkspace(p: string, what = "espace de travail"): string {
   const abs = assertLocalPath(p);
   if (!fs.statSync(abs, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`dossier introuvable : ${abs}`);
   const real = fs.realpathSync.native(abs);
-  if (path.parse(real).root === real) throw new Error("un espace de travail est un dossier, pas un disque entier");
-  if (isInside(real, os.homedir())) throw new Error("dossier trop large pour un espace de travail : choisis le dossier d'un projet");
+  if (path.parse(real).root === real) throw new Error(`un ${what} est un dossier, pas un disque entier`);
+  if (isInside(real, os.homedir())) throw new Error(`dossier trop large pour un ${what} : choisis un dossier précis`);
   if (isSensitive(real)) throw new Error(`${real} est un emplacement protégé (système, données d'applications, clés ou config de MyIA)`);
   return real;
+}
+
+/** Sous-dossier de l'espace de coordination où les membres écrivent sans confirmation (comptes rendus, état). */
+export const COORDINATION_JOURNAL = "journal";
+
+/**
+ * Espace de coordination d'une équipe : un dossier À PART, choisi par l'utilisateur, où l'équipe garde ses règles
+ * communes et sa mémoire de travail (journal, état). Mêmes contrôles qu'un espace de travail, plus : ce n'est pas un
+ * projet (pas un dépôt git) et il ne recoupe pas l'espace de travail de l'équipe. Sans cela, l'écriture sans
+ * confirmation du journal s'appliquerait à un dossier de projet.
+ */
+export function checkCoordination(p: string, workspace?: string): string {
+  const real = checkWorkspace(p, "espace de coordination");
+  if (fs.existsSync(path.join(real, ".git"))) {
+    throw new Error("ce dossier est un dépôt git (un projet) : choisis un dossier à part pour la coordination de l'équipe");
+  }
+  const ws = usableWorkspace(workspace);
+  if (ws && (isInside(ws, real) || isInside(real, ws))) {
+    throw new Error("l'espace de coordination doit être en dehors de l'espace de travail de l'équipe (et inversement)");
+  }
+  return real;
+}
+
+/** L'espace de coordination s'il est utilisable MAINTENANT (disque débranché, dossier déplacé ou devenu un projet : non). */
+export function usableCoordination(p: string | undefined, workspace?: string): string | undefined {
+  if (!p) return undefined;
+  try {
+    return checkCoordination(p, workspace);
+  } catch {
+    return undefined;
+  }
 }
 
 /** L'espace de travail s'il est utilisable MAINTENANT (le disque peut être débranché, le dossier déplacé). */

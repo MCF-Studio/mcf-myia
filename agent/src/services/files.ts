@@ -36,7 +36,7 @@ const SAFE_TO_OPEN = new Set([...AUDIO, ...PLAYLIST, ...VIDEO, ...IMAGE, ...DOCU
 const ext = (p: string) => path.extname(p).slice(1).toLowerCase();
 
 /** Dossiers « chez toi » : ouverture sans confirmation. `workspace` : espace de travail de l'agent qui appelle. */
-export function knownPlaces(cfg: Config, workspace?: string): string[] {
+export function knownPlaces(cfg: Config, workspace?: string, coordination?: string): string[] {
   const home = os.homedir();
   const names = ["Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos"];
   const dirs = [
@@ -44,6 +44,7 @@ export function knownPlaces(cfg: Config, workspace?: string): string[] {
     ...names.map((n) => path.join(home, "OneDrive", n)),
     paths.workspace,
     ...(workspace ? [workspace] : []),
+    ...(coordination ? [coordination] : []),
     ...cfg.projectRoots.map((r) => r.path),
     ...Object.values(cfg.projects).map((p) => p.path),
     ...(cfg.godot.projectsRoot ? [cfg.godot.projectsRoot] : []),
@@ -164,7 +165,7 @@ function playlistFromDir(dir: string, shuffled: boolean): { file: string; count:
 
 export function filesService(cfg: Config): Service {
   // `s` : l'agent qui appelle (modèle en ligne ou non, espace de travail).
-  const places = (s: ToolScope) => knownPlaces(cfg, s.workspace);
+  const places = (s: ToolScope) => knownPlaces(cfg, s.workspace, s.coordination);
   const isKnown = (p: string, s: ToolScope) => places(s).some((k) => isInside(k, p));
   /** Où chercher et lister : dossiers habituels + espace de travail + mémoire, ou tout le PC si l'option est activée. */
   const searchable = (s: ToolScope) => accessRoots(cfg, places(s), s.cloud);

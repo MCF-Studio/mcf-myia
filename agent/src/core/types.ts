@@ -27,6 +27,11 @@ export interface ToolScope {
    * outils de fichiers, dossier des chemins relatifs et de la délégation à Claude Code sans projet.
    */
   workspace?: string;
+  /**
+   * Espace de coordination de l'équipe (dossier choisi par l'utilisateur, déjà contrôlé) : ouvert aux outils de
+   * fichiers ; son sous-dossier `journal` s'écrit sans confirmation (core/access.ts → checkCoordination).
+   */
+  coordination?: string;
 }
 
 export interface ToolContext extends ToolScope {

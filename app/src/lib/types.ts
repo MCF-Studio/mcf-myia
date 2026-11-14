@@ -40,6 +40,8 @@ export interface Team {
   description?: string;
   /** Espace de travail de l'équipe : tous ses membres y travaillent. */
   workspace?: string;
+  /** Espace de coordination : dossier à part pour les règles communes et le journal de l'équipe (jamais exporté). */
+  coordination?: string;
   root: TeamNode;
   maxCalls: number;
   maxDepth: number;
