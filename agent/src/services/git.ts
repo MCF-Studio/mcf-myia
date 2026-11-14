@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { commandWorks, runProcess } from "../core/proc.js";
+import { childEnv, commandWorks, runProcess } from "../core/proc.js";
 import type { ProjectRegistry } from "../core/projects.js";
 import { defineTool, truncate, type Service } from "../core/types.js";
 
@@ -24,6 +24,9 @@ const BASE = [
   "-c", "core.pager=cat",
   "-c", "color.ui=never",
   "-c", "protocol.ext.allow=never",
+  // Une config de dépôt « log.showSignature » ferait lancer gpg.program (un programme au choix du dépôt) par les
+  // outils de lecture git_log et git_show.
+  "-c", "log.showSignature=false",
 ];
 const PROTECTED = /^(main|master)$/i;
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9_./-]{0,99}$/;
@@ -43,7 +46,9 @@ export async function runGit(
   args: string[],
   o: { timeoutMs?: number; stdin?: string; maxChars?: number } = {},
 ): Promise<GitResult> {
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_EDITOR: "true" };
+  // childEnv : sans MYIA_HOME. Un hook du dépôt (tests, build) qui lancerait une autre copie de MyIA travaillerait
+  // sinon sur les données de l'app installée (core/proc.ts).
+  const env: NodeJS.ProcessEnv = { ...childEnv(), GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_EDITOR: "true" };
   delete env.GIT_EXTERNAL_DIFF;
   const max = o.maxChars ?? 200_000;
   let out = "";
