@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, Columns2, LayoutGrid, MessageSquarePlus, Network, Pin, PinOff, Search, SquareTerminal, Trash2, X } from "lucide-vue-next";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import ChatPanel from "../components/ChatPanel.vue";
 import TerminalPanel from "../components/TerminalPanel.vue";
@@ -27,6 +27,7 @@ import {
   closeTab,
   createConversation,
   deleteConversation,
+  ensureConversationShown,
   openConversation,
   refreshConversations,
   state,
@@ -238,6 +239,11 @@ function onKey(e: KeyboardEvent) {
   }
 }
 onMounted(() => window.addEventListener("keydown", onKey));
+// À chaque arrivée sur la page (la vue est gardée en mémoire) : une conversation est forcément affichée.
+// Avant que le cœur soit prêt, c'est le démarrage (afterReady) qui s'en charge.
+onActivated(() => {
+  if (state.ready) void ensureConversationShown();
+});
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 </script>
 
