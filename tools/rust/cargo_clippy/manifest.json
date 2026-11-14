@@ -1,0 +1,15 @@
+{
+  "name": "cargo_clippy",
+  "version": "1.0.0",
+  "description": "Lance Clippy (cargo clippy) dans un projet Rust et présente ses avertissements : lint, message, fichier:ligne, regroupés par lint avec leur nombre.",
+  "category": "rust",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "project": {"type": "string", "required": true, "kind": "path", "description": "Dossier contenant Cargo.toml."},
+    "package": {"type": "string", "description": "Crate du workspace à analyser (-p)."},
+    "all_targets": {"type": "boolean", "description": "Inclure tests, exemples et benchmarks (--all-targets, défaut true)."},
+    "timeout": {"type": "integer", "description": "Délai maximal en secondes (défaut 900)."}
+  },
+  "permissions": ["process.exec", "filesystem.read"]
+}

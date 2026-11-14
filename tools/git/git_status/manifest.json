@@ -1,0 +1,19 @@
+{
+  "name": "git_status",
+  "version": "1.0.0",
+  "description": "État du dépôt : branche, fichiers modifiés / indexés / non suivis.",
+  "category": "git",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "repo": {
+      "type": "string",
+      "description": "Dossier du dépôt.",
+      "required": true,
+      "kind": "path"
+    }
+  },
+  "permissions": [
+    "process.exec.readonly"
+  ]
+}

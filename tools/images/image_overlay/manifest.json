@@ -1,0 +1,64 @@
+{
+  "name": "image_overlay",
+  "version": "1.0.0",
+  "description": "Appose une image (logo, filigrane) sur une image ou sur toutes les images d'un dossier. Position, taille relative, marge et opacité réglables ; le logo est ignoré s'il est dans le dossier traité.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source OU dossier d'images (traite toutes les images du dossier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
+      "kind": "path"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Dossier : inclure les sous-dossiers (défaut false)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "overlay": {
+      "type": "string",
+      "required": true,
+      "description": "Image à poser (PNG avec transparence conseillé).",
+      "kind": "path"
+    },
+    "position": {
+      "type": "string",
+      "description": "Ancre : top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right (défaut bottom-right)."
+    },
+    "margin": {
+      "type": "integer",
+      "description": "Marge en px (défaut 16)."
+    },
+    "scale": {
+      "type": "number",
+      "description": "Largeur du logo en % de la largeur de l'image (défaut 20 ; 0 = taille d'origine)."
+    },
+    "opacity": {
+      "type": "integer",
+      "description": "0-100 (défaut 100)."
+    },
+    "x": {
+      "type": "integer",
+      "description": "Position x exacte (négatif = depuis la droite)."
+    },
+    "y": {
+      "type": "integer",
+      "description": "Position y exacte (négatif = depuis le bas)."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

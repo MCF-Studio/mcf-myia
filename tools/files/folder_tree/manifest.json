@@ -1,0 +1,27 @@
+{
+  "name": "folder_tree",
+  "version": "1.0.0",
+  "description": "Arborescence d'un dossier, profondeur limitée (dossiers lourds ignorés).",
+  "category": "files",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "directory": {
+      "type": "string",
+      "description": "Dossier.",
+      "required": true,
+      "kind": "path"
+    },
+    "depth": {
+      "type": "integer",
+      "description": "Profondeur (défaut 2)."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Max d'entrées (défaut 200)."
+    }
+  },
+  "permissions": [
+    "filesystem.read"
+  ]
+}

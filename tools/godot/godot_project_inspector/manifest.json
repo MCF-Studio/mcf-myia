@@ -1,0 +1,19 @@
+{
+  "name": "godot_project_inspector",
+  "version": "1.0.0",
+  "description": "Analyse un projet Godot : project.godot, scènes, scripts, ressources, plugins, références res:// manquantes.",
+  "category": "godot",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "project": {
+      "type": "string",
+      "required": true,
+      "description": "Dossier contenant project.godot.",
+      "kind": "path"
+    }
+  },
+  "permissions": [
+    "filesystem.read"
+  ]
+}

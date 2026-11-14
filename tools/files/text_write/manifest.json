@@ -1,0 +1,14 @@
+{
+  "name": "text_write",
+  "version": "1.0.0",
+  "description": "Crée un fichier texte (UTF-8). Refuse d'écraser un fichier existant sauf overwrite=true, auquel cas une copie .bak est gardée.",
+  "category": "files",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {"type": "string", "required": true, "kind": "path", "description": "Fichier à écrire (dans un dossier autorisé en écriture)."},
+    "content": {"type": "string", "required": true, "description": "Contenu."},
+    "overwrite": {"type": "boolean", "description": "Autoriser l'écrasement (défaut non)."}
+  },
+  "permissions": ["filesystem.write"]
+}

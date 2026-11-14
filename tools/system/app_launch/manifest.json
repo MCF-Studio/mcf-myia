@@ -1,0 +1,13 @@
+{
+  "name": "app_launch",
+  "version": "1.0.0",
+  "description": "Lance une application du catalogue (jamais un exécutable arbitraire), détachée, avec arguments optionnels. Refuse si le nom est inconnu ou ambigu.",
+  "category": "system",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "app": {"type": "string", "required": true, "description": "Identifiant ou alias (ex. godot, blender)."},
+    "args": {"type": "array", "description": "Arguments, chacun une chaîne séparée (ex. [\"--path\", \"I:/projet\", \"-e\"])."}
+  },
+  "permissions": ["app.launch"]
+}

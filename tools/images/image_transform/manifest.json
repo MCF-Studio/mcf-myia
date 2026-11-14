@@ -1,0 +1,51 @@
+{
+  "name": "image_transform",
+  "version": "1.0.0",
+  "description": "Rotation (degrés, sens horaire, fond personnalisable) et/ou miroir horizontal/vertical d'une image ou d'un dossier.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source OU dossier d'images (traite toutes les images du dossier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
+      "kind": "path"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Dossier : inclure les sous-dossiers (défaut false)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "rotate": {
+      "type": "number",
+      "description": "Degrés, sens horaire."
+    },
+    "flip": {
+      "type": "string",
+      "description": "horizontal | vertical | both.",
+      "kind": "text"
+    },
+    "expand": {
+      "type": "boolean",
+      "description": "Agrandir le cadre pour garder toute l'image (défaut true)."
+    },
+    "fill": {
+      "type": "string",
+      "description": "Couleur des coins après rotation (défaut transparent)."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

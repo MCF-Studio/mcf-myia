@@ -1,0 +1,19 @@
+{
+  "name": "project_scan",
+  "version": "1.0.0",
+  "description": "Inventaire d'un projet : types de projet détectés (Godot, Cargo, Node, Python), fichiers par extension, points d'entrée.",
+  "category": "dev",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "directory": {
+      "type": "string",
+      "description": "Dossier du projet.",
+      "required": true,
+      "kind": "path"
+    }
+  },
+  "permissions": [
+    "filesystem.read"
+  ]
+}

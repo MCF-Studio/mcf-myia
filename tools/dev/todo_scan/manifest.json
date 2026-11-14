@@ -1,0 +1,14 @@
+{
+  "name": "todo_scan",
+  "version": "1.0.0",
+  "description": "Recherche les marqueurs TODO, FIXME, HACK, XXX, BUG et NOTE dans un projet : fichier, ligne, marqueur, texte, et totaux par marqueur.",
+  "category": "dev",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "directory": {"type": "string", "required": true, "kind": "path", "description": "Dossier du projet."},
+    "markers": {"type": "string", "description": "Marqueurs séparés par des virgules (défaut TODO,FIXME,HACK,XXX,BUG)."},
+    "limit": {"type": "integer", "description": "Nombre maximal de résultats (défaut 200)."}
+  },
+  "permissions": ["filesystem.read"]
+}

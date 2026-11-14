@@ -1,0 +1,35 @@
+{
+  "name": "image_compare",
+  "version": "1.0.0",
+  "description": "Compare deux images : pixels différents, % de différence, zone modifiée (bbox) ; peut écrire une image des différences en rouge. Utile pour vérifier une retouche ou une capture d'écran.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image de référence.",
+      "kind": "path"
+    },
+    "other": {
+      "type": "string",
+      "required": true,
+      "description": "Image à comparer.",
+      "kind": "path"
+    },
+    "tolerance": {
+      "type": "integer",
+      "description": "Écart toléré par canal 0-255 (défaut 8)."
+    },
+    "output": {
+      "type": "string",
+      "description": "Optionnel : image des différences (png).",
+      "kind": "path"
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

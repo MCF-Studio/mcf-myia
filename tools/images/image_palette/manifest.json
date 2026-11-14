@@ -1,0 +1,29 @@
+{
+  "name": "image_palette",
+  "version": "1.0.0",
+  "description": "Extrait les couleurs dominantes d'une image (hex, rgb, pourcentage) ; peut écrire une bande de pastilles pour les voir.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source.",
+      "kind": "path"
+    },
+    "colors": {
+      "type": "integer",
+      "description": "Nombre de couleurs 1-32 (défaut 6)."
+    },
+    "output": {
+      "type": "string",
+      "description": "Optionnel : PNG de pastilles à écrire.",
+      "kind": "path"
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

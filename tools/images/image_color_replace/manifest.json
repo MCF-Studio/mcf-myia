@@ -1,0 +1,54 @@
+{
+  "name": "image_color_replace",
+  "version": "1.0.0",
+  "description": "Remplace une couleur par une autre (ou par 'transparent' pour détourer un fond) sur une image ou tout un dossier. Tolérance et adoucissement des bords réglables ; l'alpha est conservé.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source OU dossier d'images (traite toutes les images du dossier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
+      "kind": "path"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Dossier : inclure les sous-dossiers (défaut false)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "from": {
+      "type": "string",
+      "description": "Couleur à remplacer (#rrggbb, nom, rgb(...))."
+    },
+    "to": {
+      "type": "string",
+      "description": "Nouvelle couleur, ou 'transparent'."
+    },
+    "mapping": {
+      "type": "object",
+      "description": "Plusieurs remplacements d'un coup : {\"#ff0000\": \"#00ff00\"}. Calculés sur l'original (pas de chaînage)."
+    },
+    "tolerance": {
+      "type": "integer",
+      "description": "Écart max par canal 0-255 (défaut 16 ; monter pour les JPEG bruités)."
+    },
+    "feather": {
+      "type": "integer",
+      "description": "Largeur du dégradé au-delà de la tolérance, pour des bords lisses (défaut 0)."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

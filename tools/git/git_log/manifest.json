@@ -1,0 +1,23 @@
+{
+  "name": "git_log",
+  "version": "1.0.0",
+  "description": "Derniers commits (hash, auteur, date, sujet).",
+  "category": "git",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "repo": {
+      "type": "string",
+      "description": "Dossier du dépôt.",
+      "required": true,
+      "kind": "path"
+    },
+    "count": {
+      "type": "integer",
+      "description": "Nombre (défaut 10, max 100)."
+    }
+  },
+  "permissions": [
+    "process.exec.readonly"
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "name": "image_fit",
+  "version": "1.0.0",
+  "description": "Redimensionne une image ou un dossier vers une taille cible : contain (tient dans le cadre), cover (remplit et rogne), pad (tient + marges de couleur), stretch (déforme).",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source OU dossier d'images (traite toutes les images du dossier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
+      "kind": "path"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Dossier : inclure les sous-dossiers (défaut false)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "width": {
+      "type": "integer",
+      "description": "Largeur cible."
+    },
+    "height": {
+      "type": "integer",
+      "description": "Hauteur cible."
+    },
+    "mode": {
+      "type": "string",
+      "description": "contain (défaut) | cover | pad | stretch. Hors contain : width ET height requis."
+    },
+    "background": {
+      "type": "string",
+      "description": "Couleur des marges en mode pad (défaut transparent)."
+    },
+    "no_upscale": {
+      "type": "boolean",
+      "description": "Ne jamais agrandir (contain/pad)."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

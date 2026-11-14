@@ -1,0 +1,95 @@
+{
+  "name": "image_text",
+  "version": "1.0.0",
+  "description": "Écrit du texte sur une image ou sur tout un dossier (légende, filigrane, numéro) : police système, taille relative, contour, fond, opacité, position.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "path": {
+      "type": "string",
+      "required": true,
+      "description": "Image source OU dossier d'images (traite toutes les images du dossier).",
+      "kind": "path"
+    },
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
+      "kind": "path"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Dossier : inclure les sous-dossiers (défaut false)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "Qualité 1-100 pour JPEG/WebP (défaut 90)."
+    },
+    "text": {
+      "type": "string",
+      "description": "Texte (\\n = retour à la ligne, 500 caractères max).",
+      "kind": "text",
+      "required": true
+    },
+    "position": {
+      "type": "string",
+      "description": "Ancre : top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right (défaut bottom-right).",
+      "kind": "text"
+    },
+    "margin": {
+      "type": "integer",
+      "description": "Marge en px (défaut 16)."
+    },
+    "size": {
+      "type": "integer",
+      "description": "Taille en px (sinon size_pct)."
+    },
+    "size_pct": {
+      "type": "number",
+      "description": "Taille en % de la largeur de l'image (défaut 5)."
+    },
+    "color": {
+      "type": "string",
+      "description": "Couleur du texte (défaut #ffffff)."
+    },
+    "stroke_width": {
+      "type": "integer",
+      "description": "Contour en px (défaut 0)."
+    },
+    "stroke_color": {
+      "type": "string",
+      "description": "Couleur du contour (défaut #000000)."
+    },
+    "background": {
+      "type": "string",
+      "description": "Pastille derrière le texte, ex. '#00000099'."
+    },
+    "opacity": {
+      "type": "integer",
+      "description": "0-100 (défaut 100)."
+    },
+    "font": {
+      "type": "string",
+      "description": "Nom de police système : arial, consolas, segoeui... (défaut segoeui gras).",
+      "kind": "text"
+    },
+    "align": {
+      "type": "string",
+      "description": "left | center | right (texte multi-lignes).",
+      "kind": "text"
+    },
+    "x": {
+      "type": "integer",
+      "description": "Position x exacte."
+    },
+    "y": {
+      "type": "integer",
+      "description": "Position y exacte."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

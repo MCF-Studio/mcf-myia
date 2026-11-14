@@ -1,0 +1,58 @@
+{
+  "name": "image_generate",
+  "version": "1.0.0",
+  "description": "Crée une image à partir de rien : unie, dégradé (vertical/horizontal/diagonal), radial, damier, rayures, bruit. Utile pour fonds, placeholders, textures de test.",
+  "category": "images",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "output": {
+      "type": "string",
+      "required": true,
+      "description": "Fichier de sortie (png, jpg, webp...).",
+      "kind": "path"
+    },
+    "kind": {
+      "type": "string",
+      "description": "solid | gradient | radial | checker | stripes | noise (défaut solid).",
+      "kind": "text"
+    },
+    "width": {
+      "type": "integer",
+      "description": "Largeur (défaut 256, max 8192)."
+    },
+    "height": {
+      "type": "integer",
+      "description": "Hauteur (défaut 256, max 8192)."
+    },
+    "color": {
+      "type": "string",
+      "description": "Couleur 1 (défaut #808080)."
+    },
+    "color2": {
+      "type": "string",
+      "description": "Couleur 2 (défaut #ffffff)."
+    },
+    "direction": {
+      "type": "string",
+      "description": "gradient : vertical | horizontal | diagonal.",
+      "kind": "text"
+    },
+    "cell": {
+      "type": "integer",
+      "description": "checker/stripes : taille d'une case (défaut 32)."
+    },
+    "seed": {
+      "type": "integer",
+      "description": "noise : graine (défaut 0, résultat reproductible)."
+    },
+    "quality": {
+      "type": "integer",
+      "description": "JPEG/WebP 1-100."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

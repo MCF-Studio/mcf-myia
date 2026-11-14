@@ -1,0 +1,13 @@
+{
+  "name": "cargo_fmt_check",
+  "version": "1.0.0",
+  "description": "Vérifie le formatage d'un projet Rust avec rustfmt (cargo fmt --check), sans rien modifier : fichiers mal formatés et extrait des différences.",
+  "category": "rust",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "project": {"type": "string", "required": true, "kind": "path", "description": "Dossier contenant Cargo.toml."},
+    "timeout": {"type": "integer", "description": "Délai maximal en secondes (défaut 120)."}
+  },
+  "permissions": ["process.exec.readonly", "filesystem.read"]
+}
