@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Redimensionne une image ou un dossier vers une taille cible : contain (tient dans le cadre), cover (remplit et rogne), pad (tient + marges de couleur), stretch (déforme).",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,7 +17,8 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "recursive": {
       "type": "boolean",
@@ -45,6 +47,10 @@
     "no_upscale": {
       "type": "boolean",
       "description": "Ne jamais agrandir (contain/pad)."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+from common import bounded
+
 # Niveau d'une ligne : du plus grave au moins grave, premier motif qui correspond.
 LEVELS = [
     ("error", re.compile(r"\b(?:ERROR|FATAL|CRITICAL|PANIC|SCRIPT ERROR|Unhandled|Traceback)\b|"
@@ -56,8 +58,8 @@ def execute(params):
     path = Path(params["file"])
     if not path.is_file():
         raise FileNotFoundError(f"introuvable : {path}")
-    tail = max(1, params.get("tail_mb", 20)) * 1024 * 1024
-    limit = params.get("limit", 40)
+    tail = bounded(params, "tail_mb", 20, 1, 64) * 1024 * 1024
+    limit = bounded(params, "limit", 40, 1, 1000)
     size = path.stat().st_size
     warnings = []
     with path.open("rb") as fh:

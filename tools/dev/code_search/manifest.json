@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Cherche une chaîne ou une regex dans les fichiers texte d'un projet ; renvoie fichier:ligne:texte.",
   "category": "dev",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -15,7 +16,8 @@
     "pattern": {
       "type": "string",
       "description": "Texte ou regex.",
-      "required": true
+      "required": true,
+      "max_length": 300
     },
     "regex": {
       "type": "boolean",
@@ -27,7 +29,9 @@
     },
     "limit": {
       "type": "integer",
-      "description": "Max (défaut 100)."
+      "description": "Max (défaut 100).",
+      "min": 1,
+      "max": 1000
     }
   },
   "permissions": [

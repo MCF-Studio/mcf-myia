@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Compare deux images : pixels différents, % de différence, zone modifiée (bbox) ; peut écrire une image des différences en rouge. Utile pour vérifier une retouche ou une capture d'écran.",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -25,7 +26,12 @@
     "output": {
       "type": "string",
       "description": "Optionnel : image des différences (png).",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

@@ -1,8 +1,9 @@
 {
   "name": "godot_headless_check",
   "version": "1.0.0",
-  "description": "Ouvre un projet Godot en headless (import + chargement puis arrêt) et renvoie erreurs/avertissements structurés, code de sortie et durée.",
+  "description": "Ouvre un projet Godot en headless (import + chargement puis arrêt) et renvoie erreurs/avertissements structurés, code de sortie et durée. Godot importe le projet (écrit dans .godot/) et peut exécuter ses scripts d'éditeur : niveau local, confirmé.",
   "category": "godot",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -10,15 +11,19 @@
       "type": "string",
       "required": true,
       "description": "Dossier contenant project.godot.",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "timeout": {
       "type": "integer",
-      "description": "Délai maximal en secondes (défaut 120)."
+      "description": "Délai maximal en secondes (défaut 120).",
+      "min": 1,
+      "max": 600
     }
   },
   "permissions": [
-    "app.launch",
-    "filesystem.read"
+    "process.exec",
+    "filesystem.read",
+    "filesystem.write"
   ]
 }

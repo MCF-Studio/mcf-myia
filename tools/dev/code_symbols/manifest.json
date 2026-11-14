@@ -3,12 +3,28 @@
   "version": "1.0.0",
   "description": "Extrait les symboles d'un fichier ou d'un dossier de code : classes, fonctions, méthodes, structures, signaux et imports, avec leur ligne. Langages : Python, Rust, GDScript, TypeScript/JavaScript, C#.",
   "category": "dev",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "path": {"type": "string", "required": true, "kind": "path", "description": "Fichier source, ou dossier (parcouru récursivement)."},
-    "imports": {"type": "boolean", "description": "Inclure les imports (défaut false)."},
-    "limit": {"type": "integer", "description": "Nombre maximal de symboles renvoyés (défaut 300)."}
+    "path": {
+      "type": "string",
+      "required": true,
+      "kind": "path",
+      "description": "Fichier source, ou dossier (parcouru récursivement)."
+    },
+    "imports": {
+      "type": "boolean",
+      "description": "Inclure les imports (défaut false)."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Nombre maximal de symboles renvoyés (défaut 300).",
+      "min": 1,
+      "max": 1000
+    }
   },
-  "permissions": ["filesystem.read"]
+  "permissions": [
+    "filesystem.read"
+  ]
 }

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Inventaire d'un projet : types de projet détectés (Godot, Cargo, Node, Python), fichiers par extension, points d'entrée.",
   "category": "dev",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {

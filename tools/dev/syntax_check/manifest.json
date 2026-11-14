@@ -3,10 +3,18 @@
   "version": "1.0.0",
   "description": "Vérifie la syntaxe d'un fichier sans l'exécuter : Python, JSON, XML/SVG, TOML (Python 3.11+), GDScript et scènes Godot (.tscn/.tres, structure des sections). Renvoie les erreurs avec ligne et colonne.",
   "category": "dev",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "file": {"type": "string", "required": true, "kind": "path", "description": "Fichier à vérifier."}
+    "file": {
+      "type": "string",
+      "required": true,
+      "kind": "path",
+      "description": "Fichier à vérifier."
+    }
   },
-  "permissions": ["filesystem.read"]
+  "permissions": [
+    "filesystem.read"
+  ]
 }

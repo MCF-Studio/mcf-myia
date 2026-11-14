@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Rotation (degrés, sens horaire, fond personnalisable) et/ou miroir horizontal/vertical d'une image ou d'un dossier.",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,7 +17,8 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "recursive": {
       "type": "boolean",
@@ -42,6 +44,10 @@
     "fill": {
       "type": "string",
       "description": "Couleur des coins après rotation (défaut transparent)."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Changements non validés (ou indexés) ; résumé par fichier + diff plafonné.",
   "category": "git",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -18,12 +19,15 @@
     },
     "path": {
       "type": "string",
-      "description": "Limiter à un fichier.",
-      "kind": "path"
+      "kind": "text",
+      "max_length": 400,
+      "description": "Limiter à un fichier ou dossier, RELATIF au dépôt (ni chemin absolu, ni « .. », ni option)."
     },
     "max_chars": {
       "type": "integer",
-      "description": "Plafond du diff (défaut 20000)."
+      "description": "Plafond du diff (défaut 20000).",
+      "min": 1,
+      "max": 200000
     }
   },
   "permissions": [

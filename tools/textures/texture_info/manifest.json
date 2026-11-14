@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Lit dimensions, format, canaux, alpha et puissance de 2 d'une image.",
   "category": "textures",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {

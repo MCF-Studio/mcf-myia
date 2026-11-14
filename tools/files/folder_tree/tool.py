@@ -1,11 +1,11 @@
 from pathlib import Path
 
-from common import SKIP_DIRS
+from common import SKIP_DIRS, bounded
 
 
 def execute(params):
     root = Path(params["directory"])
-    depth, limit = params.get("depth", 2), params.get("limit", 200)
+    depth, limit = bounded(params, "depth", 2, 1, 10), bounded(params, "limit", 200, 1, 2000)
     lines = []
 
     def walk(d, level):

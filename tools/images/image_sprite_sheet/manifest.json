@@ -1,8 +1,9 @@
 {
   "name": "image_sprite_sheet",
   "version": "1.0.0",
-  "description": "Planche de sprites : 'pack' assemble un dossier d'images en une planche (+ atlas JSON ; option légendes = vue d'ensemble d'un dossier) ; 'split' découpe une planche en tuiles.",
+  "description": "Planche de sprites : 'pack' assemble un dossier d'images en une planche (+ atlas JSON ; option légendes = vue d'ensemble d'un dossier) ; 'split' découpe une planche en tuiles. L'atlas .json est écrit à côté de la planche (jamais sur un fichier existant sans overwrite).",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,7 +17,8 @@
       "type": "string",
       "required": true,
       "description": "pack : fichier planche (.png). split : dossier de tuiles.",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "mode": {
       "type": "string",
@@ -66,6 +68,10 @@
     "skip_empty": {
       "type": "boolean",
       "description": "split : ignorer les tuiles entièrement transparentes (défaut true)."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

@@ -1,13 +1,29 @@
 {
   "name": "app_launch",
   "version": "1.0.0",
-  "description": "Lance une application du catalogue (jamais un exécutable arbitraire), détachée, avec arguments optionnels. Refuse si le nom est inconnu ou ambigu.",
+  "description": "Lance une application du catalogue local (tools/apps.json), sans shell. Arguments : liste blanche par application ; au plus un fichier à ouvrir. Niveau local : confirmé.",
   "category": "system",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
-    "app": {"type": "string", "required": true, "description": "Identifiant ou alias (ex. godot, blender)."},
-    "args": {"type": "array", "description": "Arguments, chacun une chaîne séparée (ex. [\"--path\", \"I:/projet\", \"-e\"])."}
+    "app": {
+      "type": "string",
+      "required": true,
+      "description": "Identifiant ou alias (ex. godot, blender)."
+    },
+    "args": {
+      "type": "array",
+      "description": "Arguments, chacun une chaîne : uniquement ceux de la liste `allowed_args` de l'application dans tools/apps.json (liste blanche ; vide = aucun argument)."
+    },
+    "file": {
+      "type": "string",
+      "kind": "path",
+      "description": "Fichier à ouvrir avec l'application (facultatif) : existant, dans les dossiers autorisés en lecture, et d'une extension listée dans `open_extensions` de l'application."
+    }
   },
-  "permissions": ["app.launch"]
+  "permissions": [
+    "app.launch",
+    "filesystem.read"
+  ]
 }

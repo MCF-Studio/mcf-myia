@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Remplace une couleur par une autre (ou par 'transparent' pour détourer un fond) sur une image ou tout un dossier. Tolérance et adoucissement des bords réglables ; l'alpha est conservé.",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,7 +17,8 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "recursive": {
       "type": "boolean",
@@ -45,6 +47,10 @@
     "feather": {
       "type": "integer",
       "description": "Largeur du dégradé au-delà de la tolérance, pour des bords lisses (défaut 0)."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

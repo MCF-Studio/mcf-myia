@@ -1,13 +1,13 @@
 from pathlib import Path
 
-from common import iter_files
+from common import bounded, iter_files
 
 
 def execute(params):
     root = Path(params["directory"])
     q = params.get("query", "").lower()
     ext = params.get("extension", "").lower()
-    limit = params.get("limit", 100)
+    limit = bounded(params, "limit", 100, 1, 1000)
     hits = []
     for p in iter_files(root):
         if (not q or q in p.name.lower()) and (not ext or p.suffix.lower() == ext.lower()):

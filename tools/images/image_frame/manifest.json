@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Habille une image ou un dossier : coins arrondis, découpe en cercle, bordure, marge, ombre portée. Tous les effets sont optionnels et combinables.",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -16,7 +17,8 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (si path est un fichier) ou dossier de sortie (si path est un dossier). Différent de la source ; la source n'est jamais modifiée.",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "recursive": {
       "type": "boolean",
@@ -61,6 +63,10 @@
     "shadow_color": {
       "type": "string",
       "description": "Couleur de l'ombre (défaut #00000099)."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

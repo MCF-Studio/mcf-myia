@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Cherche des fichiers par fragment de nom et/ou extension sous un dossier (dossiers lourds ignorés).",
   "category": "files",
+  "risk": "read",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -22,7 +23,9 @@
     },
     "limit": {
       "type": "integer",
-      "description": "Max de résultats (défaut 100)."
+      "description": "Max de résultats (défaut 100).",
+      "min": 1,
+      "max": 1000
     }
   },
   "permissions": [

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Extrait les couleurs dominantes d'une image (hex, rgb, pourcentage) ; peut écrire une bande de pastilles pour les voir.",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -19,7 +20,12 @@
     "output": {
       "type": "string",
       "description": "Optionnel : PNG de pastilles à écrire.",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [

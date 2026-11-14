@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Crée une image à partir de rien : unie, dégradé (vertical/horizontal/diagonal), radial, damier, rayures, bruit. Utile pour fonds, placeholders, textures de test.",
   "category": "images",
+  "risk": "local",
   "entrypoint": "tool.py",
   "function": "execute",
   "parameters": {
@@ -10,7 +11,8 @@
       "type": "string",
       "required": true,
       "description": "Fichier de sortie (png, jpg, webp...).",
-      "kind": "path"
+      "kind": "path",
+      "access": "write"
     },
     "kind": {
       "type": "string",
@@ -49,6 +51,10 @@
     "quality": {
       "type": "integer",
       "description": "JPEG/WebP 1-100."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un fichier de sortie qui existe déjà (défaut false : refus). Une image source n'est jamais remplacée."
     }
   },
   "permissions": [
