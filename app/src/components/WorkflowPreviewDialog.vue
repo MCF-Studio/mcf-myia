@@ -233,6 +233,7 @@ p {
   white-space: pre-wrap;
   font-size: 0.82rem;
   line-height: 1.5;
+  font-variant-ligatures: none;
 }
 .script-tabs {
   display: flex;

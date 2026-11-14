@@ -7,6 +7,7 @@ import TeamNodeView from "../components/TeamNodeView.vue";
 import TeamScripts from "../components/TeamScripts.vue";
 import WorkflowPreviewDialog from "../components/WorkflowPreviewDialog.vue";
 import { downloadText, pickTextFile } from "../lib/files";
+import { focusTeam } from "../lib/focus";
 import { call } from "../lib/rpc";
 import { createConversation, refreshOverview, refreshTeams, state, toast } from "../lib/store";
 import type { Team, TeamNode, WorkflowInstalled, WorkflowPreview } from "../lib/types";
@@ -218,7 +219,13 @@ function panEnd(e: PointerEvent) {
 watch(
   () => state.teams,
   (teams) => {
-    if (!draft.value) select(teams[0]);
+    // Équipe demandée par un autre écran (installation depuis le Marketplace) : on l'ouvre dès qu'elle est chargée.
+    const wanted = focusTeam.value ? teams.find((t) => t.id === focusTeam.value) : undefined;
+    if (wanted) {
+      focusTeam.value = undefined;
+      select(wanted);
+      dirty.value = false;
+    } else if (!draft.value) select(teams[0]);
   },
   { immediate: true },
 );

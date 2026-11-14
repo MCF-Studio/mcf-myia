@@ -69,5 +69,7 @@ const lines = computed(() => (file.value ? file.value.content.split("\n").length
   line-height: 1.5;
   white-space: pre;
   tab-size: 4;
+  /* Code à relire avant de l'accepter : chaque caractère affiché tel quel (pas de « >= » fusionné en un seul signe). */
+  font-variant-ligatures: none;
 }
 </style>

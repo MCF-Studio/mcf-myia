@@ -172,10 +172,16 @@ export function planImport(wf: Workflow, state: ImportState): ImportPlan {
   const agentMap = new Map<string, string>();
   const newProfiles: AgentProfile[] = [];
   const reusedAgents: string[] = [];
+  // Réutilisé : le même contenu sous le même id, sinon sous un autre id (agent déjà reçu puis renommé à cause d'un
+  // conflit : réimporter le workflow ne doit pas l'empiler une seconde fois). Un agent local ne sert qu'une fois.
+  const usedAgents = new Set<string>();
   for (const a of wf.agents) {
-    const existing = state.profiles.find((p) => p.id === a.id);
-    if (existing && sameAgent(existing, a)) {
-      agentMap.set(a.id, a.id);
+    const existing =
+      state.profiles.find((p) => p.id === a.id && !usedAgents.has(p.id) && sameAgent(p, a)) ??
+      state.profiles.find((p) => !usedAgents.has(p.id) && sameAgent({ ...p, id: a.id }, a));
+    if (existing) {
+      usedAgents.add(existing.id);
+      agentMap.set(a.id, existing.id);
       reusedAgents.push(a.id);
       continue;
     }
@@ -194,9 +200,12 @@ export function planImport(wf: Workflow, state: ImportState): ImportPlan {
   const reusedScripts: string[] = [];
   const scriptIds: string[] = [];
   for (const s of wf.scripts) {
-    if (state.scripts.get(s.id) === scriptHash(s)) {
+    // Même code déjà installé (l'empreinte ne dépend ni de l'id ni du nom) : on le réutilise, avec l'accord qu'il a déjà.
+    const hash = scriptHash(s);
+    const local = state.scripts.get(s.id) === hash ? s.id : [...state.scripts].find(([id, h]) => h === hash && !scriptIds.includes(id))?.[0];
+    if (local) {
       reusedScripts.push(s.id);
-      scriptIds.push(s.id);
+      scriptIds.push(local);
       continue;
     }
     const id = freeId(s.id, takenScripts);

@@ -2,9 +2,10 @@
 import { BadgeCheck, ChevronLeft, ChevronRight, Download, FileCode2, Globe, Loader2, Lock, LogIn, LogOut, Network, RefreshCw, Search, Trash2 } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { relTime } from "../lib/format";
+import { focusTeam } from "../lib/focus";
 import { call } from "../lib/rpc";
 import { navigate, toast } from "../lib/store";
-import type { MarketAccount, WorkflowPage, WorkflowPreview, WorkflowSummary } from "../lib/types";
+import type { MarketAccount, WorkflowInstalled, WorkflowPage, WorkflowPreview, WorkflowSummary } from "../lib/types";
 import WorkflowPreviewDialog from "./WorkflowPreviewDialog.vue";
 
 /** Workflows du marketplace de mcfstudio.fr : parcourir et installer (sans compte), gérer ses publications (compte). */
@@ -102,6 +103,13 @@ async function remove(w: WorkflowSummary) {
   } catch (e) {
     toast((e as Error).message, "error");
   }
+}
+
+/** Installé : on ouvre l'écran Équipes sur la nouvelle équipe (ses scripts éventuels y attendent l'accord). */
+function installed(r: WorkflowInstalled) {
+  preview.value = undefined;
+  focusTeam.value = r.team.id;
+  navigate("teams");
 }
 
 function status(w: WorkflowSummary): { label: string; cls: string } {
@@ -223,7 +231,7 @@ function status(w: WorkflowSummary): { label: string; cls: string } {
       </template>
     </template>
 
-    <WorkflowPreviewDialog v-if="preview" :preview="preview" @close="preview = undefined" @installed="((preview = undefined), navigate('teams'))" />
+    <WorkflowPreviewDialog v-if="preview" :preview="preview" @close="preview = undefined" @installed="installed" />
   </section>
 </template>
 

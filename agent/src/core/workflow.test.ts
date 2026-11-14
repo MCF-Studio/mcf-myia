@@ -138,6 +138,51 @@ describe("plan d'installation", () => {
     expect(plan.renamed).toHaveLength(3);
   });
 
+  it("réimporter après un conflit d'id ne réinstalle rien : le contenu identique est retrouvé sous son nouvel id", () => {
+    const first = planImport(wf, {
+      profiles: [...emptyState.profiles, { id: "chef", name: "Mon chef à moi" }],
+      teams: [],
+      scripts: new Map([["godot-pont", "0".repeat(64)]]),
+    });
+    expect(first.newProfiles.map((p) => p.id)).toEqual(["chef-2", "modeleur"]);
+    expect(first.newScripts.map((s) => s.id)).toEqual(["godot-pont-2"]);
+
+    const after = {
+      profiles: [...emptyState.profiles, { id: "chef", name: "Mon chef à moi" }, ...first.newProfiles],
+      teams: [first.team],
+      scripts: new Map([
+        ["godot-pont", "0".repeat(64)],
+        ["godot-pont-2", scriptHash(script)],
+      ]),
+    };
+    const second = planImport(wf, after);
+    expect(second.newProfiles).toEqual([]);
+    expect(second.newScripts).toEqual([]);
+    expect(second.reusedAgents).toEqual(["chef", "modeleur"]);
+    expect(second.reusedScripts).toEqual(["godot-pont"]);
+    expect(second.team.root.agentId).toBe("chef-2");
+    expect(second.team.scripts).toEqual(["godot-pont-2"]);
+    expect(second.team.id).toBe("studio-3d-2");
+  });
+
+  it("deux agents identiques du workflow ne sont pas fondus en un seul agent local", () => {
+    const twins = parseWorkflow(
+      JSON.stringify({
+        $schema: WORKFLOW_SCHEMA,
+        name: "Jumeaux",
+        team: { root: { id: "n-0001", agentId: "a", subagents: [{ id: "n-0002", agentId: "b", subagents: [], teammates: [] }], teammates: [] } },
+        agents: [
+          { id: "a", name: "Ouvrier" },
+          { id: "b", name: "Ouvrier" },
+        ],
+      }),
+    );
+    const plan = planImport(twins, { ...emptyState, profiles: [...emptyState.profiles, { id: "a", name: "Ouvrier" }] });
+    expect(plan.reusedAgents).toEqual(["a"]);
+    expect(plan.newProfiles.map((p) => p.id)).toEqual(["b"]);
+    expect(plan.team.root.subagents[0]!.agentId).toBe("b");
+  });
+
   it("refuse de dépasser la limite d'agents", () => {
     const full = { ...emptyState, profiles: Array.from({ length: 99 }, (_, i) => ({ id: `x${i}`, name: `X${i}` })) };
     expect(() => planImport(wf, full)).toThrow(/trop d'agents/);
