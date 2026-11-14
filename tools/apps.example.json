@@ -1,0 +1,26 @@
+{
+  "_doc": [
+    "MODÈLE de catalogue. Copier ce fichier en tools/apps.json (local, ignoré par git) et y mettre les chemins de CE poste.",
+    "Sans tools/apps.json, aucune application n'est lançable. Il faut en plus accorder app.launch dans tools/policy.json.",
+    "executable : chemin absolu local. Jamais un shell ni un interpréteur (cmd, powershell, python, node… : refusés).",
+    "allowed_args : liste BLANCHE. Un argument n'est accepté que s'il figure ici tel quel. Liste vide = aucun argument. Ne jamais y mettre un argument qui fait exécuter du code ou charger un projet (--script, --path, --python, --main-pack…).",
+    "open_extensions : extensions des fichiers que l'application peut ouvrir via le paramètre `file` (un seul fichier, dans les dossiers autorisés en lecture). Liste vide = aucun fichier. Ouvrir un fichier peut exécuter ce qu'il contient : n'ajouter que des formats de données.",
+    "forced_args : arguments toujours ajoutés par le gestionnaire (ex. désactiver l'exécution automatique de scripts)."
+  ],
+  "godot": {
+    "label": "Godot Engine",
+    "executable": "C:/chemin/vers/Godot.exe",
+    "aliases": ["godot", "éditeur godot", "godot engine"],
+    "allowed_args": [],
+    "open_extensions": [],
+    "forced_args": []
+  },
+  "blender": {
+    "label": "Blender",
+    "executable": "C:/chemin/vers/blender.exe",
+    "aliases": ["blender"],
+    "allowed_args": [],
+    "open_extensions": [],
+    "forced_args": ["--disable-autoexec"]
+  }
+}
