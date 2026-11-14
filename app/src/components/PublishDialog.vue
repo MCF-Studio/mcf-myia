@@ -4,6 +4,7 @@ import { onMounted, ref } from "vue";
 import { call } from "../lib/rpc";
 import { toast } from "../lib/store";
 import type { MarketAccount, Team, WorkflowSummary } from "../lib/types";
+import FichesPicker from "./FichesPicker.vue";
 import ModalBox from "./ModalBox.vue";
 
 /** Publier une équipe sur le marketplace de mcfstudio.fr : privé (soi seul) ou public (après validation). */
@@ -16,6 +17,7 @@ const visibility = ref<"private" | "public">("private");
 const busy = ref(false);
 const logging = ref(false);
 const error = ref<string>();
+const fiches = ref<string[]>([]);
 
 /** Publication existante du même nom : elle sera mise à jour au lieu d'en créer une seconde. */
 const existing = () => mine.value.find((w) => w.name === props.team.name);
@@ -53,6 +55,7 @@ async function publish() {
     const r = await call<{ workflow: WorkflowSummary; updated: boolean; avatarsDropped: boolean }>("market.publish", {
       teamId: props.team.id,
       visibility: visibility.value,
+      fiches: fiches.value,
       ...(existing() ? { id: existing()!.id } : {}),
     });
     toast(
@@ -77,8 +80,8 @@ async function publish() {
 
     <p class="small">
       L'équipe part comme un workflow : son organisation, les consignes et le modèle de chaque agent, et le code de ses scripts
-      <template v-if="team.scripts?.length">({{ team.scripts.length }})</template>. Les espaces de travail, les conversations et la mémoire ne
-      partent jamais.
+      <template v-if="team.scripts?.length">({{ team.scripts.length }})</template>. Les espaces de travail, les conversations, la mémoire et le
+      journal de l'équipe ne partent jamais.
     </p>
 
     <p v-if="error" class="small err">{{ error }}</p>
@@ -124,6 +127,8 @@ async function publish() {
           </div>
         </label>
       </div>
+
+      <FichesPicker v-if="team.coordination" v-model="fiches" :team-id="team.id" />
     </template>
 
     <template #actions>

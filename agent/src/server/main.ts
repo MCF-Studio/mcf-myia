@@ -6,8 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { Agent } from "../core/agent.js";
-import { checkCoordination, checkWorkspace, usableWorkspace } from "../core/access.js";
-import { initCoordination } from "../core/coordination.js";
+import { checkCoordination, checkWorkspace, usableCoordination, usableWorkspace } from "../core/access.js";
+import { initCoordination, listFiches, readFiches, writeFiches } from "../core/coordination.js";
 import { audit } from "../core/audit.js";
 import { patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
@@ -446,21 +446,45 @@ const slugId = (s: string, fallback: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 40) || fallback;
 
-function exportTeam(id: string) {
+/** Espace de coordination d'une équipe s'il est utilisable maintenant, avec ses fiches partageables. */
+function teamFiches(team: Team) {
+  const dir = usableCoordination(team.coordination, usableWorkspace(team.workspace));
+  return { dir: dir ?? null, files: dir ? listFiches(dir) : [] };
+}
+
+/** Fiches que l'auteur peut joindre à l'export ou à la publication de cette équipe (jamais le journal). */
+rpc.method("teams.coordinationFiles", (params) => {
+  const { id } = parse(z.object({ id: z.string() }), params);
   const team = teams.find((t) => t.id === id);
   if (!team) throw new Error(`équipe inconnue : ${id}`);
+  return teamFiches(team);
+});
+
+const FichesParam = z.array(z.string().max(90)).max(20).default([]);
+
+function exportTeam(id: string, ficheNames: readonly string[] = []) {
+  const team = teams.find((t) => t.id === id);
+  if (!team) throw new Error(`équipe inconnue : ${id}`);
+  // Fiches : seulement celles que l'auteur a cochées, relues sur le disque au moment de l'export.
+  let fiches: ReturnType<typeof readFiches> = [];
+  if (ficheNames.length) {
+    const { dir } = teamFiches(team);
+    if (!dir) throw new Error("l'espace de coordination de cette équipe est introuvable : impossible de joindre ses fiches");
+    fiches = readFiches(dir, ficheNames);
+  }
   // Les scripts partent tels qu'ils sont sur le disque (ce qui tourne réellement), s'ils sont encore valides.
   const scripts = (team.scripts ?? []).map((sid) => {
     const r = ScriptPackSchema.safeParse(scriptStore.read(sid));
     if (!r.success) throw new Error(`le script « ${sid} » n'est plus valide sur le disque : corrige-le ou retire-le de l'équipe`);
     return r.data;
   });
-  return { team, ...exportWorkflow(team, profiles, scripts) };
+  return { team, fiches: fiches.length, ...exportWorkflow(team, profiles, scripts, fiches) };
 }
 
 rpc.method("teams.export", (params) => {
-  const { team, json, avatarsDropped } = exportTeam(parse(z.object({ id: z.string() }), params).id);
-  return { filename: `${team.id}.workflow.json`, json, avatarsDropped, scripts: team.scripts?.length ?? 0 };
+  const p = parse(z.object({ id: z.string(), fiches: FichesParam }), params);
+  const { team, json, avatarsDropped, fiches } = exportTeam(p.id, p.fiches);
+  return { filename: `${team.id}.workflow.json`, json, avatarsDropped, scripts: team.scripts?.length ?? 0, fiches };
 });
 
 /** Workflows examinés récemment : l'installation porte sur EXACTEMENT ce qui a été montré (clé = empreinte). */
@@ -505,6 +529,7 @@ async function inspectWorkflow(json: string, origin: string) {
     team: { root: wf.team.root, nodes: [...walk(wf.team.root)].length, maxCalls: wf.team.maxCalls, maxDepth: wf.team.maxDepth },
     agents: wf.agents.map((a) => ({ ...a, reused: plan.reusedAgents.includes(a.id) })),
     scripts: wf.scripts.map((s) => ({ ...s, sha256: scriptHash(s), reused: plan.reusedScripts.includes(s.id) })),
+    fiches: wf.coordination?.files ?? [],
     renamed: plan.renamed,
     warnings,
   };
@@ -520,18 +545,34 @@ rpc.method("workflows.inspect", (params) => {
  * des scripts et accepte de les lancer ; sinon ils sont installés en attente et ne tournent pas.
  */
 rpc.method("workflows.install", async (params) => {
-  const p = parse(z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/), acceptScripts: z.boolean() }), params);
+  const p = parse(
+    z.object({
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      acceptScripts: z.boolean(),
+      /** Dossier choisi par l'utilisateur pour les fiches du workflow ; absent = l'équipe est installée sans elles. */
+      coordinationDir: z.string().min(3).max(500).optional(),
+    }),
+    params,
+  );
   const seen = inspected.get(p.sha256);
   if (!seen) throw new Error("ce workflow n'a pas été examiné (ou l'a été il y a trop longtemps) : rouvre-le");
   const wf = parseWorkflow(seen.json);
   const plan = planImport(wf, importState());
+  const fiches = wf.coordination?.files ?? [];
+  // Dossier des fiches contrôlé AVANT d'installer quoi que ce soit : un refus ne laisse rien à moitié fait.
+  const coordinationDir = fiches.length && p.coordinationDir ? checkCoordination(p.coordinationDir) : undefined;
   const origin = `workflow « ${wf.name} » (${seen.origin})`;
   for (const s of plan.newScripts) scriptStore.install(s, { approved: p.acceptScripts, origin });
   if (plan.newProfiles.length) {
     profiles = [...profiles, ...plan.newProfiles];
     saveProfiles(profiles);
   }
-  const team = parseTeam(plan.team, new Set(profiles.map((x) => x.id)), new Set(scriptStore.list().map((s) => s.id)));
+  const posed = coordinationDir ? writeFiches(coordinationDir, wf.name, fiches) : undefined;
+  const team = parseTeam(
+    { ...plan.team, ...(posed ? { coordination: posed.dir } : {}) },
+    new Set(profiles.map((x) => x.id)),
+    new Set(scriptStore.list().map((s) => s.id)),
+  );
   teams = [...teams, team];
   saveTeams(teams);
   inspected.delete(p.sha256);
@@ -544,6 +585,7 @@ rpc.method("workflows.install", async (params) => {
       agents: plan.newProfiles.length,
       scripts: plan.newScripts.map((s) => ({ id: s.id, sha256: scriptHash(s) })),
       scriptsAccepted: p.acceptScripts,
+      fiches: posed ? posed.created.length : 0,
     },
   });
   await scriptsChanged();
@@ -554,6 +596,9 @@ rpc.method("workflows.install", async (params) => {
     reusedAgents: plan.reusedAgents.length,
     scriptsPending: p.acceptScripts ? 0 : plan.newScripts.length,
     renamed: plan.renamed,
+    /** Fiches posées (et celles déjà présentes, gardées) ; null si le workflow n'en a pas ou si aucun dossier n'a été choisi. */
+    fiches: posed ? { dir: posed.dir, created: posed.created, kept: posed.kept } : null,
+    fichesSkipped: posed ? 0 : fiches.length,
   };
 });
 
@@ -607,8 +652,11 @@ rpc.method("market.preview", async (params) => {
 });
 
 rpc.method("market.publish", async (params) => {
-  const p = parse(z.object({ teamId: z.string(), visibility: z.enum(["private", "public"]), id: z.number().int().positive().optional() }), params);
-  const { team, json, avatarsDropped } = exportTeam(p.teamId);
+  const p = parse(
+    z.object({ teamId: z.string(), visibility: z.enum(["private", "public"]), id: z.number().int().positive().optional(), fiches: FichesParam }),
+    params,
+  );
+  const { team, json, avatarsDropped } = exportTeam(p.teamId, p.fiches);
   // Sans id : on met à jour sa publication du même nom si elle existe, sinon on en crée une.
   const id = p.id ?? (await market.mine()).find((w) => w.name === team.name)?.id;
   const workflow = await market.publish(json, p.visibility, id);

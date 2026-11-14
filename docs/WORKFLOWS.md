@@ -28,12 +28,30 @@ script, et ce qui manque sur le PC (modèle non installé, service absent, moteu
 | --- | --- |
 | nom et description de l'équipe, arbre, budgets | espace de travail de l'équipe et des agents |
 | profils des agents de l'arbre : nom, modèle, consignes, couleur, photo, services autorisés | rôle MASTER |
-| scripts de l'équipe (fichiers texte) | espace de coordination (règles locales, journal) |
-| | conversations, mémoire, secrets, configuration |
+| scripts de l'équipe (fichiers texte) | journal de l'espace de coordination et son emplacement |
+| fiches de l'espace de coordination **cochées par l'auteur** (règles, méthode) | conversations, mémoire, secrets, configuration |
 
 À l'import, **rien n'est écrasé** : un agent ou un script déjà présent à l'identique est réutilisé ; s'il porte le même
 id avec un contenu différent, le nouveau est installé sous un autre id (`chef` → `chef-2`). Importer deux fois le même
 fichier crée deux équipes.
+
+## Fiches de l'espace de coordination
+
+Les règles et la méthode d'une équipe font partie de ce qui la fait marcher : elles peuvent partir avec elle.
+
+- **Ce qui peut partir** : les fichiers `.md` et `.txt` à la racine de l'espace de coordination (`LISEZ-MOI.md`,
+  `methode.md`, fiches par sujet), 20 au plus, 60 000 caractères par fiche.
+- **Ce qui ne part jamais** : le sous-dossier `journal` (l'historique de travail de l'auteur), l'emplacement du dossier,
+  et les fichiers qui pilotent un autre outil (`CLAUDE.md`, `AGENTS.md`…).
+- **L'auteur choisit fiche par fiche**, à l'export comme à la publication. Une fiche dont le nom évoque des accès
+  (`cles-et-acces.md`…) est décochée d'office : c'est une aide, pas un contrôle, donc relis ce que tu joins.
+- **À l'import**, les fiches sont montrées avec le reste du workflow. Celui qui installe choisit un dossier à part de
+  tout projet : les fiches y sont posées (un fichier déjà présent n'est jamais remplacé), un `journal/etat.md` vierge
+  est créé, et le dossier devient l'espace de coordination de l'équipe. Sans dossier choisi, l'équipe est installée sans
+  ses fiches.
+
+Une fiche écrite pour un projet précis n'a pas de sens ailleurs : un workflow fait pour être partagé demande des fiches
+génériques.
 
 ## Format `myia/workflow@1`
 
@@ -63,6 +81,8 @@ Un fichier JSON de 512 Ko au plus :
 ```
 
 - `agents` : 1 à 40 profils, même schéma que `*.agent.json` ; tout agent de l'arbre doit y figurer.
+- `coordination.files` (facultatif, depuis la 0.7.0) : les fiches jointes, `{ path, content }` ; noms simples en
+  `.md` ou `.txt`, sans dossier. Une app 0.6.x ignore ce champ et installe l'équipe sans ses fiches.
 - `scripts` : 8 au plus ; 20 fichiers par script, 200 000 caractères par fichier, 400 000 par script.
 - Fichiers d'un script : chemins relatifs (4 niveaux au plus), sans `..`, extensions texte seulement
   (`.py .pyi .txt .md .json .toml .yaml .yml .cfg .ini .csv`). `entry` est un des fichiers `.py`.

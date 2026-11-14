@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 import { checkCoordination, COORDINATION_JOURNAL } from "./access.js";
 
 /**
@@ -142,6 +143,118 @@ export function initCoordination(dir: string, team: string, members: Coordinatio
     fs.mkdirSync(path.dirname(target), { recursive: true });
     try {
       // « wx » : échoue si le fichier existe (ou si c'est un lien), au lieu de l'écraser.
+      fs.writeFileSync(target, content, { encoding: "utf8", flag: "wx" });
+      created.push(rel);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      kept.push(rel);
+    }
+  }
+  return { dir: real, created, kept };
+}
+
+// ─── fiches : ce qui part avec l'équipe dans un workflow ──────────────────────
+
+/**
+ * Les fiches sont les fichiers texte à la RACINE de l'espace de coordination (règles, méthode, fiches par sujet).
+ * Elles peuvent partir dans un workflow, une par une, au choix de l'auteur. Le sous-dossier `journal` ne part
+ * jamais : c'est l'historique de travail de CETTE machine.
+ */
+export const FICHES_MAX = 20;
+export const FICHE_MAX_CHARS = 60_000;
+export const FICHES_MAX_CHARS = 200_000;
+
+const FICHE_NAME = /^[\p{L}\p{N}_][\p{L}\p{N} ._-]{0,79}\.(md|txt)$/iu;
+/** Fichiers qui pilotent un autre outil (Claude Code, autres agents) : ni exportés ni posés par un workflow. */
+const FICHE_BLOCKED = new Set(["claude.md", "claude.local.md", "agents.md", "gemini.md", "copilot-instructions.md"]);
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)\./i;
+/** Nom qui laisse penser que la fiche décrit des accès : décochée par défaut dans l'interface (indication, pas un contrôle). */
+const SENSITIVE_HINT = /cl[eé]s?\b|acc[eè]s|secret|token|jeton|mot.?de.?passe|password|credential|identifiant/i;
+
+export function isFicheName(name: string): boolean {
+  return FICHE_NAME.test(name) && !name.includes("..") && !FICHE_BLOCKED.has(name.toLowerCase()) && !WINDOWS_RESERVED.test(name);
+}
+
+const FicheSchema = z.object({
+  path: z.string().refine(isFicheName, "nom de fiche refusé (fichier .md ou .txt à la racine, nom simple)"),
+  content: z.string().max(FICHE_MAX_CHARS),
+});
+
+export const FichesSchema = z
+  .array(FicheSchema)
+  .max(FICHES_MAX)
+  .superRefine((files, ctx) => {
+    const seen = new Set<string>();
+    for (const f of files) {
+      const k = f.path.toLowerCase();
+      if (seen.has(k)) ctx.addIssue({ code: "custom", message: `fiche en double : ${f.path}` });
+      seen.add(k);
+    }
+    if (files.reduce((n, f) => n + f.content.length, 0) > FICHES_MAX_CHARS) {
+      ctx.addIssue({ code: "custom", message: `fiches trop volumineuses (${FICHES_MAX_CHARS / 1000} k caractères au plus)` });
+    }
+  });
+
+export type Fiche = z.infer<typeof FicheSchema>;
+
+export interface FicheInfo {
+  path: string;
+  chars: number;
+  /** Le nom évoque des accès ou des secrets : à ne pas joindre sans l'avoir relue. */
+  sensitive: boolean;
+}
+
+function readFiche(dir: string, name: string): string | undefined {
+  const file = path.join(dir, name);
+  const st = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (!st?.isFile() || st.size > FICHE_MAX_CHARS * 4) return undefined; // ni lien, ni dossier, ni fichier énorme
+  const buf = fs.readFileSync(file);
+  if (buf.includes(0)) return undefined; // binaire
+  const text = buf.toString("utf8");
+  return text.length > FICHE_MAX_CHARS ? undefined : text;
+}
+
+/** Fiches qui peuvent être jointes à un workflow : fichiers texte de la racine, jamais `journal`. */
+export function listFiches(dir: string): FicheInfo[] {
+  const out: FicheInfo[] = [];
+  for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!d.isFile() || !isFicheName(d.name)) continue;
+    const text = readFiche(dir, d.name);
+    if (text === undefined) continue;
+    out.push({ path: d.name, chars: text.length, sensitive: SENSITIVE_HINT.test(d.name) });
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path, "fr")).slice(0, 100);
+}
+
+/** Contenu des fiches choisies ; un nom qui n'est pas une fiche de ce dossier est une erreur (rien n'est deviné). */
+export function readFiches(dir: string, names: readonly string[]): Fiche[] {
+  const out: Fiche[] = [];
+  for (const name of [...new Set(names)]) {
+    if (!isFicheName(name)) throw new Error(`fiche refusée : ${name}`);
+    const content = readFiche(dir, name);
+    if (content === undefined) throw new Error(`fiche introuvable ou illisible : ${name}`);
+    out.push({ path: name, content });
+  }
+  const r = FichesSchema.safeParse(out);
+  if (!r.success) throw new Error(r.error.issues.map((i) => i.message).join(" ; "));
+  return r.data;
+}
+
+/**
+ * Pose les fiches d'un workflow dans l'espace de coordination choisi par l'utilisateur, et un état vierge s'il manque.
+ * Ne remplace jamais un fichier existant.
+ */
+export function writeFiches(dir: string, team: string, raw: unknown, workspace?: string): CoordinationInit {
+  const real = checkCoordination(dir, workspace);
+  const r = FichesSchema.safeParse(raw);
+  if (!r.success) throw new Error("Fiches invalides : " + r.error.issues.map((i) => i.message).join(" ; "));
+  const files: [string, string][] = [...r.data.map((f): [string, string] => [f.path, f.content]), [`${COORDINATION_JOURNAL}/etat.md`, status(team.trim() || "Équipe")]];
+  const created: string[] = [];
+  const kept: string[] = [];
+  for (const [rel, content] of files) {
+    const target = path.join(real, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    try {
       fs.writeFileSync(target, content, { encoding: "utf8", flag: "wx" });
       created.push(rel);
     } catch (e) {

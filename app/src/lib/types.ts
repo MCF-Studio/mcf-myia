@@ -187,6 +187,8 @@ export interface WorkflowPreview {
   team: { root: TeamNode; nodes: number; maxCalls: number; maxDepth: number };
   agents: (AgentProfile & { reused: boolean })[];
   scripts: { id: string; name: string; description?: string; entry: string; sha256: string; files: ScriptFile[]; reused: boolean }[];
+  /** Fiches de l'espace de coordination jointes par l'auteur (règles, méthode) : posées dans un dossier choisi à l'import. */
+  fiches: ScriptFile[];
   renamed: { kind: "agent" | "script"; from: string; to: string }[];
   warnings: string[];
 }
@@ -196,6 +198,8 @@ export interface WorkflowInstalled {
   addedAgents: string[];
   reusedAgents: number;
   scriptsPending: number;
+  fiches: { dir: string; created: string[]; kept: string[] } | null;
+  fichesSkipped: number;
 }
 
 export interface WorkflowSummary {
