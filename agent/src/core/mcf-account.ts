@@ -83,8 +83,11 @@ export class McfAccount {
       store?: TokenStore;
       openBrowser: (url: string) => void;
       now?: () => number;
-      /** Portée demandée : « guild » (défaut) ou « map » (carte des agents, autorisation séparée sur le site). */
-      scope?: "guild" | "map";
+      /**
+       * Portée demandée : « guild » (défaut), « map » (carte des agents) ou « workflows » (marketplace) ; chacune est une
+       * autorisation séparée sur le site.
+       */
+      scope?: "guild" | "map" | "workflows";
     },
   ) {}
 

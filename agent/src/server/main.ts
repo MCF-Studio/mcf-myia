@@ -28,7 +28,11 @@ import { createLlm } from "../core/llm-factory.js";
 import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
 import { makeTeamRoot } from "../core/team-runner.js";
 import { appControlTools, type AppControl } from "../services/app-control.js";
-import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, type Team } from "../core/teams.js";
+import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, walk, type Team } from "../core/teams.js";
+import { findRuntime, installUv, SCRIPT_ID, SCRIPT_MAX_FILES, ScriptPackSchema, ScriptStore, scriptHash, UV, type ScriptEntry } from "../core/scripts.js";
+import { exportWorkflow, freeId, parseWorkflow, planImport, sha256Text, WORKFLOW_MAX_BYTES } from "../core/workflow.js";
+import { Market } from "../core/market.js";
+import { scriptService } from "../services/scripts.js";
 import { isInside, paths } from "../core/paths.js";
 import { ProjectRegistry } from "../core/projects.js";
 import {
@@ -125,7 +129,7 @@ async function agentFor(c: Conversation): Promise<Live> {
     let masterBudget: { used: number } | undefined;
     if (team) {
       budget = new TeamBudget(team.maxCalls, team.maxDepth);
-      agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders) });
+      agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders), scripts: teamScripts(team) });
     } else if (profile.master) {
       masterBudget = { used: 0 };
       agent = new Agent(cfg, services, profile, {
@@ -270,7 +274,7 @@ rpc.method("agents.import", (params) => {
 rpc.method("teams.list", () => teams);
 
 rpc.method("teams.save", (params) => {
-  const t = parseTeam(params, new Set(profiles.map((p) => p.id)));
+  const t = parseTeam(params, new Set(profiles.map((p) => p.id)), new Set(scriptStore.list().map((s) => s.id)));
   t.workspace = workspaceFor(t.workspace, teams.find((x) => x.id === t.id)?.workspace);
   teams = teams.some((x) => x.id === t.id) ? teams.map((x) => (x.id === t.id ? t : x)) : [...teams, t];
   saveTeams(teams);
@@ -287,6 +291,314 @@ rpc.method("teams.delete", (params) => {
 });
 
 rpc.method("teams.newNodeId", () => newNodeId());
+
+// ─── scripts d'équipe (core/scripts.ts) ──────────────────────────────────────
+
+const scriptStore = new ScriptStore();
+/** Un service par script ET par dossier de travail (deux équipes peuvent partager un script). */
+const scriptServices = new Map<string, Service>();
+
+function teamScripts(team: Team): Service[] {
+  const cwd = usableWorkspace(team.workspace) ?? paths.workspace;
+  const out: Service[] = [];
+  for (const id of team.scripts ?? []) {
+    if (!scriptStore.get(id)) continue;
+    const key = `${id}|${cwd}`;
+    let s = scriptServices.get(key);
+    if (!s) scriptServices.set(key, (s = scriptService(scriptStore, id, cwd)));
+    out.push(s);
+  }
+  return out;
+}
+
+/** Après tout changement d'un script : ses processus sont arrêtés, les agents reconstruits à la prochaine demande. */
+async function scriptsChanged(id?: string) {
+  for (const [key, s] of scriptServices) {
+    if (id && !key.startsWith(`${id}|`)) continue;
+    scriptServices.delete(key);
+    await s.close?.().catch(() => {});
+  }
+  live.clear();
+}
+
+function scriptInfo(e: ScriptEntry) {
+  const disk = scriptStore.diskHash(e.id);
+  const state = !disk ? "missing" : !e.approvedSha256 ? "pending" : e.approvedSha256 !== disk ? "changed" : "approved";
+  return { ...e, state, diskSha256: disk ?? null, teams: teams.filter((t) => t.scripts?.includes(e.id)).map((t) => t.name) };
+}
+
+let runtimeInstall: AbortController | undefined;
+
+rpc.method("scripts.list", async () => {
+  const rt = await findRuntime();
+  return {
+    scripts: scriptStore.list().map(scriptInfo),
+    runtime: rt ? { kind: rt.kind, label: rt.label } : null,
+    canInstallRuntime: process.platform === "win32" && process.arch === "x64",
+    installing: !!runtimeInstall,
+    uv: { version: UV.version, sizeMb: UV.sizeMb },
+  };
+});
+
+rpc.method("scripts.get", (params) => {
+  const { id } = parse(z.object({ id: z.string().regex(SCRIPT_ID) }), params);
+  const e = scriptStore.get(id);
+  if (!e) throw new Error(`script inconnu : ${id}`);
+  return { ...scriptInfo(e), files: scriptStore.read(id).files };
+});
+
+/** Script écrit ou choisi par l'utilisateur sur ce PC : il en a fourni les fichiers lui-même, il est donc accepté. */
+rpc.method("scripts.add", async (params) => {
+  const p = parse(
+    z.object({
+      name: z.string().trim().min(1).max(60),
+      description: z.string().max(300).optional(),
+      entry: z.string().max(200),
+      files: z.array(z.object({ path: z.string().max(200), content: z.string() })).min(1).max(SCRIPT_MAX_FILES),
+    }),
+    params,
+  );
+  const id = freeId(slugId(p.name, "script"), new Set(scriptStore.list().map((s) => s.id)));
+  const e = scriptStore.install({ id, ...p }, { approved: true, origin: "ajouté sur ce PC" });
+  audit({ event: "script_add", args: { script: id, sha256: e.sha256 } });
+  await scriptsChanged(id);
+  return scriptInfo(e);
+});
+
+rpc.method("scripts.approve", async (params) => {
+  const { id, sha256 } = parse(z.object({ id: z.string().regex(SCRIPT_ID), sha256: z.string().regex(/^[a-f0-9]{64}$/) }), params);
+  const e = scriptStore.approve(id, sha256);
+  audit({ event: "script_approve", args: { script: id, sha256 } });
+  await scriptsChanged(id);
+  return scriptInfo(e);
+});
+
+rpc.method("scripts.revoke", async (params) => {
+  const { id } = parse(z.object({ id: z.string().regex(SCRIPT_ID) }), params);
+  const e = scriptStore.revoke(id);
+  audit({ event: "script_revoke", args: { script: id } });
+  await scriptsChanged(id);
+  return scriptInfo(e);
+});
+
+rpc.method("scripts.delete", async (params) => {
+  const { id } = parse(z.object({ id: z.string().regex(SCRIPT_ID) }), params);
+  const used = teams.filter((t) => t.scripts?.includes(id)).map((t) => t.name);
+  if (used.length) throw new Error(`ce script est utilisé par : ${used.join(", ")}`);
+  await scriptsChanged(id);
+  scriptStore.delete(id);
+  audit({ event: "script_delete", args: { script: id } });
+  return true;
+});
+
+rpc.method("scripts.installRuntime", async () => {
+  if (runtimeInstall) throw new Error("installation déjà en cours");
+  runtimeInstall = new AbortController();
+  try {
+    const rt = await installUv((p) => rpc.notify("scripts.runtimeProgress", p), runtimeInstall.signal);
+    audit({ event: "script_runtime_install", version: UV.version });
+    await scriptsChanged();
+    return { kind: rt.kind, label: rt.label };
+  } finally {
+    runtimeInstall = undefined;
+  }
+});
+
+rpc.method("scripts.cancelInstallRuntime", () => {
+  runtimeInstall?.abort();
+  return true;
+});
+
+// ─── workflows : une équipe exportée, importée, publiée (core/workflow.ts) ────
+
+const slugId = (s: string, fallback: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || fallback;
+
+function exportTeam(id: string) {
+  const team = teams.find((t) => t.id === id);
+  if (!team) throw new Error(`équipe inconnue : ${id}`);
+  // Les scripts partent tels qu'ils sont sur le disque (ce qui tourne réellement), s'ils sont encore valides.
+  const scripts = (team.scripts ?? []).map((sid) => {
+    const r = ScriptPackSchema.safeParse(scriptStore.read(sid));
+    if (!r.success) throw new Error(`le script « ${sid} » n'est plus valide sur le disque : corrige-le ou retire-le de l'équipe`);
+    return r.data;
+  });
+  return { team, ...exportWorkflow(team, profiles, scripts) };
+}
+
+rpc.method("teams.export", (params) => {
+  const { team, json, avatarsDropped } = exportTeam(parse(z.object({ id: z.string() }), params).id);
+  return { filename: `${team.id}.workflow.json`, json, avatarsDropped, scripts: team.scripts?.length ?? 0 };
+});
+
+/** Workflows examinés récemment : l'installation porte sur EXACTEMENT ce qui a été montré (clé = empreinte). */
+const inspected = new Map<string, { json: string; origin: string }>();
+
+const importState = () => ({ profiles, teams, scripts: new Map(scriptStore.list().map((s) => [s.id, scriptStore.diskHash(s.id) ?? ""])) });
+
+async function inspectWorkflow(json: string, origin: string) {
+  const wf = parseWorkflow(json);
+  const sha256 = sha256Text(json);
+  const plan = planImport(wf, importState());
+  inspected.set(sha256, { json, origin });
+  while (inspected.size > 6) inspected.delete(inspected.keys().next().value!);
+
+  const warnings: string[] = [];
+  const known = new Set(services.map((s) => s.id));
+  let installed: Set<string> | undefined;
+  try {
+    installed = new Set((await engine().listModels()).map((m) => m.name));
+  } catch {
+    installed = undefined; // moteur local arrêté : on ne peut rien affirmer
+  }
+  for (const a of wf.agents) {
+    const onClaude = !!a.model && /^claude(-api)?:/.test(a.model);
+    if (a.model && !onClaude && installed && !installed.has(a.model)) {
+      warnings.push(`Le modèle « ${a.model} » de l'agent ${a.name} n'est pas installé sur ce PC : installe-le (Modèles) ou change le modèle de l'agent.`);
+    }
+    if (onClaude) {
+      warnings.push(`L'agent ${a.name} tourne sur Claude (${a.model}) : ses échanges partent chez Anthropic et consomment ton quota ou ta clé d'API.`);
+    }
+    const unknown = (a.services ?? []).filter((s) => !known.has(s));
+    if (unknown.length) warnings.push(`L'agent ${a.name} attend des services absents de ce PC : ${unknown.join(", ")}.`);
+  }
+  if (wf.scripts.length && !(await findRuntime())) {
+    warnings.push("Ce workflow contient des scripts Python et aucun moteur Python n'est installé : installe-le depuis Équipes → Scripts.");
+  }
+  return {
+    sha256,
+    origin,
+    name: wf.name,
+    description: wf.description ?? null,
+    team: { root: wf.team.root, nodes: [...walk(wf.team.root)].length, maxCalls: wf.team.maxCalls, maxDepth: wf.team.maxDepth },
+    agents: wf.agents.map((a) => ({ ...a, reused: plan.reusedAgents.includes(a.id) })),
+    scripts: wf.scripts.map((s) => ({ ...s, sha256: scriptHash(s), reused: plan.reusedScripts.includes(s.id) })),
+    renamed: plan.renamed,
+    warnings,
+  };
+}
+
+rpc.method("workflows.inspect", (params) => {
+  const { json } = parse(z.object({ json: z.string().max(WORKFLOW_MAX_BYTES) }), params);
+  return inspectWorkflow(json, "fichier");
+});
+
+/**
+ * Installe un workflow DÉJÀ examiné (workflows.inspect ou market.preview). `acceptScripts` : l'utilisateur a lu le code
+ * des scripts et accepte de les lancer ; sinon ils sont installés en attente et ne tournent pas.
+ */
+rpc.method("workflows.install", async (params) => {
+  const p = parse(z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/), acceptScripts: z.boolean() }), params);
+  const seen = inspected.get(p.sha256);
+  if (!seen) throw new Error("ce workflow n'a pas été examiné (ou l'a été il y a trop longtemps) : rouvre-le");
+  const wf = parseWorkflow(seen.json);
+  const plan = planImport(wf, importState());
+  const origin = `workflow « ${wf.name} » (${seen.origin})`;
+  for (const s of plan.newScripts) scriptStore.install(s, { approved: p.acceptScripts, origin });
+  if (plan.newProfiles.length) {
+    profiles = [...profiles, ...plan.newProfiles];
+    saveProfiles(profiles);
+  }
+  const team = parseTeam(plan.team, new Set(profiles.map((x) => x.id)), new Set(scriptStore.list().map((s) => s.id)));
+  teams = [...teams, team];
+  saveTeams(teams);
+  inspected.delete(p.sha256);
+  audit({
+    event: "workflow_install",
+    args: {
+      name: wf.name,
+      sha256: p.sha256,
+      origin: seen.origin,
+      agents: plan.newProfiles.length,
+      scripts: plan.newScripts.map((s) => ({ id: s.id, sha256: scriptHash(s) })),
+      scriptsAccepted: p.acceptScripts,
+    },
+  });
+  await scriptsChanged();
+  rpc.notify("agents.changed", {});
+  return {
+    team,
+    addedAgents: plan.newProfiles.map((a) => a.name),
+    reusedAgents: plan.reusedAgents.length,
+    scriptsPending: p.acceptScripts ? 0 : plan.newScripts.length,
+    renamed: plan.renamed,
+  };
+});
+
+// ─── marketplace de workflows (mcfstudio.fr, core/market.ts) ─────────────────
+
+let market = new Market(cfg.site.url, openInBrowser);
+let marketLogin: AbortController | undefined;
+
+rpc.method("market.account", async () => ({ site: cfg.site.url, account: (await market.who()) ?? null }));
+
+rpc.method("market.login", async () => {
+  if (marketLogin) throw new Error("connexion déjà en cours dans le navigateur");
+  marketLogin = new AbortController();
+  try {
+    return { site: cfg.site.url, account: await market.account.login(marketLogin.signal) };
+  } finally {
+    marketLogin = undefined;
+  }
+});
+
+rpc.method("market.cancelLogin", () => {
+  marketLogin?.abort();
+  return true;
+});
+
+rpc.method("market.logout", async () => {
+  await market.account.logout();
+  return true;
+});
+
+rpc.method("market.list", (params) => {
+  const p = parse(z.object({ q: z.string().max(60).default(""), page: z.number().int().min(1).max(10_000).default(1) }), params ?? {});
+  return market.list(p.q, p.page);
+});
+
+rpc.method("market.mine", () => market.mine());
+
+const MarketRef = z.object({
+  id: z.number().int().positive(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  /** Un de ses propres workflows (privé ou en attente) : téléchargé avec son autorisation. */
+  mine: z.boolean().default(false),
+  author: z.string().max(60).default(""),
+});
+
+/** Télécharge un workflow du site (empreinte vérifiée) et le montre sans rien installer. */
+rpc.method("market.preview", async (params) => {
+  const p = parse(MarketRef, params);
+  const { json } = p.mine ? await market.downloadMine(p.id, p.sha256) : await market.download(p.id, p.sha256);
+  return inspectWorkflow(json, `marketplace mcfstudio.fr${p.author ? `, publié par ${p.author}` : ""}`);
+});
+
+rpc.method("market.publish", async (params) => {
+  const p = parse(z.object({ teamId: z.string(), visibility: z.enum(["private", "public"]), id: z.number().int().positive().optional() }), params);
+  const { team, json, avatarsDropped } = exportTeam(p.teamId);
+  // Sans id : on met à jour sa publication du même nom si elle existe, sinon on en crée une.
+  const id = p.id ?? (await market.mine()).find((w) => w.name === team.name)?.id;
+  const workflow = await market.publish(json, p.visibility, id);
+  audit({ event: "workflow_publish", args: { name: team.name, sha256: workflow.sha256, visibility: p.visibility, scripts: team.scripts?.length ?? 0 } });
+  return { workflow, updated: id !== undefined, avatarsDropped };
+});
+
+rpc.method("market.setVisibility", (params) => {
+  const p = parse(z.object({ id: z.number().int().positive(), visibility: z.enum(["private", "public"]) }), params);
+  return market.setVisibility(p.id, p.visibility);
+});
+
+rpc.method("market.remove", async (params) => {
+  await market.remove(parse(z.object({ id: z.number().int().positive() }), params).id);
+  return true;
+});
 
 /** Espaces de travail des agents et des équipes (dossiers présents uniquement), sans doublon. */
 function workspaces(): { name: string; path: string }[] {
@@ -1158,6 +1470,8 @@ rpc.method("config.reload", async () => {
   registry = undefined;
   live.clear();
   mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
+  market = new Market(cfg.site.url, openInBrowser);
+  await scriptsChanged();
   agentsMap.stop();
   agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser);
   agentsMap.start();
@@ -1177,7 +1491,7 @@ async function shutdown() {
   stopLlamaServer();
   for (const p of pulls.values()) p.abort();
   audit({ event: "session_end" });
-  await Promise.race([Promise.allSettled(services.map((s) => s.close?.())), new Promise((r) => setTimeout(r, 3000))]);
+  await Promise.race([Promise.allSettled([...services, ...scriptServices.values()].map((s) => s.close?.())), new Promise((r) => setTimeout(r, 3000))]);
   process.exit(0);
 }
 

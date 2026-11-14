@@ -44,6 +44,11 @@ export function announcesAction(text: string): boolean {
 export interface AgentOptions {
   /** Outils en plus des services (ex. team_ask pour une équipe). */
   extraTools?: Tool[];
+  /**
+   * Services en plus, hors liste blanche du profil : les scripts de l'équipe, donnés à tous ses membres
+   * (core/scripts.ts). Jamais pour un agent hors équipe.
+   */
+  extraServices?: Service[];
   /** Paragraphe ajouté au prompt système (contexte d'équipe). */
   teamNote?: string;
   /**
@@ -92,7 +97,7 @@ export class Agent {
     const allowed = allow ? services.filter((s) => allow.includes(s.id)) : services;
     // Agent confié à Claude (abonnement ou clé d'API) : ses échanges partent chez Anthropic, il n'a donc pas non plus
     // les outils de mémoire.
-    this.services = this.cloud ? allowed.filter((s) => s.id !== "memory") : allowed;
+    this.services = [...(this.cloud ? allowed.filter((s) => s.id !== "memory") : allowed), ...(opts.extraServices ?? [])];
   }
 
   /** Modèle utilisé par cet agent (avec llama.cpp, un nom Ollama non installé revient au modèle par défaut). */
