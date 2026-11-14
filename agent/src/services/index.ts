@@ -12,6 +12,7 @@ import { memoryService } from "./memory.js";
 import { programsService } from "./programs.js";
 import { projectsService } from "./projects.js";
 import { telegramService } from "./telegram.js";
+import { toolboxService } from "./toolbox.js";
 import { webService } from "./web.js";
 
 /** Tous les services connus. Pour en ajouter un : un fichier dans services/ + une ligne ici, ou une entrée mcpServers. */
@@ -29,6 +30,7 @@ export function buildServices(cfg: Config): Service[] {
     filesService(cfg),
     fileWriteService(cfg),
     memoryService(cfg),
+    toolboxService(cfg),
     ...Object.entries(cfg.mcpServers).map(([name, s]) => mcpService(name, s)),
   ];
 }

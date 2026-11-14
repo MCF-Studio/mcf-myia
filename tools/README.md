@@ -1,7 +1,10 @@
 # tools/ : boîte à outils pour agents (expérimentale)
 
-**État.** Boîte **expérimentale**, **non branchée à l'app MyIA** : rien dans `agent/` ni `app/` ne l'appelle et elle
-n'est pas dans l'installateur. Un agent (ou un humain) s'en sert en lançant `tool_manager.py`. Conçue d'après
+**État.** Boîte **expérimentale**, **branchée aux agents de MyIA** par le service `toolbox`
+(`agent/src/services/toolbox.ts` : outils `toolbox_find` et `toolbox_run`, confirmations par l'interface de l'app,
+`--confirmed` posé par le service après l'accord). Pas encore dans l'installateur : l'app installée la trouve par le
+réglage `toolbox.dir` de `config/agent.json` (Python : `toolbox.python`, défaut `python` ; Pillow à installer).
+Un humain peut aussi lancer `tool_manager.py` directement. Conçue d'après
 [docs/bibliotheque_competences_agents_ia.md](../docs/bibliotheque_competences_agents_ia.md). Ses règles de sécurité
 sont celles de [docs/SPEC.md](../docs/SPEC.md) §3 et §5 : toute modification de ces règles met la spec à jour.
 
@@ -124,9 +127,8 @@ Un GIF animé est traité sur sa première image.
 dans la CI (job `tools`, Windows, Python 3.13, Pillow figé) et ne dépendent d'aucun chemin du poste.
 
 ## À faire (priorités du doc, §8)
-blender_* (blender en `--background`), compétences composées (§5). Branchement éventuel à l'app : à décider, et
-seulement à travers les confirmations de l'agent (un service qui appellerait le gestionnaire poserait `--confirmed`
-après la confirmation de l'app, jamais avant).
+blender_* (blender en `--background`), compétences composées (§5), boîte à outils et Python embarqués dans
+l'installateur.
 
 ## Compatibilité
 Testé avec Python 3.13 (CI) et Pillow 13.0.0. Le code du gestionnaire évite ce qui demande plus que Python 3.10

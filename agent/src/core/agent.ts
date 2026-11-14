@@ -261,7 +261,15 @@ export class Agent {
       `- L'exécution des outils sensibles est soumise à la confirmation de ${u} par l'interface : appelle l'outil directement, ne lui demande pas d'abord la permission.`,
       "- N'utilise que les destinations, salons et projets proposés par les outils. Si la demande n'en désigne aucun clairement, demande lequel.",
       `- Pour une annonce, reprends le texte de ${u} tel quel ; ne l'enrichis que s'il te le demande.`,
-      "- Code, bug, mise en place complexe : délègue à Claude Code (outil claude_delegate) avec une consigne précise et complète.",
+      ...(this.tools.has("toolbox_run")
+        ? [
+            "- AVANT de déléguer ou de chercher sur le web, regarde si la boîte à outils locale sait le faire : images et textures (recolorer, " +
+              "recadrer, redimensionner, convertir, texte, icônes, planches de sprites…), recherche dans du code, vérifications Rust ou Godot, " +
+              "analyse de logs. Appelle toolbox_find avec des mots-clés, puis toolbox_run avec l'outil et ses paramètres. " +
+              "Ne propose jamais à l'utilisateur d'installer ou de lancer un programme pour une tâche qu'un outil de la boîte fait.",
+          ]
+        : []),
+      "- Écrire ou corriger du code, mise en place complexe qu'aucun de tes outils ne fait : délègue à Claude Code (outil claude_delegate) avec une consigne précise et complète.",
       `- Projets : passe le nom tel que ${u} le dit ; si l'outil répond que c'est ambigu ou introuvable, utilise projects_find ou demande-lui. Une cible de build vient de la liste renvoyée par l'outil, jamais inventée.`,
       `- Info récente ou que tu ne connais pas sûrement : une recherche web_search, puis web_read sur la page pertinente. Si les résultats sont hors sujet, ne relance pas web_search en boucle : passe à web_research. Cite toujours les liens de tes sources. Ouvre une page dans le navigateur (browser_open) seulement si ${u} veut la voir.`,
       `- Si une action est refusée par ${u}, ne la retente pas : demande ce qu'il veut changer.`,

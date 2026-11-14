@@ -121,9 +121,17 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   ni 169.254.169.254), taille plafonnée. `web_research` lance Claude Code avec **seulement** WebSearch et WebFetch,
   dans `workspace\` : aucun accès aux fichiers ni aux commandes.
 - **Boîte à outils `tools/`** (expérimentale, détail dans [tools/README.md](../tools/README.md)) : des outils Python
-  (fichiers, recherche, git en lecture, cargo, Godot, images) qu'un agent appelle en lançant `tools/tool_manager.py`.
-  Elle n'est **pas branchée à l'app** : ni l'agent ni l'installateur ne l'utilisent, et ses confirmations ne passent pas
-  par l'interface de MyIA. Elle suit pourtant les mêmes règles, appliquées par son gestionnaire :
+  (fichiers, recherche, git en lecture, cargo, Godot, images), lancés par `tools/tool_manager.py`. **Branchée aux
+  agents** par le service `toolbox` (`agent/src/services/toolbox.ts`), donné à tous les agents de l'app (pas à la
+  Guilde, qui n'a aucun service) ; pas encore dans l'installateur (réglages `toolbox.dir` et `toolbox.python` de
+  `config/agent.json`, Pillow installé à part). Le modèle ne voit que deux outils : `toolbox_find` (`read` : trouver
+  l'outil et ses paramètres) et `toolbox_run`, dont la confirmation suit le manifeste de l'outil visé. Pour un outil
+  `local` ou `external`, le service fait d'abord un essai sans `--confirmed` (le gestionnaire contrôle et renvoie son
+  aperçu, sans rien exécuter), montre cet aperçu dans la confirmation de MyIA, et ne pose `--confirmed` qu'après
+  l'accord ; `autoApprove` d'un projet ne s'y applique jamais. Le modèle ne compose jamais la ligne de commande
+  (paramètres JSON sur l'entrée standard). Exclus du service : les outils qui doublent un outil de l'app mieux intégré
+  (git_status/log/diff, text_read, text_write, app_catalog, app_launch, folder_open, url_open). Agent confié à Claude :
+  aucun chemin dans les dossiers de mémoire. Le gestionnaire applique en plus ses propres règles :
   chaque outil déclare un des quatre niveaux ci-dessus ; un outil `local` ou `external` n'est exécuté qu'avec le drapeau
   `--confirmed`, posé par l'**appelant** (humain ou harnais) après l'accord de l'utilisateur sur l'aperçu renvoyé, jamais
   par le modèle de lui-même. Rien ne démarre sans politique locale (`tools/policy.json`, hors dépôt) qui liste les
