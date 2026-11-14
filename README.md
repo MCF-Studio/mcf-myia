@@ -21,7 +21,7 @@ Deux interfaces sur le même cœur :
 | **Conversations**  | une conversation par agent, affichage en **onglets** ou en **grille**, chaque panneau avec sa saisie      |
 | **Agents**         | personnalités : nom, modèle, consignes, couleur, services autorisés ; import et export en fichier         |
 | **Modèles**        | téléchargement avec progression, modèle par défaut, déchargement de la VRAM, suppression                |
-| **Marketplace**    | en préparation (voir plus bas) ; l'installation d'agents et de thèmes depuis un fichier marche déjà      |
+| **Marketplace**    | workflows partagés via mcfstudio.fr (voir plus bas) ; agents et thèmes : installation depuis un fichier  |
 | **Paramètres**     | thèmes (installables), lumières, densité, voix de l'IA, sons de notification, notifications, raccourcis  |
 
 Icône MyIA dans la zone de notification (près de l'horloge) : clic gauche pour ramener la fenêtre, clic droit pour
@@ -31,11 +31,17 @@ Thème par défaut : sombre, lumières orange fusion → jaune foncé.
 
 ### Marketplace
 
-Le but : partager modèles, agents, thèmes et extensions entre membres de la communauté et membres certifiés de
-mcfstudio.fr. Le registre en ligne n'est **pas encore ouvert**. Les formats d'échange existent déjà :
+Le but : partager équipes, agents, thèmes, modèles et extensions entre membres de la communauté.
 
+- **workflow** (`*.workflow.json`) : une équipe entière (organisation, agents, scripts), à exporter depuis l'écran
+  Équipes, à partager en fichier ou à publier sur mcfstudio.fr, en privé ou en public (après validation). Un workflow
+  peut contenir des **scripts Python** : MyIA en montre le code et ne les lance qu'avec ton accord. Détail :
+  [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
 - **agent** (`*.agent.json`) : nom, consignes, modèle, couleur, liste de services autorisés. Des données, pas de code.
 - **thème** (`*.theme.json`) : une liste fermée de couleurs. Pas de CSS libre, pas d'URL.
+
+Pour les agents, thèmes, modèles et extensions, le registre en ligne n'est **pas encore ouvert** : seuls les fichiers
+s'échangent.
 
 Les personnalités ne sont **pas** livrées avec le code : chacun crée les siennes et choisit de les partager ou non.
 

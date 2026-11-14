@@ -70,13 +70,18 @@ export function mcpService(name: string, cfg: McpServerConfig, opts: McpServiceO
   };
 
   async function start(): Promise<Availability> {
+    // Fin de la sortie d'erreur du serveur : c'est elle qui explique un démarrage raté (module manquant, erreur de syntaxe).
+    let errTail = "";
     try {
       const transport = new StdioClientTransport({
         command: cfg.command,
         args: cfg.args,
         cwd: cfg.cwd ?? paths.home,
         env: { ...(opts.baseEnv ?? (process.env as Record<string, string>)), ...resolveEnv(cfg.env) },
-        stderr: "ignore",
+        stderr: "pipe",
+      });
+      transport.stderr?.on("data", (chunk: Buffer) => {
+        errTail = (errTail + chunk.toString("utf8")).slice(-2000);
       });
       const started = new Client({ name: "myia", version: "0.1.0" });
       client = started;
@@ -115,7 +120,8 @@ export function mcpService(name: string, cfg: McpServerConfig, opts: McpServiceO
       return { ok: true };
     } catch (e) {
       await stop();
-      return { ok: false, reason: `connexion impossible : ${(e as Error).message}` };
+      const last = errTail.trim().split(/\r?\n/).filter(Boolean).pop()?.slice(0, 300);
+      return { ok: false, reason: `connexion impossible : ${(e as Error).message}${last ? ` (${last})` : ""}` };
     }
   }
 }

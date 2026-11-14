@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { BadgeCheck, Bot, Boxes, FileUp, Palette, Puzzle, ShieldCheck, Store, Users } from "lucide-vue-next";
+import { BadgeCheck, Bot, Boxes, FileUp, Network, Palette, Puzzle, ShieldCheck, Store, Users } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
+import MarketWorkflows from "../components/MarketWorkflows.vue";
 import { pickTextFile } from "../lib/files";
 import { call } from "../lib/rpc";
 import { settings } from "../lib/settings";
@@ -9,9 +10,10 @@ import { navigate, refreshAgents, refreshThemes, state, toast } from "../lib/sto
 import { BUILTIN_THEMES } from "../lib/themes";
 import type { AgentProfile, Theme } from "../lib/types";
 
-type Tab = "agents" | "models" | "themes" | "extensions";
-const tab = ref<Tab>("agents");
+type Tab = "workflows" | "agents" | "models" | "themes" | "extensions";
+const tab = ref<Tab>("workflows");
 const tabs: { id: Tab; label: string; icon: unknown }[] = [
+  { id: "workflows", label: "Workflows", icon: Network },
   { id: "agents", label: "Agents", icon: Bot },
   { id: "models", label: "Modèles", icon: Boxes },
   { id: "themes", label: "Thèmes", icon: Palette },
@@ -51,13 +53,16 @@ async function installTheme() {
     <section class="hero card">
       <div class="hero-glow" aria-hidden="true" />
       <div class="hero-text">
-        <span class="badge warn">En préparation</span>
+        <span class="badge accent">Workflows ouverts</span>
         <h1>Marketplace communautaire</h1>
         <p>
-          Bientôt : télécharger et partager des modèles, des agents, des thèmes et des extensions entre membres de la communauté, avec les
-          membres certifiés de <strong>mcfstudio.fr</strong>.
+          Partage tes équipes sous forme de workflows et installe celles des autres membres, via <strong>mcfstudio.fr</strong>. Tu choisis pour
+          chacune : privée, ou publique après validation.
         </p>
-        <p class="small muted">Le registre en ligne n'est pas encore ouvert. En attendant, tu peux déjà installer un fichier qu'on t'a partagé.</p>
+        <p class="small muted">
+          Agents, thèmes, modèles et extensions ne sont pas encore dans le registre en ligne : pour eux, tu peux installer un fichier qu'on t'a
+          partagé.
+        </p>
       </div>
       <Store :size="96" class="hero-icon" />
     </section>
@@ -66,18 +71,19 @@ async function installTheme() {
       <div class="card step">
         <Users :size="20" />
         <strong>Partagé entre membres</strong>
-        <span class="small muted">Tu exportes un agent ou un thème depuis l'app ; tu choisis de le partager ou de le garder pour toi.</span>
+        <span class="small muted">Tu exportes une équipe, un agent ou un thème depuis l'app ; tu choisis de le partager ou de le garder pour toi.</span>
       </div>
       <div class="card step">
         <BadgeCheck :size="20" />
-        <strong>Membres certifiés</strong>
-        <span class="small muted">Les publications passeront par les comptes certifiés de mcfstudio.fr.</span>
+        <strong>Validé avant d'être public</strong>
+        <span class="small muted">Un workflow public n'apparaît qu'après relecture par l'équipe MCF Studio ; l'auteur et son statut certifié sont affichés.</span>
       </div>
       <div class="card step">
         <ShieldCheck :size="20" />
-        <strong>Des données, pas du code</strong>
+        <strong>Rien ne tourne sans ton accord</strong>
         <span class="small muted">
-          Un agent = nom, consignes, modèle, services autorisés. Un thème = des couleurs. Chaque fichier est vérifié avant installation.
+          Un agent ou un thème, ce sont des données. Seuls les scripts d'un workflow sont du code : MyIA te le montre, et il ne s'exécute que si
+          tu l'acceptes.
         </span>
       </div>
     </section>
@@ -90,7 +96,9 @@ async function installTheme() {
       </div>
     </div>
 
-    <section v-if="tab === 'agents'" class="card">
+    <MarketWorkflows v-if="tab === 'workflows'" />
+
+    <section v-else-if="tab === 'agents'" class="card">
       <div class="card-head">
         <h3><Bot :size="17" /> Agents installés</h3>
         <button class="btn primary sm" @click="installAgent"><FileUp :size="15" /> Installer un fichier .agent.json</button>

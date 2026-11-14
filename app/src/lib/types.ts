@@ -43,6 +43,8 @@ export interface Team {
   root: TeamNode;
   maxCalls: number;
   maxDepth: number;
+  /** Scripts de l'équipe (ids) : des outils en plus pour tous ses membres. */
+  scripts?: string[];
 }
 
 export interface ConversationSummary {
@@ -141,4 +143,82 @@ export interface Theme {
   colors: Record<ThemeToken, string>;
   radius: "sharp" | "normal" | "round";
   builtin?: boolean;
+}
+
+// ─── scripts d'équipe, workflows et marketplace (agent/src/core/{scripts,workflow,market}.ts) ───
+
+export interface ScriptFile {
+  path: string;
+  content: string;
+}
+
+export interface ScriptInfo {
+  id: string;
+  name: string;
+  description?: string;
+  entry: string;
+  sha256: string;
+  approvedSha256?: string;
+  origin?: string;
+  addedAt: string;
+  /** approved : peut tourner ; pending : jamais accepté ; changed : modifié depuis l'accord ; missing : fichiers absents. */
+  state: "approved" | "pending" | "changed" | "missing";
+  diskSha256: string | null;
+  /** Équipes qui l'utilisent. */
+  teams: string[];
+}
+
+export interface ScriptsStatus {
+  scripts: ScriptInfo[];
+  runtime: { kind: "uv" | "python"; label: string } | null;
+  canInstallRuntime: boolean;
+  installing: boolean;
+  uv: { version: string; sizeMb: number };
+}
+
+/** Workflow examiné (workflows.inspect / market.preview) : ce qui serait installé, sans rien avoir écrit. */
+export interface WorkflowPreview {
+  sha256: string;
+  origin: string;
+  name: string;
+  description: string | null;
+  team: { root: TeamNode; nodes: number; maxCalls: number; maxDepth: number };
+  agents: (AgentProfile & { reused: boolean })[];
+  scripts: { id: string; name: string; description?: string; entry: string; sha256: string; files: ScriptFile[]; reused: boolean }[];
+  renamed: { kind: "agent" | "script"; from: string; to: string }[];
+  warnings: string[];
+}
+
+export interface WorkflowInstalled {
+  team: Team;
+  addedAgents: string[];
+  reusedAgents: number;
+  scriptsPending: number;
+}
+
+export interface WorkflowSummary {
+  id: number;
+  name: string;
+  description: string | null;
+  author: { id: number; name: string; certified: boolean };
+  agents: number;
+  scripts: number;
+  sha256: string;
+  visibility: "private" | "public";
+  review: "none" | "pending" | "approved" | "rejected";
+  rejectReason: string | null;
+  downloads: number;
+  updatedAt: string;
+}
+
+export interface WorkflowPage {
+  workflows: WorkflowSummary[];
+  page: number;
+  pages: number;
+  total: number;
+}
+
+export interface MarketAccount {
+  site: string;
+  account: { id: number; name: string; avatar: string | null; certified: boolean } | null;
 }
