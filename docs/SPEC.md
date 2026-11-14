@@ -76,6 +76,13 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   (`.git`, `.vscode`, `.claude`, `.github`…), ni via un lien qui en sortirait. Nouveau fichier dans `Documents\MyIA`
   (dossier par défaut) ou le workspace : direct ; remplacer, compléter ou écrire ailleurs : confirmation avec aperçu.
   `file_read` lit un fichier texte des mêmes dossiers (contenu traité comme une donnée).
+- Git : `git_status`, `git_log`, `git_diff`, `git_show`, `git_branches` (lecture) ; `git_switch` et `git_commit` (`local`) ;
+  `git_push` (`external`, **confirmation toujours**, même en `autoApprove`). Le modèle choisit un **projet** connu, jamais
+  un chemin ni une commande git libre ; filtres de chemin relatifs (pas d'option, pas de « .. », pathspecs littéraux),
+  références et branches validées. Lancé **sans shell**, sans pager ni pilote de diff externe, sans invite de mot de passe,
+  transport `ext::` interdit. Jamais de force ; **ni commit ni push sur main/master** (on crée une branche, puis une pull
+  request) ; un fichier de secrets ou de config locale (`.env`, clés, `config/agent.json`…) ne peut pas entrer dans un
+  commit, ni par `paths` ni par `all=true`. Les hooks du dépôt s'exécutent au commit (dépôts du projet = de confiance).
 - Délégation Claude Code : `cwd` = projet de la config ou `workspace\`, outils autorisés listés par projet.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,
