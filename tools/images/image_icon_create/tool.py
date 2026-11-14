@@ -3,6 +3,7 @@ import math
 
 from PIL import Image, ImageDraw
 
+from common import check_range
 from imaging import load_font, parse_color, save_image
 
 SS = 4
@@ -147,6 +148,9 @@ def execute(params):
         raise ValueError(f"symbole inconnu : {symbol!r} ({', '.join(SYMBOLS)})")
     if text and len(text) > 4:
         raise ValueError("text : 4 caractères maximum (initiales, chiffre…)")
+    check_range("border_width", params.get("border_width", 0), 0, 256)
+    check_range("glyph_scale", params.get("glyph_scale", 1.0), 0.05, 2)
+    check_range("stroke", params.get("stroke", .09), 0.01, 0.5)
     n = size * SS
     bg, bg2 = parse_color(params.get("background", "#3b82f6")), params.get("background2")
     fg, bwidth = parse_color(params.get("color", "#ffffff")), round(params.get("border_width", 0) * SS)
@@ -179,6 +183,6 @@ def execute(params):
         glyph.paste(scaled, ((n - k) // 2, (n - k) // 2))
     out.paste(Image.new("RGBA", (n, n), fg), mask=glyph)
     out = out.resize((size, size), Image.LANCZOS)
-    nbytes, _ = save_image(out, params["output"], params.get("quality", 90))
+    nbytes, _ = save_image(out, params["output"], params.get("quality", 90), overwrite=params.get("overwrite", False) is True)
     return {"data": {"output": params["output"], "size": size, "shape": shape, "symbol": symbol, "text": text,
                      "bytes": nbytes}}

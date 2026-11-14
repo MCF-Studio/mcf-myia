@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PIL import Image
+from imaging import open_raw
 
 
 def _pot(n):
@@ -9,7 +9,7 @@ def _pot(n):
 
 def execute(params):
     p = Path(params["path"])
-    with Image.open(p) as im:
+    with open_raw(p) as im:      # mêmes gardes que imaging.py : formats autorisés, taille plafonnée
         w, h = im.size
         return {"data": {"path": str(p), "format": im.format, "mode": im.mode, "bands": list(im.getbands()),
                          "width": w, "height": h,

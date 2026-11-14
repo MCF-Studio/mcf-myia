@@ -9,8 +9,8 @@ def execute(params):
     fmt, side = params.get("format"), params.get("max_side")
     if fmt not in (None,) + FORMATS:
         raise ValueError(f"format : {', '.join(FORMATS)}")
-    if side is not None and side < 16:
-        raise ValueError("max_side >= 16")
+    if side is not None and not 16 <= side <= 16384:
+        raise ValueError("max_side : 16 à 16384")
     colors = params.get("png_colors")
     if colors is not None and not 2 <= colors <= 256:
         raise ValueError("png_colors : 2 à 256")

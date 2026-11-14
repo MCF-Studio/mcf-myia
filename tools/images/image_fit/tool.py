@@ -1,6 +1,6 @@
 from PIL import Image, ImageOps
 
-from imaging import parse_color, run_batch
+from imaging import check_canvas, parse_color, run_batch
 
 MODES = ("contain", "cover", "pad", "stretch")
 
@@ -19,6 +19,7 @@ def execute(params):
 
     def process(im, _src):
         W, H = w or round(im.width * h / im.height), h or round(im.height * w / im.width)
+        check_canvas(W, H, "image redimensionnée")
         if mode == "stretch":
             return im.resize((W, H), Image.LANCZOS)
         if mode == "cover":

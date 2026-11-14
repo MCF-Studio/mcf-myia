@@ -25,8 +25,8 @@ def execute(params):
     if not pairs:
         raise ValueError("donner from+to, ou mapping {\"#ancienne\": \"#nouvelle\"}")
     tol, feather = params.get("tolerance", 16), params.get("feather", 0)
-    if not 0 <= tol <= 255 or feather < 0:
-        raise ValueError("tolerance 0-255, feather >= 0")
+    if not 0 <= tol <= 255 or not 0 <= feather <= 255 or len(pairs) > 64:
+        raise ValueError("tolerance 0-255, feather 0-255, 64 couleurs au plus")
 
     def process(im, _src):
         r, g, b, a = im.split()

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from imaging import open_image, save_image
+from imaging import guard_output, open_image, save_image
 
 # preset -> ([(fichier png, taille)], ico (nom, [tailles]) ou None, icns ou None)
 PRESETS = {
@@ -13,24 +13,33 @@ PRESETS = {
     "windows": ([("icon-256.png", 256)], ("icon.ico", [16, 24, 32, 48, 64, 128, 256]), None),
     "sizes": ([], None, None),
 }
+MAX_SIZES = 32
 
 
 def execute(params):
     preset, sizes = params.get("preset", "tauri"), params.get("sizes") or []
+    overwrite = params.get("overwrite", False) is True
     if preset not in PRESETS:
         raise ValueError(f"preset : {', '.join(PRESETS)}")
     if preset == "sizes" and not sizes:
         raise ValueError("preset 'sizes' : donner sizes, ex. [16, 64, 512]")
-    if any(not isinstance(s, int) or not 8 <= s <= 2048 for s in sizes):
-        raise ValueError("sizes : entiers de 8 à 2048")
-    src, out = open_image(params["path"]), Path(params["output"])
+    if len(sizes) > MAX_SIZES or any(isinstance(s, bool) or not isinstance(s, int) or not 8 <= s <= 2048 for s in sizes):
+        raise ValueError(f"sizes : {MAX_SIZES} entiers au plus, de 8 à 2048")
+    source, out = Path(params["path"]), Path(params["output"])
+    if out.exists() and not out.is_dir():
+        raise ValueError("output est le DOSSIER où écrire les icônes")
+    pngs, ico, icns = PRESETS[preset]
+    names = pngs + [(f"icon_{s}.png", s) for s in sizes]
+    # Tous les chemins finaux d'abord : ni la source, ni un fichier existant sans overwrite ; rien d'écrit sinon.
+    for name in [n for n, _ in names] + ([ico[0]] if ico else []) + ([icns] if icns else []):
+        guard_output(out / name, overwrite, [source])
+    src = open_image(source)
     warnings = []
     side = max(src.size)
     sq = Image.new("RGBA", (side, side), (0, 0, 0, 0))     # carré, centré, sans déformer
     sq.alpha_composite(src, ((side - src.width) // 2, (side - src.height) // 2))
     if src.width != src.height:
         warnings.append(f"source non carrée ({src.width}x{src.height}) : centrée sur fond transparent.")
-    pngs, ico, icns = PRESETS[preset]
     need = max([s for _, s in pngs] + sizes + ([max(ico[1])] if ico else []) + ([512] if icns else []))
     if side < need:
         warnings.append(f"source de {side}px < {need}px : les grandes tailles seront agrandies (flou). "
@@ -40,8 +49,8 @@ def execute(params):
     def resized(n):
         return sq.resize((n, n), Image.LANCZOS)
 
-    for name, n in pngs + [(f"icon_{s}.png", s) for s in sizes]:
-        save_image(resized(n), out / name)
+    for name, n in names:
+        save_image(resized(n), out / name, overwrite=overwrite, sources=[source])
         written.append(name)
     if ico:
         base = resized(max(ico[1]))

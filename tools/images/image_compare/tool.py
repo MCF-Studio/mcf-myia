@@ -1,9 +1,12 @@
 from PIL import Image, ImageChops, ImageStat
 
-from imaging import open_image, save_image
+from imaging import guard_output, open_image, save_image
 
 
 def execute(params):
+    sources, overwrite = [params["path"], params["other"]], params.get("overwrite", False) is True
+    if params.get("output"):          # avant tout travail : ni l'une des deux images, ni un fichier existant
+        guard_output(params["output"], overwrite, sources)
     a, b = open_image(params["path"]), open_image(params["other"])
     tol, warnings = params.get("tolerance", 8), []
     same_size = a.size == b.size
@@ -23,6 +26,6 @@ def execute(params):
     if params.get("output"):
         view = Image.blend(Image.new("RGBA", a.size, "white"), a, .35)
         view.paste(Image.new("RGBA", a.size, (255, 0, 0, 255)), mask=mask)
-        save_image(view, params["output"])
+        save_image(view, params["output"], overwrite=overwrite, sources=sources)
         data["diff_image"] = params["output"]
     return {"data": data, "warnings": warnings}
