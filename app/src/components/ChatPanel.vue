@@ -12,7 +12,7 @@ import {
   Volume2,
   X,
 } from "lucide-vue-next";
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onActivated, ref, watch } from "vue";
 import { clock } from "../lib/format";
 import { renderMarkdown } from "../lib/markdown";
 import { call } from "../lib/rpc";
@@ -47,8 +47,12 @@ async function scrollDown(smooth = true) {
   const el = scroller.value;
   if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth && !settings.appearance.reduceMotion ? "smooth" : "auto" });
 }
-watch(() => conv.value?.messages.length, () => scrollDown());
+// Nouveau message : défilement doux. Premier chargement des messages : directement en bas.
+watch(() => conv.value?.messages.length, (_n, old) => scrollDown(old !== undefined));
 watch(() => props.id, () => scrollDown(false), { immediate: true });
+// Sous KeepAlive (changement de page ou d'onglet), le panneau est détaché puis rattaché : le navigateur
+// remet alors son défilement à zéro sans qu'aucune donnée ne change. On redescend à chaque retour.
+onActivated(() => scrollDown(false));
 
 function autoGrow() {
   const el = input.value;

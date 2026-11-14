@@ -6,7 +6,7 @@ import { shouldNotify, type WindowState } from "./notifyRule";
 import { call, inTauri, on, onRequest, reply, startRpc } from "./rpc";
 import { settings } from "./settings";
 import { playSound, speak } from "./sound";
-import { checkClaudeLogin, loadClaudeApi, loadClaudeModels, startTerminals } from "./terminals";
+import { checkClaudeLogin, isTerminalKey, loadClaudeApi, loadClaudeModels, startTerminals, terminals } from "./terminals";
 import { refreshDictation } from "./dictation";
 import type {
   AgentProfile,
@@ -123,6 +123,22 @@ export async function openConversation(id: string) {
   if (!tabs.includes(id)) tabs.push(id);
   settings.conversations.activeTab = id;
   navigate("conversations");
+}
+
+/**
+ * À l'arrivée sur la page Conversations, une conversation doit toujours être affichée : l'onglet actif
+ * s'il existe encore, sinon un onglet déjà ouvert, sinon la conversation la plus récente.
+ */
+export async function ensureConversationShown() {
+  const cs = settings.conversations;
+  const alive = (id: string) => (isTerminalKey(id) ? !!terminals[id] : state.conversations.some((c) => c.id === id));
+  if (cs.activeTab && cs.openTabs.includes(cs.activeTab) && alive(cs.activeTab)) return;
+  const tab = [...cs.openTabs].reverse().find(alive);
+  if (tab && isTerminalKey(tab)) cs.activeTab = tab;
+  else {
+    const id = tab ?? state.conversations[0]?.id; // liste triée de la plus récente à la plus ancienne
+    if (id) await openConversation(id).catch(() => closeTab(id));
+  }
 }
 
 export function closeTab(id: string) {
@@ -292,7 +308,11 @@ async function afterReady() {
   await Promise.all([refreshAgents(), refreshTeams(), refreshConversations(), refreshThemes(), refreshOverview(), refreshDictation()]);
   // Les onglets restaurés doivent encore exister.
   settings.conversations.openTabs = settings.conversations.openTabs.filter((id) => state.conversations.some((c) => c.id === id));
+  // Rouvrir les onglets ne doit pas changer l'onglet actif (sinon : le dernier à avoir répondu).
+  const active = settings.conversations.activeTab;
   await Promise.all(settings.conversations.openTabs.map((id) => openConversation(id).catch(() => closeTab(id))));
+  if (settings.conversations.openTabs.includes(active)) settings.conversations.activeTab = active;
+  if (state.view === "conversations") await ensureConversationShown();
   startPolling();
 }
 
