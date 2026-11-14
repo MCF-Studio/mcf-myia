@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { reactive } from "vue";
+import { shouldNotify, type WindowState } from "./notifyRule";
 import { call, inTauri, on, onRequest, reply, startRpc } from "./rpc";
 import { settings } from "./settings";
 import { playSound, speak } from "./sound";
@@ -169,10 +171,31 @@ export async function answerConfirm(messageId: string, ok: boolean) {
 
 // ─── notifications ───────────────────────────────────────────────────────────
 
-async function notify(title: string, body: string) {
-  const n = settings.notifications;
-  if (!n.desktop || !inTauri) return;
-  if (n.onlyWhenUnfocused && state.focused) return;
+/**
+ * État réel de la fenêtre, demandé à Tauri au moment du message (les événements focus/blur du document
+ * ne suffisent pas : déplacement par la barre de titre, réduction, retour depuis la zone de notification…).
+ * À défaut, on se rabat sur ce que dit le document.
+ */
+async function windowState(): Promise<WindowState> {
+  const doc: WindowState = {
+    focused: document.hasFocus(),
+    minimized: false,
+    visible: document.visibilityState === "visible",
+  };
+  try {
+    const w = getCurrentWindow();
+    const [focused, minimized, visible] = await Promise.all([w.isFocused(), w.isMinimized(), w.isVisible()]);
+    return { focused, minimized, visible: visible && doc.visible };
+  } catch {
+    return doc;
+  }
+}
+
+async function notify(conversationId: string, title: string, body: string) {
+  if (!settings.notifications.desktop || !inTauri) return;
+  const cs = settings.conversations;
+  const screen = { view: state.view, layout: cs.layout, activeTab: cs.activeTab, openTabs: cs.openTabs };
+  if (!shouldNotify(conversationId, await windowState(), screen, settings.notifications)) return;
   try {
     let ok = await isPermissionGranted();
     if (!ok) ok = (await requestPermission()) === "granted";
@@ -194,12 +217,12 @@ function onNewMessage(conversationId: string, m: DisplayMessage) {
     const visible = state.view === "conversations" && settings.conversations.openTabs.includes(conversationId);
     const mode = settings.sound.readReplies;
     if (mode === "all" || (mode === "focused" && visible && state.focused)) speak(m.text);
-    if (settings.notifications.onReply) void notify(name, m.text);
+    if (settings.notifications.onReply) void notify(conversationId, name, m.text);
   } else if (m.role === "error") {
     playSound("error");
   } else if (m.role === "confirm") {
     playSound("confirm");
-    if (settings.notifications.onConfirm) void notify(`${name} attend ta confirmation`, m.title ?? "");
+    if (settings.notifications.onConfirm) void notify(conversationId, `${name} attend ta confirmation`, m.title ?? "");
   }
 }
 
