@@ -3,6 +3,7 @@ import { ProjectRegistry } from "../core/projects.js";
 import type { Service } from "../core/types.js";
 import { claudeService } from "./claude.js";
 import { discordService } from "./discord.js";
+import { gitService } from "./git.js";
 import { godotService } from "./godot.js";
 import { mcpService } from "./mcp.js";
 import { fileWriteService } from "./file-write.js";
@@ -20,6 +21,7 @@ export function buildServices(cfg: Config): Service[] {
     telegramService(cfg),
     discordService(cfg),
     projectsService(reg),
+    gitService(reg),
     godotService(cfg, reg),
     claudeService(cfg, reg),
     webService(cfg),
