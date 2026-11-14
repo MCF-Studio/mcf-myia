@@ -37,15 +37,15 @@ function fakeSite(opts: { tamper?: boolean } = {}) {
       if (url === "/api/oauth/token") return json(200, { access_token: jwt, refresh_token: "r2", expires_in: 900 });
       if (url.startsWith("/api/workflows?")) return json(200, { workflows: [summary(), { id: "x" }].slice(0, 1), page: 1, pages: 1, total: 1 });
       if (url === "/api/workflows/7/package") return json(200, { package: opts.tamper ? PACKAGE.replace("Studio", "Piège") : PACKAGE, sha256: SHA });
-      if (url === "/api/workflows/9/package") return json(404, { code: "workflow_not_found", message: "Workflow introuvable." });
+      if (url === "/api/workflows/9/package") return json(404, { error: "workflow_not_found", message: "Workflow introuvable." });
       if (url.startsWith("/api/apps/workflows")) {
-        if (req.headers.authorization !== `Bearer ${jwt}`) return json(401, { code: "unauthorized", message: "Jeton refusé." });
+        if (req.headers.authorization !== `Bearer ${jwt}`) return json(401, { error: "invalid_token", message: "Jeton refusé." });
         if (req.method === "GET") return json(200, { workflows: [summary({ visibility: "private", review: "none" })] });
         if (req.method === "POST") return json(201, { workflow: summary({ id: 8, visibility: parsed.visibility, review: "pending" }) });
         if (req.method === "PUT") return json(200, { workflow: summary({ visibility: parsed.visibility ?? "public", review: "pending" }) });
         if (req.method === "DELETE") return json(204);
       }
-      json(404, { code: "not_found" });
+      json(404, { error: "not_found" });
     });
   });
   return {

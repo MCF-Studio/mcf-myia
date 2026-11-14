@@ -96,11 +96,15 @@ export class Market {
       throw new Error("mcfstudio.fr injoignable");
     }
     if (r.status === 204) return undefined;
-    const data = (await r.json().catch(() => ({}))) as { message?: string; error?: string; code?: string };
+    // Erreurs du site : { error: "<code>", message: "<texte>" }.
+    const data = (await r.json().catch(() => ({}))) as { message?: string; error?: string };
     if (r.ok) return data;
-    const code = data.code ?? data.error;
+    const code = data.error;
     if (r.status === 404 && code !== "workflow_not_found") throw new Error("le site n'a pas encore le marketplace de workflows (fonction en cours de déploiement)");
-    if (r.status === 413) throw new Error("workflow refusé par le site : trop volumineux");
+    // Jeton refusé : autorisation retirée depuis le site, compte suspendu… Le site ne dit pas pourquoi.
+    if (r.status === 401) throw new Error("autorisation refusée par mcfstudio.fr : reconnecte MyIA (Marketplace → Mes publications)");
+    if (r.status === 413) throw new Error(str(data.message, 300) || "workflow refusé par le site : trop volumineux");
+    if (r.status === 429) throw new Error("trop de demandes au marketplace : réessaie dans un moment");
     throw new Error(str(data.message, 300) || `refusé par le site (${r.status})`);
   }
 
