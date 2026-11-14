@@ -54,6 +54,7 @@ jobs:
       - run: npm ci
         working-directory: agent
       - run: npm ci
+      - run: npm test
       - run: npm run sidecar
       - run: npm run build
       - run: cargo clippy --all-targets -- -D warnings
