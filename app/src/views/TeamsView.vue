@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, FolderOpen, MessageSquarePlus, Network, Plus, RotateCcw, Save, Trash2, X } from "lucide-vue-next";
+import { AlertTriangle, Download, FileUp, FolderOpen, MessageSquarePlus, Network, Plus, RotateCcw, Save, Trash2, UploadCloud, X } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
+import PublishDialog from "../components/PublishDialog.vue";
 import TeamNodeView from "../components/TeamNodeView.vue";
+import TeamScripts from "../components/TeamScripts.vue";
+import WorkflowPreviewDialog from "../components/WorkflowPreviewDialog.vue";
+import { downloadText, pickTextFile } from "../lib/files";
+import { focusTeam } from "../lib/focus";
 import { call } from "../lib/rpc";
 import { createConversation, refreshOverview, refreshTeams, state, toast } from "../lib/store";
-import type { Team, TeamNode } from "../lib/types";
+import type { Team, TeamNode, WorkflowInstalled, WorkflowPreview } from "../lib/types";
 
 const selectedId = ref<string>();
 const draft = ref<Team>();
@@ -120,6 +125,54 @@ async function remove() {
   }
 }
 
+// ─── workflow : l'équipe exportée, importée, publiée ─────────────────────────
+
+const preview = ref<WorkflowPreview>();
+const publishing = ref(false);
+const scriptsPanel = ref<InstanceType<typeof TeamScripts>>();
+
+/** Export et publication portent sur l'équipe ENREGISTRÉE : on enregistre d'abord ce qui est en cours. */
+async function savedFirst(): Promise<boolean> {
+  if (!draft.value) return false;
+  if (dirty.value) await save();
+  return !dirty.value;
+}
+
+async function exportTeam() {
+  if (!(await savedFirst()) || !draft.value) return;
+  try {
+    const r = await call<{ filename: string; json: string; avatarsDropped: boolean; scripts: number }>("teams.export", { id: draft.value.id });
+    downloadText(r.filename, r.json);
+    toast(
+      `Workflow exporté : ${r.filename}${r.scripts ? ` (avec ${r.scripts} script${r.scripts > 1 ? "s" : ""})` : ""}${r.avatarsDropped ? ", sans les photos des agents (trop lourdes)" : ""}`,
+      "success",
+    );
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+async function importWorkflow() {
+  try {
+    const json = await pickTextFile(".json", 512_000);
+    if (!json) return;
+    preview.value = await call<WorkflowPreview>("workflows.inspect", { json });
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+function installed(r: WorkflowInstalled) {
+  preview.value = undefined;
+  select(state.teams.find((t) => t.id === r.team.id));
+  dirty.value = false;
+  void scriptsPanel.value?.refresh();
+}
+
+async function publish() {
+  if (await savedFirst()) publishing.value = true;
+}
+
 async function talk() {
   if (!draft.value) return;
   if (dirty.value) await save();
@@ -166,7 +219,13 @@ function panEnd(e: PointerEvent) {
 watch(
   () => state.teams,
   (teams) => {
-    if (!draft.value) select(teams[0]);
+    // Équipe demandée par un autre écran (installation depuis le Marketplace) : on l'ouvre dès qu'elle est chargée.
+    const wanted = focusTeam.value ? teams.find((t) => t.id === focusTeam.value) : undefined;
+    if (wanted) {
+      focusTeam.value = undefined;
+      select(wanted);
+      dirty.value = false;
+    } else if (!draft.value) select(teams[0]);
   },
   { immediate: true },
 );
@@ -198,6 +257,7 @@ watch(
         </button>
         <span v-if="!state.teams.length && !isNew" class="small muted">Aucune équipe : un chef, des sous-agents en dessous, des coéquipiers à côté.</span>
         <button class="btn primary sm" @click="select()"><Plus :size="15" /> Nouvelle équipe</button>
+        <button class="btn sm" title="Installer une équipe reçue en fichier .workflow.json" @click="importWorkflow"><FileUp :size="15" /> Importer un workflow</button>
       </aside>
 
       <section v-if="draft" class="editor">
@@ -241,6 +301,12 @@ watch(
               <Trash2 :size="15" /> {{ armed ? "Confirmer" : "Supprimer" }}
             </button>
             <button v-if="!isNew && dirty" class="btn ghost" @click="select(state.teams.find((t) => t.id === selectedId))"><RotateCcw :size="15" /> Annuler</button>
+            <button class="btn" :disabled="!draft.name.trim()" title="Enregistrer l'équipe dans un fichier .workflow.json à partager" @click="exportTeam">
+              <Download :size="15" /> Exporter en workflow
+            </button>
+            <button class="btn" :disabled="!draft.name.trim()" title="Publier sur le marketplace de mcfstudio.fr (privé ou public)" @click="publish">
+              <UploadCloud :size="15" /> Publier
+            </button>
             <span class="spacer" />
             <button class="btn" :disabled="!draft.name.trim()" @click="talk"><MessageSquarePlus :size="15" /> Discuter avec l'équipe</button>
             <button class="btn primary" :disabled="!dirty || !draft.name.trim()" @click="save"><Save :size="15" /> Enregistrer</button>
@@ -264,12 +330,17 @@ watch(
           </div>
         </div>
 
+        <TeamScripts ref="scriptsPanel" v-model="draft.scripts" />
+
         <p class="tiny muted note">
           <Network :size="14" /> Un agent n'appelle que ses sous-agents et coéquipiers directs, jamais un agent déjà
           sollicité pour la même demande (pas de boucle). Les actions sensibles demandent toujours ta confirmation, quel que soit l'agent.
         </p>
       </section>
     </div>
+
+    <WorkflowPreviewDialog v-if="preview" :preview="preview" @close="preview = undefined" @installed="installed" />
+    <PublishDialog v-if="publishing && draft" :team="draft" @close="publishing = false" @published="publishing = false" />
   </div>
 </template>
 
@@ -415,6 +486,9 @@ watch(
   border-color: var(--danger);
   color: var(--danger);
 }
+.head-actions {
+  flex-wrap: wrap;
+}
 .canvas {
   overflow: auto;
   overscroll-behavior-x: contain;
@@ -485,8 +559,7 @@ watch(
   .budgets {
     grid-template-columns: 1fr;
   }
-  .workspace .row,
-  .head-actions {
+  .workspace .row {
     flex-wrap: wrap;
   }
   .ws-label {

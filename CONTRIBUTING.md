@@ -20,7 +20,9 @@ Merci de ton intérêt ! Quelques règles pour que ça reste simple.
   [docs/SPEC.md](docs/SPEC.md) (§3 et §5) dans la même pull request.
 - **Pas de secret ni de donnée personnelle** dans le dépôt : `config/agent.json`, `config/agents.json` et `data/`
   restent locaux.
-- **Agents et thèmes = données** : un format partagé ne doit jamais pouvoir contenir de code exécuté.
+- **Agents et thèmes = données** : ces formats ne doivent jamais pouvoir contenir de code exécuté. Seule exception,
+  encadrée par [docs/SPEC.md](docs/SPEC.md) §3 : les **scripts d'un workflow**, qui ne tournent qu'après l'accord de
+  l'utilisateur sur leur code (voir [docs/WORKFLOWS.md](docs/WORKFLOWS.md)). N'élargis pas cette exception.
 - Interface en français, code et commentaires en français, TypeScript strict.
 
 ## Ajouter un service

@@ -5,7 +5,24 @@ import { paths } from "./paths.js";
 const SENSITIVE_KEY = /token|secret|password|passwd|api[_-]?key|authorization/i;
 
 export interface AuditEvent {
-  event: "tool_call" | "session_start" | "session_end" | "crash" | "ollama_install" | "claude_api_usage" | "claude_api_key" | "files_full_access" | "map_sync";
+  event:
+    | "tool_call"
+    | "session_start"
+    | "session_end"
+    | "crash"
+    | "ollama_install"
+    | "claude_api_usage"
+    | "claude_api_key"
+    | "files_full_access"
+    | "map_sync"
+    // Scripts d'équipe et workflows : détails dans `args` (id du script, empreinte, origine ; jamais le code).
+    | "script_add"
+    | "script_approve"
+    | "script_revoke"
+    | "script_delete"
+    | "script_runtime_install"
+    | "workflow_install"
+    | "workflow_publish";
   /** Version installée (event "ollama_install"). */
   version?: string;
   tool?: string;

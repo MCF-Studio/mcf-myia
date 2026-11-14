@@ -45,7 +45,7 @@ Chaque outil a un niveau de risque :
 | `read`     | lister les projets, chercher un addon, recherche web | exécuté sans demander                                  |
 | `launch`   | ouvrir l'éditeur Godot, ouvrir un lien               | sans demander ; `browser_open` demande si le lien ne vient ni d'l'utilisateur ni d'une recherche |
 | `local`    | build, création de projet, délégation, écriture de fichier | confirmation, sauf projet en `autoApprove` ou cas déclaré sans risque par l'outil (ex. nouveau fichier dans Documents\MyIA) |
-| `external` | message Telegram/Discord, tout outil MCP non déclaré | **confirmation toujours**, avec le contenu exact       |
+| `external` | message Telegram/Discord, tout outil MCP non déclaré, tout outil d'un script d'équipe | **confirmation toujours**, avec le contenu exact       |
 
 Limites dures, appliquées dans le code et pas seulement dans le prompt :
 
@@ -87,6 +87,14 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   projet s'y exécute. Les règles ne changent pas : écrire dans un espace de travail et déléguer restent confirmés,
   mêmes formats, mêmes dossiers interdits. Dossier absent (disque débranché) : l'agent en est prévenu et retombe sur
   les dossiers habituels.
+- **Scripts d'équipe** (`core/scripts.ts`, détail dans [WORKFLOWS.md](WORKFLOWS.md)) : des serveurs MCP en Python
+  rattachés à une équipe, donnés à ses membres et à eux seuls. C'est le seul code exécuté que MyIA accepte de recevoir
+  d'un tiers, et il n'est **pas isolé** : un script accepté a les droits de l'utilisateur. Il ne se lance donc jamais
+  sans l'**accord** de l'utilisateur, donné après affichage du code et lié à l'empreinte SHA-256 de ses fichiers (un
+  fichier modifié, ajouté ou retiré ensuite : plus de lancement). Fichiers dans `data\scripts\<id>`, fermé aux
+  outils de fichiers ; lancement sans shell, par uv (version figée, empreinte vérifiée) ou un Python du PATH, avec un
+  environnement réduit ; tous ses outils sont `external`. Ni MASTER ni un agent ne peut ajouter ou accepter un script :
+  seul l'écran Équipes le fait. Un agent de la Guilde (bac à sable) n'en reçoit jamais.
 - Addons Godot : extraits seulement sous `addons/`, avec protection contre le « zip slip » (chemin qui sort du dossier).
 - Web : `web_read` ne lit que des adresses **publiques** (IP vérifiées à chaque redirection : ni 127.0.0.1, ni LAN,
   ni 169.254.169.254), taille plafonnée. `web_research` lance Claude Code avec **seulement** WebSearch et WebFetch,
@@ -222,8 +230,8 @@ ce que vérifient des tests.
 
 **Agent MASTER** (profil `master: true`, un seul à la fois ; il garde son nom) : l'assistant du quotidien, qui pilote
 l'app. En plus de ses services, il reçoit les outils `app_*` :
-- lecture, sans confirmation : agents, équipes, conversations, Guilde (état, offres publiées), marketplace (« pas encore
-  disponible » tant qu'il n'existe pas : jamais de contenu inventé) ;
+- lecture, sans confirmation : agents, équipes, conversations, Guilde (état, offres publiées), marketplace (il dit ce
+  qui existe, sans rien lister ni installer : jamais de contenu inventé) ;
 - créer une conversation : sans confirmation (rien ne sort, rien n'est détruit) ;
 - créer ou supprimer un agent, publier une offre sur la Guilde : **confirmation à chaque fois**, avec le contenu
   complet dans la confirmation (nom, modèle, consignes, services ; texte de l'offre) ;
@@ -270,8 +278,17 @@ sur Claude envoie toutefois à Anthropic ce qu'il lit, c'est écrit à côté de
 sauf dossier choisi explicitement par l'utilisateur — et, sans exception, `config/` et `data/` de MyIA (tests). Les
 réglages s'appliquent sans redémarrage : la configuration est mise à jour en place pour tous les services.
 
-**Marketplace (à venir)** : registre sur mcfstudio.fr, publications par des membres certifiés. Tant qu'il n'existe pas,
-l'app n'affiche aucun contenu fictif ; seule l'installation depuis un fichier local est proposée.
+**Workflows et marketplace** ([WORKFLOWS.md](WORKFLOWS.md)) : une équipe s'exporte en workflow (`myia/workflow@1` :
+arbre, budgets, profils de ses agents, scripts), en fichier ou sur le marketplace de mcfstudio.fr. Ni espace de travail,
+ni rôle MASTER, ni conversation, ni mémoire n'en sortent. À l'import, le contenu est montré avant toute écriture
+(agents et consignes, code des scripts, manques) ; rien n'est écrasé (un id pris par un contenu différent donne un
+nouvel id) ; l'installation porte sur exactement ce qui a été montré (empreinte) ; les scripts restent en attente si
+l'utilisateur ne coche pas l'accord. Marketplace : lecture sans compte ; publication avec une autorisation OAuth de
+portée `workflows` (jeton dans le coffre) ; l'auteur choisit privé ou public, et un workflow public n'est listé
+qu'après validation par un admin du site. Rien de ce qui vient du site n'est de confiance : empreinte du paquet
+recalculée et comparée à celle de la liste, champs affichés bornés, validation complète du format. Agents, thèmes,
+modèles et extensions ne sont pas dans le registre en ligne : pour eux, seule l'installation depuis un fichier local
+est proposée, et l'app n'affiche aucun contenu fictif.
 
 ## 4. Secrets
 
@@ -293,6 +310,13 @@ modèle.
 | Page web piégée (« ouvre ce lien », « envoie ce message »)                          | Contenu marqué comme donnée ; envois toujours confirmés ; `browser_open` confirme les liens venus d'une page |
 | Lecture web vers le réseau local (Ollama, box, NAS), y compris par DNS rebinding     | `web_read` refuse toute IP non publique, vérifiée à chaque redirection ET au moment de la connexion (résolution épinglée) |
 | Agent ou thème partagé piégé                                                        | Formats = données validées par schéma ; un profil ne peut que restreindre ; règles appliquées dans le code |
+| Workflow piégé (consignes d'agent malveillantes, écrasement d'un agent existant)     | Contenu montré avant installation ; rien n'est écrasé ; ni MASTER ni espace de travail importés ; les confirmations ne dépendent pas des consignes |
+| Script d'équipe malveillant reçu dans un workflow                                    | Code affiché, accord explicite lié à l'empreinte, en attente par défaut ; chaque appel d'outil confirmé ; validation d'un admin avant toute publication publique. **Pas de bac à sable** : un script accepté a les droits de l'utilisateur |
+| Script modifié après l'accord (par un autre programme, ou par un agent)              | Empreinte recalculée à chaque lancement et à chaque vérification ; `data\` fermé aux outils de fichiers |
+| Script qui lit les secrets de l'environnement de MyIA                                | Environnement réduit à une liste fermée de variables système                              |
+| Fichier de script qui sort de son dossier, ou binaire déguisé                        | Chemins relatifs validés, extensions texte seulement, contrôle du chemin résolu avant écriture |
+| Site ou réseau qui sert un autre paquet que celui annoncé                            | Empreinte SHA-256 recalculée et comparée à celle de la liste ; https ; redirections refusées |
+| Moteur Python piégé (uv modifié)                                                     | Version figée, empreinte SHA-256 vérifiée au téléchargement                             |
 | Réponse du modèle contenant du HTML/script (page web lue)                           | Markdown rendu avec HTML échappé ; CSP sans script inline ; liens ouverts hors de l'app |
 | Crash silencieux de la console ou du sidecar                                        | Erreurs fatales journalisées (event `crash`) avec la pile d'appel                       |
 | L'IA fait lancer un programme dangereux ou un shell                                 | Liste fermée de programmes enregistrés ; ajout confirmé ; shells/interpréteurs bloqués |
