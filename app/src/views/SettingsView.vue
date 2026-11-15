@@ -4,6 +4,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Bell,
   BookOpen,
+  AlarmClock,
   AlertTriangle,
   AppWindow,
   Download,
@@ -339,6 +340,41 @@ async function setFullAccess(enabled: boolean) {
   }
 }
 
+// ─── Planificateur : tâches programmées par les agents ───────────────────────
+interface PlannedJob {
+  id: string;
+  conversationTitle: string;
+  task: string;
+  when: string;
+  nextRun: string;
+  runs: number;
+}
+const planned = ref<PlannedJob[]>([]);
+
+async function loadPlanner() {
+  try {
+    planned.value = await call<PlannedJob[]>("planner.list");
+  } catch {
+    /* cœur arrêté */
+  }
+}
+const offPlanner = on("planner.changed", () => void loadPlanner());
+onBeforeUnmount(offPlanner);
+
+async function cancelPlanned(j: PlannedJob) {
+  try {
+    await call("planner.cancel", { id: j.id });
+    toast("Tâche planifiée annulée", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    void loadPlanner();
+  }
+}
+
+const fmtNext = (iso: string) =>
+  new Date(iso).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
 // ─── Agents : mode bypass (plus de confirmation avant leurs actions) ─────────
 const agentsBypass = ref(false);
 
@@ -561,6 +597,7 @@ onMounted(async () => {
   void loadLlama();
   void loadOllama();
   void loadWhisper();
+  void loadPlanner();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = loadVoices;
   if (inTauri) appVersion.value = await getVersion();
   void refreshSidecar();
@@ -646,6 +683,23 @@ const shortcuts: [string, string][] = [
             ni commit ni push sur main, permissions de la boîte à outils, et le bac à sable de la Guilde n'a aucun outil.
           </p>
         </div>
+      </section>
+
+      <section class="card">
+        <h3 class="sec-title">Tâches planifiées</h3>
+        <p class="tiny muted">
+          Demande à un agent « rappelle-moi dans 20 minutes », « reprends à 15h30 » ou « chaque lundi à 9h, fais le point » : à l'heure dite,
+          la tâche arrive dans sa conversation et il la traite. MyIA doit être ouvert ; une échéance manquée est rattrapée une fois au retour.
+        </p>
+        <div v-for="j in planned" :key="j.id" class="root-row">
+          <AlarmClock :size="16" />
+          <div class="grow">
+            <div class="tiny"><strong>{{ j.when }}</strong> · prochaine : {{ fmtNext(j.nextRun) }} · {{ j.conversationTitle }}</div>
+            <div class="tiny muted">{{ j.task.length > 160 ? j.task.slice(0, 160) + "…" : j.task }}</div>
+          </div>
+          <button class="btn sm ghost icon danger" title="Annuler" @click="cancelPlanned(j)"><Trash2 :size="14" /></button>
+        </div>
+        <div v-if="!planned.length" class="empty small">Aucune tâche planifiée.</div>
       </section>
 
       <section class="card">

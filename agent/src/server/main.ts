@@ -28,6 +28,7 @@ import { installOllama } from "../core/ollama-install.js";
 import { createLlm } from "../core/llm-factory.js";
 import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
 import { makeTeamRoot } from "../core/team-runner.js";
+import { describeSchedule, Planner, plannerTools } from "../core/planner.js";
 import { appControlTools, type AppControl } from "../services/app-control.js";
 import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, walk, type Team } from "../core/teams.js";
 import { findRuntime, installUv, SCRIPT_ID, SCRIPT_MAX_FILES, ScriptPackSchema, ScriptStore, scriptHash, UV, type ScriptEntry } from "../core/scripts.js";
@@ -115,6 +116,17 @@ interface Live {
 const live = new Map<string, Live>();
 const pulls = new Map<string, AbortController>();
 
+/** Planificateur : à l'échéance, la tâche est envoyée dans sa conversation comme un message du « Planificateur ». */
+const planner = new Planner(path.join(paths.home, "data", "planner.json"), {
+  exists: (id) => store.list().some((c) => c.id === id),
+  busy: (id) => !!live.get(id)?.running,
+  async fire(job, text) {
+    audit({ event: "planner_fire", tool: job.id, args: { conversationId: job.conversationId, schedule: job.schedule } });
+    await sendTo(store.get(job.conversationId), text, { from: "Planificateur" });
+  },
+  changed: () => rpc.notify("planner.changed", {}),
+});
+
 const profileOf = (id: string) => profiles.find((p) => p.id === id) ?? profiles[0] ?? DEFAULT_PROFILE;
 
 /** Agent d'une conversation, recréé si son profil ou le modèle par défaut a changé (historique conservé). */
@@ -128,21 +140,22 @@ async function agentFor(c: Conversation): Promise<Live> {
     let agent: Agent;
     let budget: TeamBudget | undefined;
     let masterBudget: { used: number } | undefined;
+    const planTools = plannerTools(planner, c.id);
     if (team) {
       budget = new TeamBudget(team.maxCalls, team.maxDepth);
-      agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders), scripts: teamScripts(team) });
+      agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders), scripts: teamScripts(team), rootTools: planTools });
     } else if (profile.master) {
       masterBudget = { used: 0 };
       agent = new Agent(cfg, services, profile, {
         memory: memoryFor(cfg.memory.folders),
         workspace: profile.workspace,
-        extraTools: appControlTools(appControl, profile, masterBudget),
+        extraTools: [...appControlTools(appControl, profile, masterBudget), ...planTools],
         teamNote:
           `Tu es l'agent principal de ${cfg.user.name} (MASTER) : tu pilotes l'app MyIA. Tu peux lister et créer des agents, ouvrir des conversations, ` +
           "consulter la Guilde et écrire aux autres agents (app_agent_message) quand une tâche relève de leur rôle. Fais toi-même ce qui est simple.",
       });
     } else {
-      agent = new Agent(cfg, services, profile, { memory: memoryFor(cfg.memory.folders), workspace: profile.workspace });
+      agent = new Agent(cfg, services, profile, { memory: memoryFor(cfg.memory.folders), workspace: profile.workspace, extraTools: planTools });
     }
     agent.importHistory(c.history);
     await agent.refreshServices();
@@ -749,6 +762,29 @@ rpc.method("conversations.delete", (params) => {
   live.get(id)?.running?.abort();
   live.delete(id);
   store.delete(id);
+  planner.removeConversation(id);
+  return true;
+});
+
+// ─── planificateur ───────────────────────────────────────────────────────────
+
+rpc.method("planner.list", () => {
+  const titles = new Map(store.list().map((c) => [c.id, c.title]));
+  return planner.list().map((j) => ({
+    id: j.id,
+    conversationId: j.conversationId,
+    conversationTitle: titles.get(j.conversationId) ?? "?",
+    task: j.task,
+    when: describeSchedule(j.schedule),
+    nextRun: j.nextRun,
+    lastRun: j.lastRun,
+    runs: j.runs,
+  }));
+});
+
+rpc.method("planner.cancel", (params) => {
+  const { id } = parse(IdParam, params);
+  planner.cancel(id);
   return true;
 });
 
@@ -1569,6 +1605,7 @@ let closing = false;
 async function shutdown() {
   if (closing) return;
   closing = true;
+  planner.stop();
   for (const l of live.values()) l.running?.abort();
   stopLink("arrêt de MyIA");
   stopLlamaServer();
@@ -1580,6 +1617,7 @@ async function shutdown() {
 
 audit({ event: "session_start" });
 rpc.notify("ready", { version: VERSION });
+planner.start();
 engine()
   .ensureRunning()
   .then(() => rpc.notify("ollama.ready", {}))

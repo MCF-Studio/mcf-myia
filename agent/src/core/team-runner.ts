@@ -21,6 +21,8 @@ export interface TeamContext {
   memory?: Memory;
   /** Scripts de l'équipe (un service par script) : donnés à chaque membre, en plus de ses services. */
   scripts?: Service[];
+  /** Outils donnés au seul chef d'équipe (ex. planificateur de la conversation). */
+  rootTools?: Tool[];
 }
 
 function describe(p: AgentProfile) {
@@ -92,7 +94,7 @@ export function makeTeamAgent(node: TeamNode, ctx: TeamContext, depth: number, c
     );
   }
   return new Agent(ctx.cfg, ctx.services, profile, {
-    extraTools: tool ? [tool] : [],
+    extraTools: [...(tool ? [tool] : []), ...(depth === 0 && !caller ? (ctx.rootTools ?? []) : [])],
     teamFirst: !!tool,
     extraServices: ctx.scripts,
     teamNote: lines.join("\n"),

@@ -85,6 +85,16 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   (`.git`, `.vscode`, `.claude`, `.github`…), ni via un lien qui en sortirait. Nouveau fichier dans `Documents\MyIA`
   (dossier par défaut) ou le workspace : direct ; remplacer, compléter ou écrire ailleurs : confirmation avec aperçu.
   `file_read` lit un fichier texte des mêmes dossiers (contenu traité comme une donnée).
+- Planificateur (core/planner.ts) : `planner_add` (minuteur `in_minutes`, rendez-vous `at`, récurrence `time` + `days`
+  ou `every_minutes` ≥ 5), `planner_list`, `planner_cancel`. Une tâche appartient à **une** conversation (l'agent seul,
+  le MASTER, ou le chef d'une équipe) : un agent ne voit et n'annule que celles de sa conversation ; Paramètres → Général
+  les liste toutes. Minuteur et rendez-vous s'ajoutent sans confirmation, une récurrence se confirme (sauf mode bypass).
+  À l'échéance, le texte est envoyé dans la conversation comme message du « Planificateur » : liens non fiables, règles
+  de confirmation inchangées pour ce que l'agent fait ensuite ; journalisé (`planner_fire`). Conversation occupée :
+  réessai au passage suivant (20 s) ; supprimée : ses tâches aussi. Échéance manquée (app fermée, veille) : exécutée une
+  seule fois au retour, marquée « en retard ». L'échéance suivante est écrite avant l'envoi (aucun rejeu après un
+  plantage). Limites : 30 tâches par conversation, 200 en tout, un an d'avance au plus. Stockage `data/planner.json`
+  (écriture atomique ; fichier illisible mis de côté, jamais écrasé).
 - Git : `git_status`, `git_log`, `git_diff`, `git_show`, `git_branches` (lecture) ; `git_switch` et `git_commit` (`local`) ;
   `git_push` (`external`, **confirmation toujours**, même en `autoApprove`). Le modèle choisit un **projet** connu, jamais
   un chemin ni une commande git libre ; filtres de chemin relatifs (pas d'option, pas de « .. », pathspecs littéraux),
