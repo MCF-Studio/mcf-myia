@@ -28,7 +28,7 @@ export interface AuditEvent {
   tool?: string;
   risk?: string;
   args?: unknown;
-  decision?: "auto" | "approved" | "refused" | "invalid";
+  decision?: "auto" | "approved" | "refused" | "invalid" | "team_first";
   ok?: boolean;
   error?: string;
   durationMs?: number;

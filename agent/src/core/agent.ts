@@ -51,6 +51,11 @@ export interface AgentOptions {
    * (core/scripts.ts). Jamais pour un agent hors équipe.
    */
   extraServices?: Service[];
+  /**
+   * Chef d'équipe (il a team_ask) : claude_delegate est refusé tant qu'il n'a confié aucune tâche à un membre pendant
+   * la demande en cours. L'équipe d'abord, Claude Code ensuite si besoin.
+   */
+  teamFirst?: boolean;
   /** Paragraphe ajouté au prompt système (contexte d'équipe). */
   teamNote?: string;
   /**
@@ -176,6 +181,9 @@ export class Agent {
   /** Contexte de mémoire du message en cours (recalculé à chaque demande de l'utilisateur). */
   private memoryContext = "";
 
+  /** Vrai dès que l'agent a confié une tâche à un membre pendant la demande en cours (règle teamFirst). */
+  private teamAsked = false;
+
   /** Ce que les outils reçoivent de cet agent. Recalculé à chaque demande : le dossier a pu disparaître (disque débranché). */
   private scope: ToolScope = {};
 
@@ -269,7 +277,9 @@ export class Agent {
               "Ne propose jamais à l'utilisateur d'installer ou de lancer un programme pour une tâche qu'un outil de la boîte fait.",
           ]
         : []),
-      "- Écrire ou corriger du code, mise en place complexe qu'aucun de tes outils ne fait : délègue à Claude Code (outil claude_delegate) avec une consigne précise et complète.",
+      this.opts.teamFirst
+        ? "- Écrire ou corriger du code, mise en place complexe : confie-le d'abord au membre de ton équipe dont c'est le rôle (team_ask). Claude Code (claude_delegate) seulement ensuite, pour ce que ton équipe ne couvre pas."
+        : "- Écrire ou corriger du code, mise en place complexe qu'aucun de tes outils ne fait : délègue à Claude Code (outil claude_delegate) avec une consigne précise et complète.",
       `- Projets : passe le nom tel que ${u} le dit ; si l'outil répond que c'est ambigu ou introuvable, utilise projects_find ou demande-lui. Une cible de build vient de la liste renvoyée par l'outil, jamais inventée.`,
       `- Info récente ou que tu ne connais pas sûrement : une recherche web_search, puis web_read sur la page pertinente. Si les résultats sont hors sujet, ne relance pas web_search en boucle : passe à web_research. Cite toujours les liens de tes sources. Ouvre une page dans le navigateur (browser_open) seulement si ${u} veut la voir.`,
       `- Si une action est refusée par ${u}, ne la retente pas : demande ce qu'il veut changer.`,
@@ -294,6 +304,7 @@ export class Agent {
    */
   async handle(input: string, ui: AgentUI, signal?: AbortSignal, trusted = this.opts.trustInput !== false): Promise<string> {
     if (trusted) this.trust.addFrom(input);
+    this.teamAsked = false;
     const workspace = usableWorkspace(this.opts.workspace);
     this.scope = { cloud: this.cloud, workspace, coordination: usableCoordination(this.opts.coordination, workspace) };
     try {
@@ -354,6 +365,16 @@ export class Agent {
   private async execute(name: string, rawArgs: unknown, ui: AgentUI, signal?: AbortSignal): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) return `Erreur : l'outil "${name}" n'existe pas. Outils disponibles : ${[...this.tools.keys()].join(", ")}`;
+
+    // Équipe d'abord : un chef ne passe à Claude Code qu'après avoir sollicité au moins un membre.
+    if (name === "claude_delegate" && this.opts.teamFirst && !this.teamAsked && this.tools.has("team_ask")) {
+      audit({ event: "tool_call", tool: name, risk: tool.risk, args: rawArgs, decision: "team_first" });
+      return (
+        "Refusé : tu diriges une équipe. Confie d'abord le travail aux membres concernés avec team_ask (découpe la demande " +
+        "selon leurs rôles). Tu pourras ensuite déléguer à Claude Code ce que ton équipe ne couvre pas."
+      );
+    }
+    if (name === "team_ask") this.teamAsked = true;
 
     let args: unknown;
     try {
