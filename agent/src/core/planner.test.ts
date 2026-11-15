@@ -131,13 +131,21 @@ describe("Planner", () => {
 });
 
 describe("outils du planificateur", () => {
-  it("minuteur sans confirmation, récurrence confirmée", () => {
+  it("minuteur demandé par l'utilisateur sans confirmation, récurrence confirmée", () => {
     const { p, now } = setup();
-    const add = plannerTools(p, conv, now).find((t) => t.name === "planner_add")!;
+    const add = plannerTools(p, conv, now, () => true).find((t) => t.name === "planner_add")!;
     const trust = new UrlTrust();
     expect(add.confirmIf!(add.parse({ task: "rappel", in_minutes: 5 }), trust)).toBe(false);
     expect(add.confirmIf!(add.parse({ task: "rapport", time: "09:00", days: ["lundi"] }), trust)).toBe(true);
     expect(add.confirmIf!(add.parse({ task: "veille", every_minutes: 60 }), trust)).toBe(true);
+  });
+
+  it("pendant une tâche planifiée ou un message d'agent : même un minuteur se confirme (pas d'auto-reprogrammation)", async () => {
+    const { p, now } = setup();
+    const add = plannerTools(p, conv, now, () => false).find((t) => t.name === "planner_add")!;
+    const args = add.parse({ task: "recommence", in_minutes: 5 });
+    expect(add.confirmIf!(args, new UrlTrust())).toBe(true);
+    expect(await add.preview(args)).toMatch(/pas par toi/);
   });
 
   it("planifie, liste et annule", async () => {

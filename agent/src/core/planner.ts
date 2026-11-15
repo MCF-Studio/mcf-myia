@@ -252,7 +252,7 @@ export class Planner {
       dirty = true;
 
       const head =
-        `[Tâche planifiée ${describeSchedule(job.schedule)}${late ? ` — prévue le ${human(due)}, exécutée en retard (MyIA était fermé ou le PC en veille)` : ""}]` +
+        `[Tâche planifiée par l'agent ${describeSchedule(job.schedule)}${late ? ` — prévue le ${human(due)}, exécutée en retard (MyIA était fermé ou le PC en veille)` : ""}]` +
         (next ? ` (prochaine : ${human(next)})` : "");
       this.firing.add(job.id);
       fired.push(
@@ -272,7 +272,13 @@ function line(j: Job): string {
 }
 
 /** Outils du planificateur pour l'agent d'UNE conversation. */
-export function plannerTools(planner: Planner, conversationId: string, now: () => Date = () => new Date()): Tool[] {
+export function plannerTools(
+  planner: Planner,
+  conversationId: string,
+  now: () => Date = () => new Date(),
+  /** Vrai si la demande en cours vient de l'utilisateur (pas du Planificateur ni d'un autre agent). */
+  fromUser: () => boolean = () => false,
+): Tool[] {
   return [
     defineTool({
       name: "planner_add",
@@ -282,13 +288,16 @@ export function plannerTools(planner: Planner, conversationId: string, now: () =
         "reçois `task` comme une demande et tu la traites avec tes outils. Pour « reprends à telle heure », écris dans `task` où " +
         "tu en étais et ce qu'il reste à faire. Pour un simple rappel, écris le rappel à transmettre. Heures locales.",
       schema: AddArgs,
-      // Une tâche unique (minuteur, rendez-vous) s'ajoute directement ; une tâche récurrente se confirme.
+      // Sans confirmation : seulement une tâche unique (minuteur, rendez-vous) demandée pendant un tour lancé par
+      // l'utilisateur. Récurrence, ou tour lancé par le Planificateur / un autre agent : confirmation. Sinon une
+      // consigne injectée (page lue, tâche planifiée) pourrait se reprogrammer elle-même indéfiniment sans être vue.
       risk: "local",
-      confirmIf: (a) => a.time !== undefined || a.every_minutes !== undefined,
+      confirmIf: (a) => a.time !== undefined || a.every_minutes !== undefined || !fromUser(),
       check: (a) => void toSchedule(a, now()),
       preview: (a) => {
         const s = toSchedule(a, now());
-        return `Tâche récurrente ${describeSchedule(s)} :\n${a.task}`;
+        const origin = fromUser() ? "" : "\n(demandée pendant une tâche planifiée ou un message d'un autre agent, pas par toi)";
+        return `Tâche planifiée ${describeSchedule(s)} :\n${a.task}${origin}`;
       },
       async run(a) {
         const job = planner.add(conversationId, a.task, toSchedule(a, now()));

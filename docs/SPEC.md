@@ -88,7 +88,9 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
 - Planificateur (core/planner.ts) : `planner_add` (minuteur `in_minutes`, rendez-vous `at`, récurrence `time` + `days`
   ou `every_minutes` ≥ 5), `planner_list`, `planner_cancel`. Une tâche appartient à **une** conversation (l'agent seul,
   le MASTER, ou le chef d'une équipe) : un agent ne voit et n'annule que celles de sa conversation ; Paramètres → Général
-  les liste toutes. Minuteur et rendez-vous s'ajoutent sans confirmation, une récurrence se confirme (sauf mode bypass).
+  les liste toutes. Minuteur et rendez-vous s'ajoutent sans confirmation **seulement pendant une demande de
+  l'utilisateur** ; une récurrence, ou toute tâche créée pendant un tour lancé par le Planificateur ou un autre agent,
+  se confirme (sauf mode bypass) : une consigne injectée ne peut pas se reprogrammer en boucle sans être vue.
   À l'échéance, le texte est envoyé dans la conversation comme message du « Planificateur » : liens non fiables, règles
   de confirmation inchangées pour ce que l'agent fait ensuite ; journalisé (`planner_fire`). Conversation occupée :
   réessai au passage suivant (20 s) ; supprimée : ses tâches aussi. Échéance manquée (app fermée, veille) : exécutée une

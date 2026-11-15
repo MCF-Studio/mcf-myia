@@ -112,6 +112,8 @@ interface Live {
   budget?: TeamBudget;
   /** Agent MASTER : messages à d'autres agents pendant la demande en cours. */
   masterBudget?: { used: number };
+  /** La demande en cours vient de l'utilisateur (pas du Planificateur ni d'un autre agent). */
+  fromUser?: boolean;
 }
 const live = new Map<string, Live>();
 const pulls = new Map<string, AbortController>();
@@ -140,7 +142,7 @@ async function agentFor(c: Conversation): Promise<Live> {
     let agent: Agent;
     let budget: TeamBudget | undefined;
     let masterBudget: { used: number } | undefined;
-    const planTools = plannerTools(planner, c.id);
+    const planTools = plannerTools(planner, c.id, undefined, () => live.get(c.id)?.fromUser === true);
     if (team) {
       budget = new TeamBudget(team.maxCalls, team.maxDepth);
       agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders), scripts: teamScripts(team), rootTools: planTools });
@@ -832,6 +834,7 @@ async function sendTo(c: Conversation, text: string, opts: SendOptions = {}): Pr
     else opts.signal.addEventListener("abort", () => running.abort(), { once: true });
   }
   l.running = running;
+  l.fromUser = !opts.from;
   if (l.budget) l.budget.calls = 0;
   if (l.masterBudget) l.masterBudget.used = 0;
   rpc.notify("conversation.busy", { conversationId: id, busy: true });
@@ -874,6 +877,7 @@ async function sendTo(c: Conversation, text: string, opts: SendOptions = {}): Pr
     return m;
   } finally {
     l.running = undefined;
+    l.fromUser = false;
     rpc.notify("conversation.busy", { conversationId: id, busy: false });
   }
 }
