@@ -12,6 +12,8 @@ import { applyTheme, BUILTIN_THEMES } from "./lib/themes";
 import { startUpdates, update } from "./lib/update";
 import { startPtt } from "./lib/ptt";
 import PttIndicator from "./components/PttIndicator.vue";
+import SpeechIndicator from "./components/SpeechIndicator.vue";
+import { speech, stopSpeaking } from "./lib/sound";
 import AgentsView from "./views/AgentsView.vue";
 import ConversationsView from "./views/ConversationsView.vue";
 import MarketplaceView from "./views/MarketplaceView.vue";
@@ -53,6 +55,8 @@ watchEffect(() => {
 
 const order: View[] = ["overview", "conversations", "agents", "teams", "guild", "models", "marketplace", "settings"];
 function onKey(e: KeyboardEvent) {
+  // Échap coupe la lecture à voix haute en cours (une fenêtre modale ouverte garde Échap pour elle).
+  if (e.key === "Escape" && speech.speaking) return stopSpeaking();
   if (!e.ctrlKey || e.altKey) return;
   const n = Number(e.key);
   if (n >= 1 && n <= order.length) {
@@ -135,6 +139,7 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
     </div>
 
     <PttIndicator />
+    <SpeechIndicator />
     <div class="toasts">
       <TransitionGroup name="toast">
         <div v-for="t in state.toasts" :key="t.id" class="toast" :class="t.kind">

@@ -544,6 +544,7 @@ const shortcuts: [string, string][] = [
   ["Ctrl + N", "Nouvelle conversation (vue Conversations)"],
   ["Ctrl + Tab", "Onglet de conversation suivant (Maj : précédent)"],
   ["Ctrl + W", "Fermer l'onglet de conversation"],
+  ["Échap", "Arrêter la lecture à voix haute en cours"],
   ["Entrée", "Envoyer (Maj + Entrée : nouvelle ligne) — modifiable"],
   ["Double-clic sur un titre", "Renommer la conversation"],
   ["Clic molette sur un onglet", "Fermer l'onglet"],
