@@ -39,3 +39,5 @@ app/src-tauri/resources/
 # Clés de signature (mise à jour automatique, etc.) : jamais dans le dépôt (CONTRIBUTING.md).
 *.key
 *.key.pub
+# Outils importés par l'utilisateur (Paramètres > Boîte à outils) : propres au poste
+tools/imports/

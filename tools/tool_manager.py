@@ -4,6 +4,7 @@ Usage :
   python tools/tool_manager.py list
   python tools/tool_manager.py run <outil> '{"param": "valeur"}' [--confirmed]
   python tools/tool_manager.py run <outil> - [--confirmed]        (paramètres JSON lus sur l'entrée standard)
+  python tools/tool_manager.py import <dossier> [--confirmed]     (ajoute un outil : voir importer.py, CONVENTION.md)
 
 Toujours une réponse JSON {success, tool, risk, data, error, warnings} sur stdout.
 Code de sortie : 0 = exécuté, 1 = refusé ou en échec, 2 = confirmation requise.
@@ -309,6 +310,9 @@ def main(argv):
         return reply(False, error={"type": "Usage", "message": str(exc)}), 1
     if args[:1] == ["list"] and len(args) == 1 and not confirmed:
         res = listing()
+    elif args[:1] == ["import"] and len(args) == 2:
+        import importer
+        res = importer.import_tool(args[1], confirmed, sys.modules[__name__])
     elif args[:1] == ["run"] and 2 <= len(args) <= 3:
         try:
             raw = "{}" if len(args) == 2 else (sys.stdin.read(MAX_PARAMS_BYTES + 1) if args[2] == "-" else args[2])
@@ -320,7 +324,7 @@ def main(argv):
                          tool=args[1]), 1
         res = run(args[1], params, confirmed=confirmed)
     else:
-        res = reply(False, error={"type": "Usage", "message": "list | run <outil> [json | -] [--confirmed] [--deny <dossier>]…"})
+        res = reply(False, error={"type": "Usage", "message": "list | run <outil> [json | -] [--confirmed] [--deny <dossier>]… | import <dossier> [--confirmed]"})
     code = 0 if res["success"] else 2 if (res["error"] or {}).get("type") == "ConfirmationRequired" else 1
     return res, code
 

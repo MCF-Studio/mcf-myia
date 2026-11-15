@@ -166,6 +166,9 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   Applications : celles du catalogue local, **liste blanche** d'arguments, chemins soumis à la politique de dossiers.
   Les outils cargo et Godot exécutent le code du projet (`build.rs`, tests, scripts d'éditeur) : `local`, et jamais sans
   `process.exec` accordée.
+  **Import d'un outil** (Paramètres > Boîte à outils, ou `tool_manager.py import`) : action humaine seulement, jamais
+  proposée aux agents. Le dossier est validé sans exécuter son code (manifeste, fichiers attendus, syntaxe), l'utilisateur
+  voit risque et permissions avant la copie dans `tools/imports/` (hors dépôt), et l'import est journalisé.
 
 ## 3 bis. App de bureau et contenus partagés
 
@@ -403,6 +406,7 @@ modèle.
 | Console « Local » détournée vers un serveur tiers (fuite du code du projet)           | Adresse, modèle et clé lus côté Rust ; jamais fournis par l'interface                   |
 | Boîte `tools/` : écrire un fichier puis le faire exécuter (`build.rs` + cargo, `.git/config` + git, projet Godot) | Écriture limitée aux formats texte, hors fichiers qui pilotent un outil et hors `.git`/`.cargo`/`.github` ; outils qui lancent un programme désactivés par défaut puis confirmés ; git durci ; arguments d'application en liste blanche |
 | Boîte `tools/` : fuite par ouverture d'adresse, écrasement d'un fichier, modification de la boîte elle-même | `url_open` = `external`, toujours confirmé ; aucun écrasement sans `overwrite`, jamais d'une source ; `tools/` et le dépôt fermés en écriture ; politique et catalogue locaux hors dépôt |
+| Boîte `tools/` : outil importé piégé (code tiers, permissions excessives)            | Import par l'humain seulement, après aperçu du risque et des permissions ; code jamais exécuté à l'import ; permission non accordée = outil désactivé ; journal d'audit |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

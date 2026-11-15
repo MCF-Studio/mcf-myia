@@ -24,7 +24,9 @@ export interface AuditEvent {
     | "workflow_install"
     | "workflow_publish"
     | "agents_bypass"
-    | "planner_fire";
+    | "planner_fire"
+    | "config_open"
+    | "toolbox_import";
   /** Version installée (event "ollama_install"). */
   version?: string;
   tool?: string;
