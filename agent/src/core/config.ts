@@ -131,6 +131,13 @@ export const ConfigSchema = z.object({
    * défaut. Le système, AppData, les clés (.ssh…) et la config de MyIA restent fermés dans tous les cas (core/access.ts).
    */
   files: z.object({ fullAccess: z.boolean().default(false) }).prefault({}),
+  /**
+   * Agents en mode bypass : les actions qui demandent d'habitude une confirmation (`local`, `external`, `confirmIf`)
+   * s'exécutent sans attendre l'accord de l'utilisateur, qui en prend la responsabilité en l'activant. Désactivé par
+   * défaut (SPEC §3). Les limites dures (vérifications des outils, dossiers fermés, ni commit ni push sur main…) restent,
+   * et chaque action passée ainsi est journalisée (decision « bypass »).
+   */
+  agents: z.object({ bypassConfirmations: z.boolean().default(false) }).prefault({}),
   /** Agents sur l'API Claude (modèle « claude-api:<alias> »), payés avec la clé d'API du coffre Windows. */
   claudeApi: z
     .object({
@@ -165,6 +172,16 @@ export const ConfigSchema = z.object({
     })
     .prefault({}),
   mcpServers: z.record(z.string(), McpServerSchema).default({}),
+  /**
+   * Boîte à outils `tools/` (services/toolbox.ts) : dossier qui contient tool_manager.py (défaut : <MYIA_HOME>/tools)
+   * et Python qui la lance. Sa politique (dossiers, permissions) reste dans tools/policy.json.
+   */
+  toolbox: z
+    .object({
+      dir: z.string().min(3).max(500).optional(),
+      python: z.string().min(1).max(500).default("python"),
+    })
+    .prefault({}),
   /** Mémoire : dossiers de documents (Markdown, texte) où les agents puisent (voir core/memory.ts). */
   memory: z.object({ folders: z.array(z.string().min(3).max(500)).max(20).default([]) }).prefault({}),
   /** Programmes que l'IA peut lancer : nom → exécutable (voir core/programs.ts). */

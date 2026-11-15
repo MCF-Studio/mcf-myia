@@ -95,6 +95,61 @@ def resolve(raw):
     return os.path.realpath(os.path.abspath(raw))
 
 
+# Dossiers fermés pour cet appel (lecture ET écriture), donnés par l'APPELANT sur la ligne de commande (`--deny`),
+# jamais par les paramètres : par exemple la mémoire de l'utilisateur pour un agent sur un modèle en ligne.
+DENIED = []
+
+FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+
+
+def set_denied(raw_paths):
+    """Chemins réels des dossiers fermés. Un chemin invalide lève ValueError : l'appel est alors refusé (fermé par défaut)."""
+    DENIED[:] = []
+    for raw in raw_paths:
+        if not os.path.isabs(raw):
+            raise ValueError(f"--deny : chemin absolu attendu, pas « {raw} »")
+        DENIED.append(resolve(raw))
+
+
+def check_denied(real):
+    """Refus d'un chemin DANS un dossier fermé, ou AU-DESSUS (un outil récursif lancé sur un parent le parcourrait)."""
+    for d in DENIED:
+        if inside(real, d) or inside(d, real):
+            raise PermissionError(f"{real} : contient ou touche un dossier fermé pour cet agent")
+
+
+def is_link(path):
+    """Lien symbolique, jonction ou autre point d'analyse Windows : un parcours n'y entre jamais."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return True
+    return os.path.islink(path) or bool(getattr(st, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def contained(path, root):
+    """Vrai si le chemin RÉEL de `path` reste sous `root`, hors des dossiers fermés et des données de MyIA."""
+    real = os.path.realpath(path)
+    if not inside(real, root) or any(inside(real, d) for d in DENIED):
+        return False
+    try:
+        check_read_target(real)
+    except PermissionError:
+        return False
+    return True
+
+
+def walk_files(root, skip=()):
+    """Fichiers sous root, sans entrer dans `skip`, ni dans un lien ou une jonction (qui mènerait hors du dossier
+    contrôlé), ni rendre un fichier dont le chemin réel en sort."""
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in skip and not is_link(os.path.join(dirpath, d))]
+        for f in files:
+            p = os.path.join(dirpath, f)
+            if contained(p, root):
+                yield Path(p)
+
+
 def segments(path):
     return [s.lower() for s in re.split(r"[\\/]+", os.path.splitdrive(str(path))[1]) if s]
 

@@ -1,15 +1,16 @@
 import re
 from pathlib import Path
 
+import safety
+
 SKIP = {".godot", ".git", ".import", "node_modules"}
 RES = re.compile(r'"(res://[^"]+)"')
 CFG = re.compile(r'^(config/name|run/main_scene|config/features)\s*=\s*(.+)$', re.M)
 
 
 def walk(root):
-    for p in root.rglob("*"):
-        if p.is_file() and not (SKIP & set(p.relative_to(root).parts)):
-            yield p
+    # Pas de rglob : il entre dans les jonctions Windows et sortirait du projet contrôlé.
+    yield from safety.walk_files(root, SKIP)
 
 
 def rel(p, root):

@@ -21,6 +21,8 @@ export interface TeamContext {
   memory?: Memory;
   /** Scripts de l'équipe (un service par script) : donnés à chaque membre, en plus de ses services. */
   scripts?: Service[];
+  /** Outils donnés au seul chef d'équipe (ex. planificateur de la conversation). */
+  rootTools?: Tool[];
 }
 
 function describe(p: AgentProfile) {
@@ -46,7 +48,7 @@ function teamAskTool(node: TeamNode, ctx: TeamContext, depth: number, chain: Rea
     description:
       `Confie une tâche à un membre de ton équipe et récupère sa réponse. Membres : ` +
       targets.map((t) => `${ctx.profileOf(t.node.agentId).name} (${t.relation}${describe(ctx.profileOf(t.node.agentId))})`).join(" ; ") +
-      `. Chaque appel coûte du temps de calcul : ne l'utilise que si la tâche relève vraiment de ce membre. ` +
+      `. C'est ton premier réflexe pour tout travail qui relève du rôle d'un membre : confie-lui la partie qui le concerne. ` +
       `La consigne doit être complète et autonome : il ne voit pas ta conversation.`,
     schema: z.object({
       member: z.enum(names as [string, ...string[]]).describe("Nom du membre"),
@@ -82,9 +84,18 @@ export function makeTeamAgent(node: TeamNode, ctx: TeamContext, depth: number, c
       `Cette demande vient de l'agent ${caller}, pas directement de ${ctx.cfg.user.name} : réponds-lui avec un résultat concret et complet, sans question en retour sauf blocage réel.`,
     );
   }
-  if (tool) lines.push("Tu peux confier une partie du travail à ton équipe avec l'outil team_ask (sous-agents : délégation ; coéquipiers : renfort).");
+  if (tool) {
+    lines.push(
+      "ÉQUIPE D'ABORD. Pour tout travail, pense d'abord à ton équipe : découpe la demande, confie à chaque membre la partie qui " +
+        "relève de son rôle avec l'outil team_ask (sous-agents : délégation ; coéquipiers : renfort), puis assemble leurs réponses, " +
+        "vérifie-les et rends le résultat. Ne fais toi-même que ce qui est trivial ou ce qu'aucun membre ne sait faire. " +
+        "Ne délègue à Claude Code (claude_delegate) qu'ENSUITE, si un besoin reste que ton équipe ne couvre pas : dis alors pourquoi. " +
+        "Un membre peut lui-même déléguer à Claude Code pour sa partie.",
+    );
+  }
   return new Agent(ctx.cfg, ctx.services, profile, {
-    extraTools: tool ? [tool] : [],
+    extraTools: [...(tool ? [tool] : []), ...(depth === 0 && !caller ? (ctx.rootTools ?? []) : [])],
+    teamFirst: !!tool,
     extraServices: ctx.scripts,
     teamNote: lines.join("\n"),
     trustInput: !caller,

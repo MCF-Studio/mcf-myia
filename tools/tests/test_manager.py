@@ -534,5 +534,89 @@ class Git(Base):
         self.assertEqual(res["data"]["commits"][0]["subject"], "premier")
 
 
+def make_dir_link(target, link):
+    """Lien symbolique vers un dossier, sinon jonction Windows ; None si ni l'un ni l'autre n'est possible ici."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return link
+    except (OSError, NotImplementedError):
+        try:
+            import _winapi
+            _winapi.CreateJunction(str(target), str(link))
+            return link
+        except Exception:
+            return None
+
+
+class Walks(Base):
+    """Un parcours de dossier ne suit jamais un lien ou une jonction : il sortirait du dossier contrôlé."""
+
+    def setUp(self):
+        super().setUp()
+        (self.out / "secret.txt").write_text("secret", encoding="utf-8")
+        (self.r / "visible.txt").write_text("ok", encoding="utf-8")
+        if not make_dir_link(self.out, self.r / "lien"):
+            self.skipTest("ni lien symbolique ni jonction disponibles sur ce poste")
+
+    def test_file_search_does_not_follow_a_link_out_of_the_folder(self):
+        res = self.run_tool("file_search", directory=str(self.r), extension=".txt")
+        self.assertTrue(res["success"], res)
+        found = json.dumps(res["data"])
+        self.assertIn("visible.txt", found)
+        self.assertNotIn("secret.txt", found)
+
+    def test_code_search_does_not_follow_a_link_out_of_the_folder(self):
+        res = self.run_tool("code_search", directory=str(self.r), pattern="secret|ok")
+        self.assertTrue(res["success"], res)
+        self.assertNotIn("secret.txt", json.dumps(res["data"]))
+
+    def test_folder_tree_does_not_list_through_a_link(self):
+        res = self.run_tool("folder_tree", directory=str(self.r), depth=3)
+        self.assertTrue(res["success"], res)
+        self.assertIn("visible.txt", res["data"]["tree"])
+        self.assertNotIn("secret.txt", res["data"]["tree"])
+
+
+class Deny(Base):
+    """`--deny <dossier>` : fermé pour cet appel, en lecture et en écriture, dedans comme au-dessus."""
+
+    def setUp(self):
+        super().setUp()
+        self.mem = self.r / "memoire"
+        self.mem.mkdir()
+        (self.mem / "note.md").write_text("privé", encoding="utf-8")
+        self.addCleanup(safety.set_denied, [])
+
+    def call(self, tool, params, *extra):
+        with mock.patch.object(sys, "stdin", mock.Mock(read=lambda n: json.dumps(params))):
+            return tm.main(["run", tool, "-", *extra])
+
+    def test_inside_and_above_a_denied_folder_are_refused(self):
+        deny = ["--deny", str(self.mem)]
+        self.assertRefused(self.call("text_read", {"path": str(self.mem / "note.md")}, *deny)[0])
+        self.assertRefused(self.call("file_search", {"directory": str(self.r)}, *deny)[0])
+        ok, _ = self.call("file_search", {"directory": str(self.w)}, *deny)
+        self.assertTrue(ok["success"], ok)
+
+    def test_without_deny_the_same_call_works(self):
+        res, code = self.call("text_read", {"path": str(self.mem / "note.md")})
+        self.assertTrue(res["success"], res)
+        self.assertEqual(code, 0)
+
+    def test_deny_comes_only_from_the_command_line_and_must_be_absolute(self):
+        res, code = self.call("text_read", {"path": str(self.mem / "note.md")}, "--deny", "relatif")
+        self.assertRefused(res, "Usage")
+        self.assertEqual(code, 1)
+        # un paramètre « --deny » dans le JSON n'a aucun effet : il est refusé comme paramètre inconnu ou ignoré
+        res, _ = self.call("text_read", {"path": str(self.mem / "note.md"), "--deny": str(self.w)})
+        self.assertNotEqual((res.get("error") or {}).get("type"), "PermissionDenied")
+
+    def test_a_link_to_a_denied_folder_is_refused_too(self):
+        if not make_dir_link(self.mem, self.w / "raccourci"):
+            self.skipTest("ni lien symbolique ni jonction disponibles sur ce poste")
+        res, _ = self.call("text_read", {"path": str(self.w / "raccourci" / "note.md")}, "--deny", str(self.mem))
+        self.assertRefused(res)
+
+
 if __name__ == "__main__":
     unittest.main()

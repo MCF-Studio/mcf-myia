@@ -35,11 +35,9 @@ def check_range(name, value, low, high):
 
 
 def iter_files(root):
-    """Fichiers sous root, sans entrer dans les dossiers lourds (os.walk élague, contrairement à rglob)."""
-    for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        for f in files:
-            yield Path(dirpath) / f
+    """Fichiers sous root, sans entrer dans les dossiers lourds ni dans les liens et jonctions (safety.walk_files)."""
+    from safety import walk_files
+    yield from walk_files(root, SKIP_DIRS)
 
 
 def load_apps(missing_ok=False):

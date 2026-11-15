@@ -47,6 +47,15 @@ Chaque outil a un niveau de risque :
 | `local`    | build, création de projet, délégation, écriture de fichier | confirmation, sauf projet en `autoApprove` ou cas déclaré sans risque par l'outil (ex. nouveau fichier dans Documents\MyIA) |
 | `external` | message Telegram/Discord, tout outil MCP non déclaré, tout outil d'un script d'équipe | **confirmation toujours**, avec le contenu exact       |
 
+**Mode bypass des agents** (`agents.bypassConfirmations`, Paramètres → Général → Agents, **désactivé par défaut**,
+activation précédée d'un avertissement de responsabilité) : toute action qui demanderait une confirmation selon le
+tableau ci-dessus (`external` compris) s'exécute sans attendre l'accord de l'utilisateur, qui en prend la
+responsabilité. Elle est signalée dans la conversation (ligne de progression) et journalisée avec `decision: "bypass"` ;
+l'activation et la désactivation sont journalisées (`agents_bypass`). Le mode ne lève **aucune** limite dure ci-dessous
+(vérifications `check` des outils, dossiers fermés, ni commit ni push sur main/master, permissions de
+`tools/policy.json`) et ne donne aucun outil au bac à sable de la Guilde. Risque assumé : une injection de consignes
+(page web, fichier, message reçu) peut déclencher une action sans qu'un humain la voie avant.
+
 Limites dures, appliquées dans le code et pas seulement dans le prompt :
 
 - Destinations Telegram/Discord : uniquement les **noms** déclarés dans la config. Le modèle ne peut pas inventer un
@@ -76,6 +85,18 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   (`.git`, `.vscode`, `.claude`, `.github`…), ni via un lien qui en sortirait. Nouveau fichier dans `Documents\MyIA`
   (dossier par défaut) ou le workspace : direct ; remplacer, compléter ou écrire ailleurs : confirmation avec aperçu.
   `file_read` lit un fichier texte des mêmes dossiers (contenu traité comme une donnée).
+- Planificateur (core/planner.ts) : `planner_add` (minuteur `in_minutes`, rendez-vous `at`, récurrence `time` + `days`
+  ou `every_minutes` ≥ 5), `planner_list`, `planner_cancel`. Une tâche appartient à **une** conversation (l'agent seul,
+  le MASTER, ou le chef d'une équipe) : un agent ne voit et n'annule que celles de sa conversation ; Paramètres → Général
+  les liste toutes. Minuteur et rendez-vous s'ajoutent sans confirmation **seulement pendant une demande de
+  l'utilisateur** ; une récurrence, ou toute tâche créée pendant un tour lancé par le Planificateur ou un autre agent,
+  se confirme (sauf mode bypass) : une consigne injectée ne peut pas se reprogrammer en boucle sans être vue.
+  À l'échéance, le texte est envoyé dans la conversation comme message du « Planificateur » : liens non fiables, règles
+  de confirmation inchangées pour ce que l'agent fait ensuite ; journalisé (`planner_fire`). Conversation occupée :
+  réessai au passage suivant (20 s) ; supprimée : ses tâches aussi. Échéance manquée (app fermée, veille) : exécutée une
+  seule fois au retour, marquée « en retard ». L'échéance suivante est écrite avant l'envoi (aucun rejeu après un
+  plantage). Limites : 30 tâches par conversation, 200 en tout, un an d'avance au plus. Stockage `data/planner.json`
+  (écriture atomique ; fichier illisible mis de côté, jamais écrasé).
 - Git : `git_status`, `git_log`, `git_diff`, `git_show`, `git_branches` (lecture) ; `git_switch` et `git_commit` (`local`) ;
   `git_push` (`external`, **confirmation toujours**, même en `autoApprove`). Le modèle choisit un **projet** connu, jamais
   un chemin ni une commande git libre ; filtres de chemin relatifs (pas d'option, pas de « .. », pathspecs littéraux),
@@ -121,9 +142,19 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   ni 169.254.169.254), taille plafonnée. `web_research` lance Claude Code avec **seulement** WebSearch et WebFetch,
   dans `workspace\` : aucun accès aux fichiers ni aux commandes.
 - **Boîte à outils `tools/`** (expérimentale, détail dans [tools/README.md](../tools/README.md)) : des outils Python
-  (fichiers, recherche, git en lecture, cargo, Godot, images) qu'un agent appelle en lançant `tools/tool_manager.py`.
-  Elle n'est **pas branchée à l'app** : ni l'agent ni l'installateur ne l'utilisent, et ses confirmations ne passent pas
-  par l'interface de MyIA. Elle suit pourtant les mêmes règles, appliquées par son gestionnaire :
+  (fichiers, recherche, git en lecture, cargo, Godot, images), lancés par `tools/tool_manager.py`. **Branchée aux
+  agents** par le service `toolbox` (`agent/src/services/toolbox.ts`), donné à tous les agents de l'app (pas à la
+  Guilde, qui n'a aucun service) ; pas encore dans l'installateur (réglages `toolbox.dir` et `toolbox.python` de
+  `config/agent.json`, Pillow installé à part). Le modèle ne voit que deux outils : `toolbox_find` (`read` : trouver
+  l'outil et ses paramètres) et `toolbox_run`, dont la confirmation suit le manifeste de l'outil visé. Pour un outil
+  `local` ou `external`, le service fait d'abord un essai sans `--confirmed` (le gestionnaire contrôle et renvoie son
+  aperçu, sans rien exécuter), montre cet aperçu dans la confirmation de MyIA, et ne pose `--confirmed` qu'après
+  l'accord ; `autoApprove` d'un projet ne s'y applique jamais. Le modèle ne compose jamais la ligne de commande
+  (paramètres JSON sur l'entrée standard). Exclus du service : les outils qui doublent un outil de l'app mieux intégré
+  (git_status/log/diff, text_read, text_write, app_catalog, app_launch, folder_open, url_open). Chemins relatifs : dans
+  l'espace de travail de l'agent, refusés s'il n'en a pas. Agent confié à Claude : les dossiers de mémoire sont passés
+  au gestionnaire (`--deny`), qui refuse tout chemin réel dedans ou au-dessus. Ses parcours de dossiers n'entrent
+  jamais dans un lien ou une jonction. Le gestionnaire applique en plus ses propres règles :
   chaque outil déclare un des quatre niveaux ci-dessus ; un outil `local` ou `external` n'est exécuté qu'avec le drapeau
   `--confirmed`, posé par l'**appelant** (humain ou harnais) après l'accord de l'utilisateur sur l'aperçu renvoyé, jamais
   par le modèle de lui-même. Rien ne démarre sans politique locale (`tools/policy.json`, hors dépôt) qui liste les

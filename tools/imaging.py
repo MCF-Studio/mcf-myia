@@ -11,6 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageColor, ImageFont, ImageOps
 
 from common import iter_files
+import safety
 
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 # Décodeurs autorisés à l'ouverture : liste fermée, pour ne jamais passer par un décodeur qui lance un programme
@@ -153,7 +154,7 @@ def _under(p, folder):
 
 def list_images(folder, recursive=False, exclude=None):
     folder = Path(folder)
-    files = iter_files(folder) if recursive else (p for p in folder.iterdir() if p.is_file())
+    files = iter_files(folder) if recursive else (p for p in folder.iterdir() if p.is_file() and safety.contained(p, folder))
     return sorted(p for p in files if p.suffix.lower() in IMG_EXTS and not (exclude and _under(p, exclude)))
 
 
