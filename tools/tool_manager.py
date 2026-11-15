@@ -4,7 +4,7 @@ Usage :
   python tools/tool_manager.py list
   python tools/tool_manager.py run <outil> '{"param": "valeur"}' [--confirmed]
   python tools/tool_manager.py run <outil> - [--confirmed]        (paramètres JSON lus sur l'entrée standard)
-  python tools/tool_manager.py import <dossier> [--confirmed]     (ajoute un outil : voir importer.py, CONVENTION.md)
+  python tools/tool_manager.py import <dossier> [--digest <empreinte> --confirmed]   (ajoute un outil : importer.py)
 
 Toujours une réponse JSON {success, tool, risk, data, error, warnings} sur stdout.
 Code de sortie : 0 = exécuté, 1 = refusé ou en échec, 2 = confirmation requise.
@@ -142,6 +142,10 @@ def discover():
             found.pop(name, None)
             problems.append(f"{rel} ignoré : deux outils s'appellent {name} (aucun des deux n'est chargé)")
             continue
+        if p.parent.parent == ROOT / "imports" and m["risk"] not in safety.NEEDS_CONFIRMATION:
+            # Outil importé : son manifeste n'est pas une garantie (personne ne l'a relu dans le dépôt). Le risque
+            # qu'il déclare reste affiché, mais chaque exécution est confirmée.
+            m = {**m, "risk": "local", "declared_risk": m["risk"]}
         found[name] = (p.parent, m)
     return found, problems
 
@@ -310,9 +314,9 @@ def main(argv):
         return reply(False, error={"type": "Usage", "message": str(exc)}), 1
     if args[:1] == ["list"] and len(args) == 1 and not confirmed:
         res = listing()
-    elif args[:1] == ["import"] and len(args) == 2:
+    elif args[:1] == ["import"] and len(args) in (2, 4) and (len(args) == 2 or args[2] == "--digest"):
         import importer
-        res = importer.import_tool(args[1], confirmed, sys.modules[__name__])
+        res = importer.import_tool(args[1], confirmed, sys.modules[__name__], args[3] if len(args) == 4 else None)
     elif args[:1] == ["run"] and 2 <= len(args) <= 3:
         try:
             raw = "{}" if len(args) == 2 else (sys.stdin.read(MAX_PARAMS_BYTES + 1) if args[2] == "-" else args[2])
@@ -324,7 +328,7 @@ def main(argv):
                          tool=args[1]), 1
         res = run(args[1], params, confirmed=confirmed)
     else:
-        res = reply(False, error={"type": "Usage", "message": "list | run <outil> [json | -] [--confirmed] [--deny <dossier>]… | import <dossier> [--confirmed]"})
+        res = reply(False, error={"type": "Usage", "message": "list | run <outil> [json | -] [--confirmed] [--deny <dossier>]… | import <dossier> [--digest <empreinte> --confirmed]"})
     code = 0 if res["success"] else 2 if (res["error"] or {}).get("type") == "ConfirmationRequired" else 1
     return res, code
 

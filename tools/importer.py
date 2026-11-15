@@ -7,6 +7,7 @@ décide. Avec : copie dans `tools/imports/<nom>/` (dossier local, ignoré par gi
 Rien du code importé n'est exécuté ici : tool.py est seulement compilé (syntaxe) et inspecté (fonction execute).
 Il ne s'exécutera qu'appelé comme tout outil, avec la politique locale et ses confirmations."""
 import ast
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -63,17 +64,27 @@ def inspect(src, tm):
     return manifest, files
 
 
+def digest(files):
+    """Empreinte du contenu montré à l'utilisateur : la confirmation ne vaut que pour CE contenu."""
+    h = hashlib.sha256()
+    for name in sorted(files):
+        h.update(name.encode() + b"|" + len(files[name]).to_bytes(8, "big") + files[name])
+    return h.hexdigest()
+
+
 def summary(manifest, policy, tm, dest):
     perms = manifest.get("permissions", [])
     missing = [p for p in perms if p not in policy["granted_permissions"]]
     return {"name": manifest["name"], "version": manifest.get("version"), "category": manifest.get("category"),
             "description": manifest.get("description", ""), "risk": manifest["risk"],
-            "needs_confirmation": manifest["risk"] in tm.safety.NEEDS_CONFIRMATION, "permissions": perms,
+            "needs_confirmation": True,    # outil importé : chaque exécution confirmée (tool_manager.discover)
+            "permissions": perms,
             "missing_permissions": missing, "parameters": manifest.get("parameters", {}), "destination": str(dest)}
 
 
-def import_tool(src, confirmed, tm):
-    """Réponse JSON du gestionnaire (voir tool_manager.reply)."""
+def import_tool(src, confirmed, tm, expected_digest=None):
+    """Réponse JSON du gestionnaire (voir tool_manager.reply). `--confirmed` exige `--digest` : l'empreinte rendue par
+    l'aperçu. Si le dossier a changé entre l'aperçu et l'accord, rien n'est copié."""
     try:
         policy = tm.load_policy()
         manifest, files = inspect(src, tm)
@@ -83,6 +94,8 @@ def import_tool(src, confirmed, tm):
         return tm.reply(False, error={"type": "InvalidTool", "message": str(exc)})
     dest = tm.ROOT / "imports" / manifest["name"]
     info = summary(manifest, policy, tm, dest)
+    info["digest"] = digest(files)
+    info["source"] = files["tool.py"].decode("utf-8")
     warnings = []
     if info["missing_permissions"]:
         warnings.append(f"Désactivé tant que tools/policy.json n'accorde pas : {', '.join(info['missing_permissions'])}.")
@@ -90,6 +103,9 @@ def import_tool(src, confirmed, tm):
         return tm.reply(False, {"preview": info}, warnings=warnings, tool=manifest["name"], risk=manifest["risk"], error={
             "type": "ConfirmationRequired",
             "message": "rien n'a été copié : relire l'outil (risque, permissions, code) puis relancer avec --confirmed"})
+    if expected_digest != info["digest"]:
+        return tm.reply(False, error={"type": "ContentChanged", "message": "le dossier a changé depuis l'aperçu (ou "
+                        "empreinte absente) : rien n'a été copié, relancer l'aperçu"}, tool=manifest["name"])
     tmp = dest.parent / f".{manifest['name']}.import"
     try:
         shutil.rmtree(tmp, ignore_errors=True)

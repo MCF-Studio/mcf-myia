@@ -1607,9 +1607,15 @@ rpc.method("toolbox.convention", () => fs.readFileSync(path.join(toolboxDir(cfg)
 
 /** Import d'un outil : `confirmed: false` décrit l'outil sans rien copier ; `true` après l'accord de l'utilisateur. */
 rpc.method("toolbox.import", async (params) => {
-  const { dir, confirmed } = parse(z.object({ dir: z.string().min(3).max(500), confirmed: z.boolean() }), params);
+  const { dir, confirmed, digest } = parse(
+    z.object({ dir: z.string().min(3).max(500), confirmed: z.boolean(), digest: z.string().regex(/^[0-9a-f]{64}$/).optional() }),
+    params,
+  );
   const abs = assertLocalPath(dir);
-  const r = await toolboxManager(cfg)(["import", abs, ...(confirmed ? ["--confirmed"] : [])], undefined, 30_000);
+  if (confirmed && !digest) throw new Error("empreinte de l'aperçu manquante : relancer l'import");
+  // L'accord porte sur le contenu montré : le gestionnaire refuse si le dossier a changé depuis (empreinte).
+  const args = ["import", abs, ...(confirmed ? ["--digest", digest!, "--confirmed"] : [])];
+  const r = await toolboxManager(cfg)(args, undefined, 30_000);
   const needsConfirm = r.error?.type === "ConfirmationRequired";
   if (!r.success && !needsConfirm) throw new Error(r.error?.message ?? "import refusé");
   const info = needsConfirm ? (r.data as { preview?: unknown } | null)?.preview : r.data;

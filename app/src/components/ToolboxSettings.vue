@@ -36,6 +36,10 @@ interface ImportInfo {
   missing_permissions: string[];
   parameters: Record<string, ToolParam>;
   destination: string;
+  /** Empreinte du contenu montré : renvoyée avec l'accord, refusée si le dossier a changé entre-temps. */
+  digest: string;
+  /** Code de tool.py, montré avant l'accord. */
+  source: string;
 }
 
 const RISK_LABEL: Record<string, string> = {
@@ -100,7 +104,11 @@ async function confirmImport() {
   if (!pending.value) return;
   importing.value = true;
   try {
-    const r = await call<{ imported: boolean; tool: ImportInfo; warnings: string[] }>("toolbox.import", { dir: pending.value.dir, confirmed: true });
+    const r = await call<{ imported: boolean; tool: ImportInfo; warnings: string[] }>("toolbox.import", {
+      dir: pending.value.dir,
+      confirmed: true,
+      digest: pending.value.info.digest,
+    });
     toast(`Outil « ${r.tool.name} » importé${r.warnings.length ? " (désactivé : permission à accorder)" : ""}`, "success");
     pending.value = null;
     await load();
@@ -177,6 +185,11 @@ onMounted(load);
         <dt>Copié dans</dt>
         <dd><code>{{ pending.info.destination }}</code></dd>
       </dl>
+      <details class="tb-source">
+        <summary class="small">Code de tool.py ({{ pending.info.source.split("\n").length }} lignes)</summary>
+        <pre><code>{{ pending.info.source }}</code></pre>
+      </details>
+      <p class="small">Outil importé : chaque exécution te sera demandée, quel que soit le risque qu'il déclare.</p>
       <p v-for="w in pending.warnings" :key="w" class="small warn-text">{{ w }}</p>
       <p class="tiny muted">
         L'outil exécutera son code Python sur ce PC quand un agent l'utilisera. N'importe que du code dont tu connais l'origine, et
@@ -235,6 +248,15 @@ onMounted(load);
 .tb-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+.tb-source pre {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 12px;
 }
 .warn-text {
   color: var(--warning);

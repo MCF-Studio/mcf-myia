@@ -106,9 +106,11 @@ programme ou sort de la machine doit être ajouté **explicitement** à `granted
 ### Importer un outil (sans toucher au dépôt)
 Paramètres > Boîte à outils de l'app : « Copier la convention » copie [CONVENTION.md](CONVENTION.md) (format attendu,
 à donner à une IA avec la demande), « Importer un outil… » prend un dossier `<nom>/` avec `manifest.json` + `tool.py`
-(+ `README.md`). Même chose à la main : `python tools/tool_manager.py import <dossier> [--confirmed]`.
-- Sans `--confirmed`, rien n'est copié : la réponse décrit l'outil (risque, permissions, paramètres, permissions non
-  accordées) pour que l'humain décide. L'app ne pose `--confirmed` qu'après son accord. Les agents n'ont pas accès à
+(+ `README.md`). Même chose à la main : `python tools/tool_manager.py import <dossier>`, puis `import <dossier> --digest <empreinte> --confirmed`.
+- Sans `--confirmed`, rien n'est copié : la réponse décrit l'outil (code de `tool.py`, empreinte SHA-256, risque, permissions, paramètres, permissions non
+  accordées) pour que l'humain décide. L'accord se donne avec `--digest <empreinte> --confirmed` : si le dossier a
+  changé depuis l'aperçu, rien n'est copié. Un outil importé est **confirmé à chaque exécution**, quel que soit le
+  risque qu'il déclare (`discover` le passe en `local`). L'app ne pose `--confirmed` qu'après son accord. Les agents n'ont pas accès à
   l'import.
 - Refusé : autre fichier que les trois attendus, sous-dossier ou lien, fichier trop gros, manifeste invalide (mêmes
   règles que `discover`), nom déjà pris, `tool.py` qui ne compile pas ou sans `execute` au premier niveau. Le code
