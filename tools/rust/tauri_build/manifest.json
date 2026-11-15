@@ -1,0 +1,46 @@
+{
+  "name": "tauri_build",
+  "version": "1.0.0",
+  "description": "Construit une application Tauri 2 (frontend + Rust) comme `tauri build` : frontend à la racine ou dans un sous-dossier (détecté, ou donné), profil release ou debug, installateurs en option, dépendances npm installées sur demande. Rend les exécutables produits, le code de sortie, la durée et la fin des erreurs. Exécute le code du projet (scripts npm, build.rs) et écrit dans target/ et node_modules/ : niveau local, confirmé.",
+  "category": "rust",
+  "risk": "local",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "project": {
+      "type": "string",
+      "required": true,
+      "kind": "path",
+      "description": "Dossier du projet (celui qui contient src-tauri).",
+      "access": "write"
+    },
+    "frontend": {
+      "type": "string",
+      "kind": "text",
+      "description": "Sous-dossier du frontend (ex. frontend). Par défaut : détecté (package.json qui déclare @tauri-apps/cli)."
+    },
+    "profile": {
+      "type": "string",
+      "description": "release (défaut) ou debug."
+    },
+    "bundle": {
+      "type": "boolean",
+      "description": "Produire aussi les installateurs (NSIS/MSI). Défaut : non, exécutable seul."
+    },
+    "install": {
+      "type": "boolean",
+      "description": "Installer les dépendances du frontend (npm ci) si elles manquent. Défaut : non."
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "Délai maximal en secondes (défaut 1800).",
+      "min": 1,
+      "max": 3600
+    }
+  },
+  "permissions": [
+    "process.exec",
+    "filesystem.read",
+    "filesystem.write"
+  ]
+}

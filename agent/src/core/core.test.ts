@@ -160,6 +160,19 @@ export_path="build/x.exe"
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it("Tauri dont le frontend est un sous-dossier : CLI du frontend lancé par node depuis src-tauri", () => {
+    const dir = tmp();
+    write(path.join(dir, "src-tauri", "tauri.conf.json"), "{}");
+    write(path.join(dir, "frontend", "package.json"), JSON.stringify({ devDependencies: { "@tauri-apps/cli": "^2" }, scripts: { build: "vite build" } }));
+    const p = analyzeProject(dir, {})!;
+    const cli = path.join(dir, "frontend", "node_modules", "@tauri-apps", "cli", "tauri.js");
+    expect(p.targets.build).toEqual({ argv: ["node", cli, "build"], cwd: path.join(dir, "src-tauri") });
+    expect(p.targets["build-debug"]!.argv).toEqual(["node", cli, "build", "--debug"]);
+    expect(p.targets.exe!.argv).toEqual(["node", cli, "build", "--no-bundle"]);   // exécutable seul, sans installateur
+    expect(p.targets["frontend:build"]).toBeDefined();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it("registre : découverte, noms en double préfixés, recherche tolérante", () => {
     const root = tmp();
     write(path.join(root, "Git", "Mon-Jeu", "project.godot"), "");

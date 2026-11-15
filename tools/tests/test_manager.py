@@ -108,7 +108,7 @@ class Manifests(Base):
     def test_every_manifest_is_valid_and_declares_a_risk(self):
         tools, problems = tm.discover()
         self.assertEqual(problems, [])
-        self.assertEqual(len(tools), 47)
+        self.assertEqual(len(tools), 48)
         for name, (folder, m) in tools.items():
             self.assertIn(m["risk"], safety.RISKS, name)
             perms = m["permissions"]
@@ -116,7 +116,7 @@ class Manifests(Base):
                 self.assertIn(m["risk"], ("local", "external"), name)
         self.assertEqual(tools["url_open"][1]["risk"], "external")
         self.assertEqual(tools["url_open"][1]["permissions"], ["url.open"])
-        for name in ("cargo_check", "cargo_test", "cargo_build", "cargo_clippy", "godot_headless_check"):
+        for name in ("cargo_check", "cargo_test", "cargo_build", "cargo_clippy", "tauri_build", "godot_headless_check"):
             m = tools[name][1]
             self.assertIn("process.exec", m["permissions"], name)
             self.assertEqual(m["parameters"]["project"]["access"], "write", name)   # target/ et .godot/ sont écrits
@@ -319,6 +319,7 @@ class Execution(Base):
             "cargo_check": {"project": str(self.w)}, "cargo_test": {"project": str(self.w)},
             "cargo_build": {"project": str(self.w)}, "cargo_clippy": {"project": str(self.w)},
             "cargo_fmt_check": {"project": str(self.w)}, "godot_headless_check": {"project": str(self.w)},
+            "tauri_build": {"project": str(self.w)},
             "app_launch": {"app": "godot"}, "url_open": {"url": "https://example.org"},
             "folder_open": {"path": str(self.w)}, "notification_send": {"title": "t", "message": "m"},
             "git_status": {"repo": str(self.w)}, "git_diff": {"repo": str(self.w)}, "git_log": {"repo": str(self.w)},
@@ -336,7 +337,7 @@ class Execution(Base):
         (self.w / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
         self.grant("process.exec")
         with mock.patch("subprocess.run") as run:
-            for name in ("cargo_check", "cargo_test", "cargo_build", "cargo_clippy", "cargo_fmt_check"):
+            for name in ("cargo_check", "cargo_test", "cargo_build", "cargo_clippy", "cargo_fmt_check", "tauri_build"):
                 res = self.run_tool(name, project=str(self.w))
                 self.assertRefused(res, "ConfirmationRequired")
             run.assert_not_called()
@@ -616,6 +617,69 @@ class Deny(Base):
             self.skipTest("ni lien symbolique ni jonction disponibles sur ce poste")
         res, _ = self.call("text_read", {"path": str(self.w / "raccourci" / "note.md")}, "--deny", str(self.mem))
         self.assertRefused(res)
+
+
+class TauriBuild(Base):
+    """tauri_build : frontend détecté ou donné (jamais hors du projet), CLI lancé par node, sans shell."""
+
+    def setUp(self):
+        super().setUp()
+        self.tb = load_tool("rust", "tauri_build")
+        (self.w / "src-tauri").mkdir()
+        (self.w / "src-tauri" / "tauri.conf.json").write_text("{}", encoding="utf-8")
+        self.front = self.w / "frontend"
+        self.front.mkdir()
+        (self.front / "package.json").write_text(json.dumps({"devDependencies": {"@tauri-apps/cli": "^2"}}),
+                                                 encoding="utf-8")
+
+    def install_cli(self):
+        cli = self.front / self.tb.CLI
+        cli.parent.mkdir(parents=True)
+        cli.write_text("", encoding="utf-8")
+
+    def test_frontend_is_found_in_a_subfolder_or_given_but_never_outside(self):
+        self.assertEqual(self.tb.find_frontend(self.w), self.front)
+        self.assertEqual(self.tb.find_frontend(self.w, "frontend"), self.front)
+        with self.assertRaises(PermissionError):
+            self.tb.find_frontend(self.w, "../dehors")
+        (self.w / "autre").mkdir()
+        (self.w / "autre" / "package.json").write_text(json.dumps({"dependencies": {"@tauri-apps/cli": "2"}}),
+                                                       encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "plusieurs"):
+            self.tb.find_frontend(self.w)
+
+    def test_build_runs_the_projects_cli_through_node_without_a_shell(self):
+        self.install_cli()
+        exe = self.w / "src-tauri" / "target" / "release" / "app.exe"
+
+        def fake_run(cmd, **kw):
+            exe.parent.mkdir(parents=True, exist_ok=True)
+            exe.write_bytes(b"MZ")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.object(self.tb.shutil, "which", return_value="C:/node/node.exe"),                 mock.patch.object(self.tb.subprocess, "run", side_effect=fake_run) as run:
+            res = self.tb.execute({"project": str(self.w)})
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[0], "C:/node/node.exe")
+        self.assertEqual(cmd[1], str(self.front / self.tb.CLI))
+        self.assertEqual(cmd[2:], ["build", "--ci", "--no-bundle"])
+        self.assertNotIn("shell", run.call_args.kwargs)
+        self.assertTrue(res["data"]["ok"])
+        self.assertEqual(res["data"]["outputs"], [str(exe)])
+
+    def test_missing_dependencies_are_installed_only_on_request(self):
+        with mock.patch.object(self.tb.shutil, "which", return_value="C:/node/node.exe"),                 mock.patch.object(self.tb.subprocess, "run") as run:
+            with self.assertRaisesRegex(FileNotFoundError, "install=true"):
+                self.tb.execute({"project": str(self.w)})
+            run.assert_not_called()
+
+    def test_profile_and_flags_are_a_whitelist(self):
+        self.install_cli()
+        with mock.patch.object(self.tb.subprocess, "run") as run:
+            for bad in ({"profile": "--release"}, {"bundle": "oui"}, {"install": 1}):
+                with self.assertRaises(ValueError):
+                    self.tb.execute({"project": str(self.w), **bad})
+            run.assert_not_called()
 
 
 if __name__ == "__main__":
