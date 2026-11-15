@@ -192,6 +192,7 @@ async function loadConfigBits() {
       projectRoots: { path: string; depth: number }[];
       claudeBypassPermissions?: boolean;
       filesFullAccess?: boolean;
+      agentsBypass?: boolean;
       engine?: Engine;
     }>("config.get");
     if (c.engine) engine.value = c.engine;
@@ -199,6 +200,7 @@ async function loadConfigBits() {
     roots.value = c.projectRoots;
     claudeBypass.value = c.claudeBypassPermissions === true;
     fullAccess.value = c.filesFullAccess === true;
+    agentsBypass.value = c.agentsBypass === true;
   } catch {
     /* cœur arrêté */
   }
@@ -333,6 +335,32 @@ async function setFullAccess(enabled: boolean) {
     toast(enabled ? "Accès à tout le PC activé" : "Accès limité à tes dossiers habituels", enabled ? "info" : "success");
   } catch (e) {
     fullAccess.value = before;
+    toast((e as Error).message, "error");
+  }
+}
+
+// ─── Agents : mode bypass (plus de confirmation avant leurs actions) ─────────
+const agentsBypass = ref(false);
+
+async function setAgentsBypass(enabled: boolean) {
+  if (
+    enabled &&
+    !confirm(
+      "Activer le mode bypass pour tes agents ?\n\nIls exécuteront leurs actions sans te demander ton accord : écrire et remplacer des " +
+        "fichiers, lancer des builds, envoyer des messages (Discord, Telegram…), pousser sur git, utiliser les outils MCP et la boîte à outils. " +
+        "Tu es seul responsable de ce que font tes agents dans ce mode.",
+    )
+  ) {
+    agentsBypass.value = false;
+    return;
+  }
+  const before = agentsBypass.value;
+  agentsBypass.value = enabled;
+  try {
+    await call("config.setAgentsBypass", { enabled });
+    toast(enabled ? "Mode bypass activé : les agents agissent sans confirmation" : "Confirmations des agents réactivées", enabled ? "info" : "success");
+  } catch (e) {
+    agentsBypass.value = before;
     toast((e as Error).message, "error");
   }
 }
@@ -600,6 +628,24 @@ const shortcuts: [string, string][] = [
             <button v-if="claudeApi.configured" class="btn sm danger" @click="deleteApiKey">Supprimer</button>
           </div>
         </SettingRow>
+      </section>
+
+      <section class="card">
+        <h3 class="sec-title">Agents</h3>
+        <SettingRow
+          label="Mode bypass (aucune confirmation)"
+          hint="Tes agents exécutent leurs actions sans attendre ton accord : écriture de fichiers, builds, messages, git, MCP, boîte à outils. Chaque action passée ainsi est signalée dans la conversation et journalisée. Désactivé par défaut."
+        >
+          <Toggle :model-value="agentsBypass" @update:model-value="setAgentsBypass" />
+        </SettingRow>
+        <div class="access-warn" :class="{ on: agentsBypass }">
+          <AlertTriangle :size="16" />
+          <p class="tiny">
+            <strong>Tu es seul responsable de ce que font tes agents dans ce mode.</strong> Un agent qui lit une page web ou un fichier piégé
+            peut être poussé à agir sans que tu le voies à temps. Restent appliqués dans tous les cas : dossiers fermés (Windows, AppData, clés…),
+            ni commit ni push sur main, permissions de la boîte à outils, et le bac à sable de la Guilde n'a aucun outil.
+          </p>
+        </div>
       </section>
 
       <section class="card">

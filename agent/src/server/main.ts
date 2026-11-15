@@ -1335,6 +1335,7 @@ rpc.method("config.get", () => ({
   configPath: paths.config,
   claudeBypassPermissions: cfg.claude.bypassPermissions,
   filesFullAccess: cfg.files.fullAccess,
+  agentsBypass: cfg.agents.bypassConfirmations,
   engine: {
     flashAttention: cfg.llm.flashAttention,
     kvCache: cfg.llm.kvCache,
@@ -1494,6 +1495,14 @@ rpc.method("config.setFilesFullAccess", (params) => {
   const { enabled } = parse(z.object({ enabled: z.boolean() }), params);
   patchConfig((raw) => (raw.files = { ...(raw.files ?? {}), fullAccess: enabled }));
   audit({ event: "files_full_access", ok: enabled });
+  return true;
+});
+
+/** Agents en mode bypass : plus aucune confirmation avant leurs actions (choix de l'utilisateur, journalisé). */
+rpc.method("config.setAgentsBypass", (params) => {
+  const { enabled } = parse(z.object({ enabled: z.boolean() }), params);
+  patchConfig((raw) => (raw.agents = { ...(raw.agents ?? {}), bypassConfirmations: enabled }));
+  audit({ event: "agents_bypass", ok: enabled });
   return true;
 });
 

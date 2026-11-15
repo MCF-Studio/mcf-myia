@@ -47,6 +47,15 @@ Chaque outil a un niveau de risque :
 | `local`    | build, création de projet, délégation, écriture de fichier | confirmation, sauf projet en `autoApprove` ou cas déclaré sans risque par l'outil (ex. nouveau fichier dans Documents\MyIA) |
 | `external` | message Telegram/Discord, tout outil MCP non déclaré, tout outil d'un script d'équipe | **confirmation toujours**, avec le contenu exact       |
 
+**Mode bypass des agents** (`agents.bypassConfirmations`, Paramètres → Général → Agents, **désactivé par défaut**,
+activation précédée d'un avertissement de responsabilité) : toute action qui demanderait une confirmation selon le
+tableau ci-dessus (`external` compris) s'exécute sans attendre l'accord de l'utilisateur, qui en prend la
+responsabilité. Elle est signalée dans la conversation (ligne de progression) et journalisée avec `decision: "bypass"` ;
+l'activation et la désactivation sont journalisées (`agents_bypass`). Le mode ne lève **aucune** limite dure ci-dessous
+(vérifications `check` des outils, dossiers fermés, ni commit ni push sur main/master, permissions de
+`tools/policy.json`) et ne donne aucun outil au bac à sable de la Guilde. Risque assumé : une injection de consignes
+(page web, fichier, message reçu) peut déclencher une action sans qu'un humain la voie avant.
+
 Limites dures, appliquées dans le code et pas seulement dans le prompt :
 
 - Destinations Telegram/Discord : uniquement les **noms** déclarés dans la config. Le modèle ne peut pas inventer un

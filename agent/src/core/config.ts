@@ -131,6 +131,13 @@ export const ConfigSchema = z.object({
    * défaut. Le système, AppData, les clés (.ssh…) et la config de MyIA restent fermés dans tous les cas (core/access.ts).
    */
   files: z.object({ fullAccess: z.boolean().default(false) }).prefault({}),
+  /**
+   * Agents en mode bypass : les actions qui demandent d'habitude une confirmation (`local`, `external`, `confirmIf`)
+   * s'exécutent sans attendre l'accord de l'utilisateur, qui en prend la responsabilité en l'activant. Désactivé par
+   * défaut (SPEC §3). Les limites dures (vérifications des outils, dossiers fermés, ni commit ni push sur main…) restent,
+   * et chaque action passée ainsi est journalisée (decision « bypass »).
+   */
+  agents: z.object({ bypassConfirmations: z.boolean().default(false) }).prefault({}),
   /** Agents sur l'API Claude (modèle « claude-api:<alias> »), payés avec la clé d'API du coffre Windows. */
   claudeApi: z
     .object({
