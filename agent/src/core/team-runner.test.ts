@@ -108,4 +108,36 @@ describe("équipe d'abord", () => {
     await root.handle("vas-y", ui);
     expect(launched).toEqual(["direct"]);
   });
+
+  it("en cascade : un sous-agent qui a ses propres sous-agents doit les solliciter avant Claude Code", async () => {
+    const launched: string[] = [];
+    const p3 = { ...profiles, lead: { id: "lead", name: "Lead", model: "qwen3:1.7b" } };
+    // Chef → Lead (sous-agent) → Dev (sous-sous-agent)
+    const t = parseTeam(
+      { id: "t", name: "Studio", root: { id: "root", agentId: "chef", subagents: [{ id: "n-lead", agentId: "lead", subagents: [{ id: "n-dev", agentId: "dev" }] }] } },
+      new Set(Object.keys(p3)),
+    );
+    const root = makeTeamRoot({ cfg: parseConfig({}), services: [fakeClaude(launched)], team: t, profileOf: (id) => p3[id as "chef"], budget: new TeamBudget(t.maxCalls, t.maxDepth) });
+    await root.refreshServices();
+    const chef = [call("team_ask", { member: "Lead", task: "Fais faire le module de sauvegarde." }), { role: "assistant", content: "Terminé." }];
+    const lead = [
+      call("claude_delegate", { task: "lead direct" }), // refusé : Lead a un sous-agent
+      call("team_ask", { member: "Dev", task: "Code le module de sauvegarde du jeu." }),
+      call("claude_delegate", { task: "lead après dev" }), // accepté
+      { role: "assistant", content: "module fait par Dev et relu" },
+    ];
+    let leadRefusal = "";
+    proto.chat = async function (this: OllamaClient, messages: ChatMessage[]) {
+      if (this.model === "qwen3:4b") return { role: "assistant", content: "module codé par Dev" };
+      if (this.model === "qwen3:1.7b") {
+        const last = messages.at(-1)!;
+        if (last.role === "tool" && /tu diriges une équipe/.test(String(last.content))) leadRefusal = String(last.content);
+        return lead.shift();
+      }
+      return chef.shift();
+    };
+    expect(await root.handle("module de sauvegarde", ui)).toBe("Terminé.");
+    expect(leadRefusal).toMatch(/team_ask/);
+    expect(launched).toEqual(["lead après dev"]);
+  });
 });
