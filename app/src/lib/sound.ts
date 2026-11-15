@@ -1,4 +1,6 @@
+import { reactive } from "vue";
 import { settings } from "./settings";
+import { creerLecture, type Lecture } from "./speech";
 
 /**
  * Sons générés à la volée (Web Audio) : aucun fichier audio à télécharger, rien qui sorte de la machine.
@@ -66,10 +68,16 @@ function speakable(text: string): string {
     .slice(0, 3000);
 }
 
+/** État de la lecture à voix haute, pour afficher le bouton « Arrêter la lecture » tant que la voix parle. */
+export const speech = reactive({ speaking: false });
+
+let lecture: Lecture<SpeechSynthesisUtterance> | undefined;
+const lectureVocale = () =>
+  (lecture ??= creerLecture<SpeechSynthesisUtterance>(speechSynthesis, (enCours) => (speech.speaking = enCours)));
+
 export function speak(text: string, force = false) {
   const s = settings.sound;
   if ((!force && !s.voice) || !("speechSynthesis" in window)) return;
-  speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(speakable(text));
   const v = voices().find((x) => x.voiceURI === s.voiceName) ?? voices().find((x) => x.lang.startsWith("fr"));
   if (v) u.voice = v;
@@ -77,9 +85,10 @@ export function speak(text: string, force = false) {
   u.rate = s.voiceRate;
   u.pitch = s.voicePitch;
   u.volume = (s.master / 100) * (s.voiceVolume / 100);
-  speechSynthesis.speak(u);
+  lectureVocale().lire(u);
 }
 
+/** Arrêt complet de la lecture : le son s'arrête tout de suite et plus rien n'attend derrière. */
 export function stopSpeaking() {
-  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if ("speechSynthesis" in window) lectureVocale().arreter();
 }
