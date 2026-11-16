@@ -92,7 +92,8 @@ export const ConfigSchema = z.object({
         .prefault({}),
     })
     .prefault({}),
-  maxSteps: z.number().int().min(1).max(20).default(8),
+  /** Étapes (appels au modèle) par demande. Explorer un dossier puis ranger demande vite plusieurs dizaines d'appels d'outils. */
+  maxSteps: z.number().int().min(1).max(100).default(25),
   historyMessages: z.number().int().min(4).max(200).default(30),
   telegram: z
     .object({
