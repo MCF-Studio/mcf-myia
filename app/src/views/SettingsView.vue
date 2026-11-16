@@ -24,10 +24,12 @@ import {
   Trash2,
   Upload,
   Volume2,
+  Wrench,
 } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import SettingRow from "../components/SettingRow.vue";
 import Toggle from "../components/Toggle.vue";
+import ToolboxSettings from "../components/ToolboxSettings.vue";
 import { downloadText, pickTextFile } from "../lib/files";
 import { call, inTauri, on } from "../lib/rpc";
 import { refreshDictation } from "../lib/dictation";
@@ -40,7 +42,7 @@ import { checkForUpdate, update } from "../lib/update";
 import { applyPttKey, ptt } from "../lib/ptt";
 import { claudeApi, loadClaudeApi } from "../lib/terminals";
 
-type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "system" | "about";
+type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "toolbox" | "system" | "about";
 const section = ref<Section>("general");
 const sections: { id: Section; label: string; icon: unknown }[] = [
   { id: "general", label: "Général", icon: SlidersHorizontal },
@@ -49,6 +51,7 @@ const sections: { id: Section; label: string; icon: unknown }[] = [
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "conversations", label: "Conversations", icon: MessagesSquare },
   { id: "shortcuts", label: "Raccourcis", icon: Keyboard },
+  { id: "toolbox", label: "Boîte à outils", icon: Wrench },
   { id: "system", label: "Système", icon: Server },
   { id: "about", label: "À propos", icon: Info },
 ];
@@ -62,6 +65,23 @@ const g = settings.general;
 const themes = computed<Theme[]>(() => [...BUILTIN_THEMES, ...state.installedThemes]);
 const voiceList = ref<SpeechSynthesisVoice[]>([]);
 const appVersion = ref("");
+
+/** Fichiers de config à remplir à la main (chemins, canaux Discord…) : ouverts avec l'éditeur par défaut. */
+const CONFIG_FILES = [
+  { id: "agent", path: "config/agent.json", label: "configuration (non secrète : chemins, canaux Discord, projets…)" },
+  { id: "agents", path: "config/agents.json", label: "tes agents" },
+  { id: "teams", path: "config/teams.json", label: "tes équipes" },
+  { id: "policy", path: "tools/policy.json", label: "permissions et dossiers de la boîte à outils" },
+  { id: "apps", path: "tools/apps.json", label: "applications que la boîte à outils peut lancer" },
+] as const;
+
+async function openConfigFile(file: (typeof CONFIG_FILES)[number]["id"]) {
+  try {
+    await call("config.openFile", { file });
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
 
 const fill = (v: number, min: number, max: number) => ({ "--fill": `${((v - min) / (max - min)) * 100}%` });
 
@@ -1097,6 +1117,8 @@ const shortcuts: [string, string][] = [
       </section>
 
       <!-- Système -->
+      <ToolboxSettings v-else-if="section === 'toolbox'" />
+
       <section v-else-if="section === 'system'" class="card">
         <h3 class="sec-title">Système</h3>
         <SettingRow label="Cœur MyIA" :hint="state.sidecar.running ? `Processus ${state.sidecar.pid} · Node ${state.info?.node ?? '?'}` : state.sidecar.error ?? 'Arrêté'">
@@ -1181,8 +1203,11 @@ const shortcuts: [string, string][] = [
           <code class="path">{{ state.sidecar.home || state.info?.home }}</code>
         </SettingRow>
         <div class="paths small muted">
-          <div><code>config/agent.json</code> configuration (non secrète)</div>
-          <div><code>config/agents.json</code> tes agents</div>
+          <div v-for="f in CONFIG_FILES" :key="f.id" class="cfg-file">
+            <span><code>{{ f.path }}</code> {{ f.label }}</span>
+            <button class="btn sm ghost" :title="`Ouvrir ${f.path}`" @click="openConfigFile(f.id)"><FolderOpen :size="13" /> Ouvrir</button>
+          </div>
+          <div class="tiny">Après une modification à la main : « Recharger la configuration » ci-dessus.</div>
           <div><code>data/conversations/</code> historique des conversations</div>
           <div><code>data/audit/</code> journal de chaque action</div>
           <div><code>runtime/app-sidecar.log</code> journal technique du cœur</div>
@@ -1491,6 +1516,12 @@ kbd {
   display: grid;
   gap: 4px;
   padding: 0 0 14px;
+}
+.cfg-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .paths code {
   color: var(--text);

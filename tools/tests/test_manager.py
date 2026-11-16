@@ -108,6 +108,7 @@ class Manifests(Base):
     def test_every_manifest_is_valid_and_declares_a_risk(self):
         tools, problems = tm.discover()
         self.assertEqual(problems, [])
+        tools = {n: v for n, v in tools.items() if v[0].parent.name != "imports"}    # outils importés sur ce poste
         self.assertEqual(len(tools), 48)
         for name, (folder, m) in tools.items():
             self.assertIn(m["risk"], safety.RISKS, name)
@@ -680,6 +681,96 @@ class TauriBuild(Base):
                 with self.assertRaises(ValueError):
                     self.tb.execute({"project": str(self.w), **bad})
             run.assert_not_called()
+
+
+class Import(Base):
+    """import <dossier> : un outil valide est décrit, puis copié seulement avec --confirmed ; rien n'est exécuté."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = self.d / "boite"
+        self.root.mkdir()
+        patch = mock.patch.object(tm, "ROOT", self.root)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.src = self.d / "mon_outil"
+        self.src.mkdir()
+        self.manifest = {"name": "mon_outil", "description": "Compte les cubes.", "category": "blender", "risk": "read",
+                         "parameters": {"n": {"type": "integer"}}, "permissions": []}
+        self.write_tool()
+
+    def write_tool(self, code="def execute(params):\n    return {'data': params.get('n', 0)}\n"):
+        (self.src / "manifest.json").write_text(json.dumps(self.manifest), encoding="utf-8")
+        (self.src / "tool.py").write_text(code, encoding="utf-8")
+
+    def confirm(self):
+        """Aperçu puis accord sur l'empreinte rendue, comme l'app."""
+        res, _ = tm.main(["import", str(self.src)])
+        digest = (res["data"] or {}).get("preview", {}).get("digest", "absente")
+        return tm.main(["import", str(self.src), "--digest", digest, "--confirmed"])
+
+    def test_preview_first_then_copy_with_the_flag(self):
+        res, code = tm.main(["import", str(self.src)])
+        self.assertEqual(code, 2)
+        self.assertEqual(res["data"]["preview"]["risk"], "read")
+        self.assertIn("def execute", res["data"]["preview"]["source"])          # code montré avant l'accord
+        self.assertFalse((self.root / "imports").exists())
+        res, code = self.confirm()
+        self.assertEqual(code, 0, res)
+        self.assertTrue((self.root / "imports" / "mon_outil" / "tool.py").is_file())
+        self.assertIn("mon_outil", tm.discover()[0])
+        res, code = self.confirm()                                              # déjà présent : refusé
+        self.assertEqual(code, 1)
+        self.assertIn("déjà", res["error"]["message"])
+
+    def test_imported_tool_is_confirmed_on_every_run_whatever_it_declares(self):
+        self.assertEqual(self.confirm()[1], 0)
+        _, m = tm.discover()[0]["mon_outil"]
+        self.assertEqual((m["risk"], m["declared_risk"]), ("local", "read"))
+        self.assertRefused(tm.run("mon_outil", {"n": 3}), "ConfirmationRequired")
+        self.assertEqual(tm.run("mon_outil", {"n": 3}, confirmed=True)["data"], 3)
+
+    def test_confirmation_only_covers_the_previewed_content(self):
+        res, _ = tm.main(["import", str(self.src)])
+        digest = res["data"]["preview"]["digest"]
+        self.write_tool("import os\ndef execute(params):\n    return {'data': os.getcwd()}\n")   # changé après l'aperçu
+        res, code = tm.main(["import", str(self.src), "--digest", digest, "--confirmed"])
+        self.assertEqual(code, 1)
+        self.assertRefused(res, "ContentChanged")
+        self.assertRefused(tm.main(["import", str(self.src), "--confirmed"])[0], "ContentChanged")   # sans empreinte
+        self.assertFalse((self.root / "imports").exists())
+
+    def test_invalid_tools_are_refused_without_running_their_code(self):
+        marker = self.d / "execute.txt"
+        self.write_tool(f"open({str(marker)!r}, 'w').write('x')\n")           # pas de execute, code au chargement
+        res, _ = self.confirm()
+        self.assertRefused(res, "InvalidTool")
+        self.assertFalse(marker.exists())
+        self.write_tool("def execute(params:\n")
+        self.assertIn("syntaxe", tm.main(["import", str(self.src)])[0]["error"]["message"])
+        self.manifest["risk"] = "read"
+        self.manifest["permissions"] = ["filesystem.write"]                     # risque trop bas pour écrire
+        self.write_tool()
+        self.assertRefused(tm.main(["import", str(self.src)])[0], "InvalidTool")
+        self.manifest.update(permissions=[], name="autre_nom")                  # nom différent du dossier
+        self.write_tool()
+        self.assertRefused(tm.main(["import", str(self.src)])[0], "InvalidTool")
+        self.assertFalse((self.root / "imports").exists())
+
+    def test_only_the_expected_files_are_accepted(self):
+        (self.src / "install.bat").write_text("echo", encoding="utf-8")
+        res, _ = self.confirm()
+        self.assertRefused(res, "InvalidTool")
+        self.assertIn("install.bat", res["error"]["message"])
+
+    def test_missing_permission_is_reported_and_the_tool_stays_disabled(self):
+        self.manifest.update(risk="local", permissions=["process.exec"])
+        self.write_tool()
+        res, code = self.confirm()
+        self.assertEqual(code, 0, res)
+        self.assertEqual(res["data"]["missing_permissions"], ["process.exec"])
+        self.assertTrue(res["warnings"])
+        self.assertRefused(tm.run("mon_outil", {}, confirmed=True), "PermissionDenied")
 
 
 if __name__ == "__main__":

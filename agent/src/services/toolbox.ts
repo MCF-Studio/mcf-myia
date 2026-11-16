@@ -73,6 +73,16 @@ export interface ManagerReply {
 /** Lance le gestionnaire : `args` après `tool_manager.py`, paramètres JSON sur l'entrée standard. */
 export type ManagerRunner = (args: string[], stdin: string | undefined, timeoutMs: number, signal?: AbortSignal) => Promise<ManagerReply>;
 
+/** Dossier de la boîte à outils : cfg.toolbox.dir, sinon <MYIA_HOME>/tools. */
+export function toolboxDir(cfg: Config): string {
+  return path.resolve(cfg.toolbox.dir ?? path.join(paths.home, "tools"));
+}
+
+/** Gestionnaire de la boîte pour l'interface (liste, import) : jamais exposé aux agents. */
+export function toolboxManager(cfg: Config): ManagerRunner {
+  return realRunner(cfg.toolbox.python, toolboxDir(cfg));
+}
+
 function realRunner(python: string, dir: string): ManagerRunner {
   const script = path.join(dir, "tool_manager.py");
   return async (args, stdin, timeoutMs, signal) => {
@@ -158,7 +168,7 @@ export interface ToolboxOptions {
 }
 
 export function toolboxService(cfg: Config, opts: ToolboxOptions = {}): Service {
-  const dir = path.resolve(opts.dir ?? cfg.toolbox.dir ?? path.join(paths.home, "tools"));
+  const dir = opts.dir ? path.resolve(opts.dir) : toolboxDir(cfg);
   const runner = opts.runner ?? realRunner(cfg.toolbox.python, dir);
   let catalog: ToolboxEntry[] = [];
   /** Aperçus calculés par check(), relus par preview() : la même demande ne relance pas le gestionnaire. */

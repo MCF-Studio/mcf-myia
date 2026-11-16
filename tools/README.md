@@ -103,6 +103,21 @@ programme ou sort de la machine doit être ajouté **explicitement** à `granted
    `safety.check_text_target`), contrôles sur le chemin FINAL.
 6. Ajouter un test dans `tools/tests/` pour chaque refus.
 
+### Importer un outil (sans toucher au dépôt)
+Paramètres > Boîte à outils de l'app : « Copier la convention » copie [CONVENTION.md](CONVENTION.md) (format attendu,
+à donner à une IA avec la demande), « Importer un outil… » prend un dossier `<nom>/` avec `manifest.json` + `tool.py`
+(+ `README.md`). Même chose à la main : `python tools/tool_manager.py import <dossier>`, puis `import <dossier> --digest <empreinte> --confirmed`.
+- Sans `--confirmed`, rien n'est copié : la réponse décrit l'outil (code de `tool.py`, empreinte SHA-256, risque, permissions, paramètres, permissions non
+  accordées) pour que l'humain décide. L'accord se donne avec `--digest <empreinte> --confirmed` : si le dossier a
+  changé depuis l'aperçu, rien n'est copié. Un outil importé est **confirmé à chaque exécution**, quel que soit le
+  risque qu'il déclare (`discover` le passe en `local`). L'app ne pose `--confirmed` qu'après son accord. Les agents n'ont pas accès à
+  l'import.
+- Refusé : autre fichier que les trois attendus, sous-dossier ou lien, fichier trop gros, manifeste invalide (mêmes
+  règles que `discover`), nom déjà pris, `tool.py` qui ne compile pas ou sans `execute` au premier niveau. Le code
+  importé n'est **jamais exécuté** à l'import (analyse syntaxique seulement).
+- Copie dans `tools/imports/<nom>/` (local, ignoré par git). Un outil dont la permission n'est pas accordée dans
+  `policy.json` reste désactivé.
+
 ## Existants (48)
 system : environment_check, app_catalog, app_launch, url_open, folder_open, notification_send
 files : file_search, folder_tree, text_read, text_write, text_patch

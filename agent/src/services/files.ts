@@ -69,7 +69,7 @@ function checkOpenable(p: string, explicit: string[] = [], denied: string[] = []
 }
 
 /** Ouvre avec l'application par défaut, via l'Explorateur (pas de shell : aucune interprétation de commande). */
-function openWithDefault(p: string) {
+export function openWithDefault(p: string) {
   const child = spawn("explorer.exe", [p], { detached: true, stdio: "ignore", windowsHide: false });
   child.on("error", () => undefined);
   child.unref();

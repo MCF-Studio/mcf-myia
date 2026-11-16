@@ -10,7 +10,12 @@ import { truncate, type AgentUI, type Availability, type Service, type Tool, typ
 import type { Memory } from "./memory.js";
 import { UrlTrust } from "./urls.js";
 
-const TOOL_RESULT_MAX = 4000;
+/**
+ * Taille maximale d'un résultat d'outil gardé dans l'historique. Un modèle local a un petit contexte (32 k jetons) ;
+ * Claude en a 200 k : lui couper une liste de fichiers ou un fichier à 4000 caractères le fait tourner en rond.
+ */
+const TOOL_RESULT_MAX_LOCAL = 4000;
+const TOOL_RESULT_MAX_CLOUD = 30_000;
 
 /** Règle de confirmation (SPEC §3). Testée unitairement : ne pas l'affaiblir sans mettre la spec à jour. */
 export function needsConfirmation(
@@ -175,11 +180,15 @@ export class Agent {
 
   reset() {
     this.history = [];
+    this.requestStart = 0;
     this.trust.clear();
   }
 
   /** Contexte de mémoire du message en cours (recalculé à chaque demande de l'utilisateur). */
   private memoryContext = "";
+
+  /** Index, dans l'historique, du message utilisateur de la demande en cours : le rognage ne coupe jamais après lui. */
+  private requestStart = 0;
 
   /** Vrai dès que l'agent a confié une tâche à un membre pendant la demande en cours (règle teamFirst). */
   private teamAsked = false;
@@ -316,6 +325,7 @@ export class Agent {
       this.memoryContext = "";
     }
     this.history.push({ role: "user", content: input });
+    this.requestStart = this.history.length - 1;
     const specs = this.toolSpecs();
     let nudged = false;
     // Prompt système figé pour toute la demande : stable d'une étape à l'autre (cache de l'API Claude, réflexions
@@ -347,20 +357,57 @@ export class Agent {
           role: "tool",
           tool_name: call.function.name,
           ...(call.id ? { tool_call_id: call.id } : {}),
-          content: truncate(result, TOOL_RESULT_MAX),
+          content: truncate(result, this.cloud ? TOOL_RESULT_MAX_CLOUD : TOOL_RESULT_MAX_LOCAL),
         });
       }
     }
-    return "J'ai atteint le nombre maximal d'étapes pour cette demande. Reformule-la ou découpe-la.";
+    return this.stepsExhausted(system, specs, signal);
   }
 
-  /** Garde les N derniers messages, sans couper entre un appel d'outil et son résultat. */
+  /**
+   * Limite d'étapes atteinte : plutôt que de jeter le travail fait, on demande au modèle un point d'étape (fait, reste
+   * à faire) pour que l'utilisateur relance avec « continue ». Les outils restent déclarés (l'API Claude l'exige quand
+   * l'historique contient des appels d'outils), mais un nouvel appel est ignoré.
+   */
+  private async stepsExhausted(system: string, specs: ToolSpec[], signal?: AbortSignal): Promise<string> {
+    const fallback = `J'ai atteint la limite de ${this.cfg.maxSteps} étapes pour cette demande. Dis « continue » pour que je reprenne où j'en suis.`;
+    this.history.push({
+      role: "user",
+      content:
+        `(note automatique) Limite de ${this.cfg.maxSteps} étapes atteinte : n'appelle plus d'outil. Fais le point en quelques lignes : ` +
+        "ce qui est fait (avec ses preuves), ce qui reste à faire. Termine en proposant de continuer.",
+    });
+    try {
+      const reply = await this.llm.chat([{ role: "system", content: system }, ...this.trimmedHistory()], specs, signal);
+      const text = reply.content?.trim() ?? "";
+      if (reply.tool_calls?.length || !text) {
+        this.history.push({ role: "assistant", content: fallback });
+        return fallback;
+      }
+      this.history.push({ role: "assistant", content: text, ...(reply.blocks ? { blocks: reply.blocks } : {}) });
+      return `${text}
+
+(${fallback})`;
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      this.history.push({ role: "assistant", content: fallback });
+      return fallback;
+    }
+  }
+
+  /**
+   * Garde les N derniers messages, sans couper entre un appel d'outil et son résultat, et jamais à l'intérieur de la
+   * demande en cours : une longue suite d'appels d'outils ne doit pas faire oublier au modèle ce qu'on lui a demandé.
+   */
   private trimmedHistory(): ChatMessage[] {
     const max = this.cfg.historyMessages;
     if (this.history.length <= max) return this.history;
     let start = this.history.length - max;
-    while (start < this.history.length && this.history[start]!.role !== "user") start++;
+    if (start >= this.requestStart) start = this.requestStart;
+    else while (start < this.requestStart && this.history[start]!.role !== "user") start++;
+    if (start === 0) return this.history;
     this.history = this.history.slice(start);
+    this.requestStart -= start;
     return this.history;
   }
 

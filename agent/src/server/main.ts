@@ -22,6 +22,8 @@ import { deviceKeys } from "../core/guild-crypto.js";
 import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
 import { openInBrowser } from "../services/web.js";
+import { openWithDefault } from "../services/files.js";
+import { toolboxDir, toolboxManager } from "../services/toolbox.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
 import { CLAUDE_LOCAL_CTX, claudeLocalOllamaModel, findOllama, MIN_OLLAMA, MODEL_NAME, OllamaClient, versionAtLeast } from "../core/llm.js";
 import { installOllama } from "../core/ollama-install.js";
@@ -30,7 +32,7 @@ import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppCl
 import { makeTeamRoot } from "../core/team-runner.js";
 import { describeSchedule, Planner, plannerTools } from "../core/planner.js";
 import { appControlTools, type AppControl } from "../services/app-control.js";
-import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, walk, type Team } from "../core/teams.js";
+import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, teamsFile, walk, type Team } from "../core/teams.js";
 import { findRuntime, installUv, SCRIPT_ID, SCRIPT_MAX_FILES, ScriptPackSchema, ScriptStore, scriptHash, UV, type ScriptEntry } from "../core/scripts.js";
 import { exportWorkflow, freeId, parseWorkflow, planImport, sha256Text, WORKFLOW_MAX_BYTES } from "../core/workflow.js";
 import { Market } from "../core/market.js";
@@ -41,6 +43,7 @@ import {
   AgentProfileSchema,
   DEFAULT_PROFILE,
   loadProfiles,
+  profilesFile,
   reorderProfiles,
   saveProfiles,
   writeJsonAtomic,
@@ -1561,6 +1564,66 @@ rpc.method("config.setUserName", (params) => {
 rpc.method("memory.status", () => {
   const m = memoryFor(cfg.memory.folders);
   return { folders: cfg.memory.folders, docs: m?.list() ?? [] };
+});
+
+// ─── Fichiers de configuration et boîte à outils (interface seulement, jamais les agents) ───
+
+/** Fichiers que l'utilisateur peut ouvrir pour les remplir à la main (chemins, canaux Discord…). */
+function configFiles(): Record<string, { path: string; example?: string }> {
+  const tools = toolboxDir(cfg);
+  return {
+    agent: { path: paths.config },
+    agents: { path: profilesFile() },
+    teams: { path: teamsFile() },
+    policy: { path: path.join(tools, "policy.json"), example: path.join(tools, "policy.example.json") },
+    apps: { path: path.join(tools, "apps.json"), example: path.join(tools, "apps.example.json") },
+  };
+}
+
+rpc.method("config.files", () =>
+  Object.fromEntries(Object.entries(configFiles()).map(([k, f]) => [k, { path: f.path, exists: fs.existsSync(f.path) }])),
+);
+
+rpc.method("config.openFile", (params) => {
+  const { file } = parse(z.object({ file: z.enum(["agent", "agents", "teams", "policy", "apps"]) }), params);
+  const f = configFiles()[file]!;
+  if (!fs.existsSync(f.path)) {
+    // Politique et catalogue de la boîte : créés depuis leur modèle publié (qui n'accorde rien de dangereux).
+    if (!f.example || !fs.existsSync(f.example)) throw new Error(`${path.basename(f.path)} n'existe pas encore`);
+    fs.copyFileSync(f.example, f.path, fs.constants.COPYFILE_EXCL);
+  }
+  openWithDefault(f.path);
+  audit({ event: "config_open", tool: file, args: { path: f.path } });
+  return f.path;
+});
+
+rpc.method("toolbox.list", async () => {
+  const r = await toolboxManager(cfg)(["list"], undefined, 30_000);
+  if (!r.success) throw new Error(r.error?.message ?? "boîte à outils indisponible");
+  return { dir: toolboxDir(cfg), tools: r.data, problems: r.warnings };
+});
+
+rpc.method("toolbox.convention", () => fs.readFileSync(path.join(toolboxDir(cfg), "CONVENTION.md"), "utf8"));
+
+/** Import d'un outil : `confirmed: false` décrit l'outil sans rien copier ; `true` après l'accord de l'utilisateur. */
+rpc.method("toolbox.import", async (params) => {
+  const { dir, confirmed, digest } = parse(
+    z.object({ dir: z.string().min(3).max(500), confirmed: z.boolean(), digest: z.string().regex(/^[0-9a-f]{64}$/).optional() }),
+    params,
+  );
+  const abs = assertLocalPath(dir);
+  if (confirmed && !digest) throw new Error("empreinte de l'aperçu manquante : relancer l'import");
+  // L'accord porte sur le contenu montré : le gestionnaire refuse si le dossier a changé depuis (empreinte).
+  const args = ["import", abs, ...(confirmed ? ["--digest", digest!, "--confirmed"] : [])];
+  const r = await toolboxManager(cfg)(args, undefined, 30_000);
+  const needsConfirm = r.error?.type === "ConfirmationRequired";
+  if (!r.success && !needsConfirm) throw new Error(r.error?.message ?? "import refusé");
+  const info = needsConfirm ? (r.data as { preview?: unknown } | null)?.preview : r.data;
+  if (r.success) {
+    audit({ event: "toolbox_import", tool: (info as { name?: string } | null)?.name ?? "?", args: { from: abs } });
+    live.clear(); // les agents relisent le catalogue de la boîte (available()) à leur prochain message
+  }
+  return { imported: r.success, tool: info, warnings: r.warnings };
 });
 
 rpc.method("config.setMemoryFolders", (params) => {
