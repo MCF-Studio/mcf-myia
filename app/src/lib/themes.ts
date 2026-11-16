@@ -77,13 +77,96 @@ export const BUILTIN_THEMES: Theme[] = [
       danger: "#d93a30",
     },
   },
+  {
+    id: "abysses",
+    name: "Abysses",
+    author: "MCF Studio",
+    version: "1.0.0",
+    mode: "dark",
+    radius: "round",
+    builtin: true,
+    colors: {
+      bg: "#060d10",
+      "bg-elevated": "#0a1418",
+      surface: "#0f1c21",
+      "surface-2": "#15262c",
+      border: "#1f363d",
+      text: "#e3f4f4",
+      "text-muted": "#86a6aa",
+      accent: "#2dd4bf",
+      "accent-2": "#38bdf8",
+      "accent-contrast": "#03201c",
+      glow: "rgba(45, 212, 191, 0.32)",
+      success: "#4ade80",
+      warning: "#fbbf24",
+      danger: "#fb7185",
+    },
+  },
+  {
+    id: "neon-nuit",
+    name: "Néon de nuit",
+    author: "MCF Studio",
+    version: "1.0.0",
+    mode: "dark",
+    radius: "sharp",
+    builtin: true,
+    colors: {
+      bg: "#0c0814",
+      "bg-elevated": "#120c1d",
+      surface: "#190f27",
+      "surface-2": "#221533",
+      border: "#33204a",
+      text: "#f3eaff",
+      "text-muted": "#a593c0",
+      accent: "#ff3ea5",
+      "accent-2": "#a855f7",
+      "accent-contrast": "#1a0010",
+      glow: "rgba(255, 62, 165, 0.36)",
+      success: "#34d399",
+      warning: "#facc15",
+      danger: "#ff5470",
+    },
+  },
+  {
+    id: "sauge",
+    name: "Sauge (clair)",
+    author: "MCF Studio",
+    version: "1.0.0",
+    mode: "light",
+    radius: "round",
+    builtin: true,
+    colors: {
+      bg: "#f1f4ee",
+      "bg-elevated": "#f7f9f4",
+      surface: "#ffffff",
+      "surface-2": "#e9eee4",
+      border: "#d3dccb",
+      text: "#18211a",
+      "text-muted": "#5c6b5f",
+      accent: "#2f7a4a",
+      "accent-2": "#b07a1f",
+      "accent-contrast": "#ffffff",
+      glow: "rgba(47, 122, 74, 0.2)",
+      success: "#1f8a55",
+      warning: "#b07a1f",
+      danger: "#c8392f",
+    },
+  },
 ];
 
 const RADIUS = { sharp: ["4px", "6px", "8px"], normal: ["8px", "12px", "18px"], round: ["12px", "18px", "26px"] };
 
-export function applyTheme(t: Theme, opts: { glow: boolean }) {
+/**
+ * `panelOpacity` (0–100) : avec une image de fond, les panneaux (surface, surface-2) deviennent translucides
+ * pour laisser voir l'image ; 100 = opaques (comportement sans image).
+ */
+export function applyTheme(t: Theme, opts: { glow: boolean; panelOpacity?: number }) {
   const root = document.documentElement;
-  for (const [k, v] of Object.entries(t.colors)) root.style.setProperty(`--${k}`, v);
+  const alpha = Math.min(100, Math.max(0, opts.panelOpacity ?? 100));
+  for (const [k, v] of Object.entries(t.colors)) {
+    const translucent = alpha < 100 && (k === "surface" || k === "surface-2");
+    root.style.setProperty(`--${k}`, translucent ? `color-mix(in srgb, ${v} ${alpha}%, transparent)` : v);
+  }
   const [sm, md, lg] = RADIUS[t.radius];
   root.style.setProperty("--radius-sm", sm!);
   root.style.setProperty("--radius", md!);

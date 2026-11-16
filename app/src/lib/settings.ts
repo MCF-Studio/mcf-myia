@@ -16,6 +16,16 @@ export const DEFAULT_SETTINGS = {
     fontScale: 100,
     reduceMotion: false,
     sidebarCollapsed: false,
+    /** Image de fond (copie gérée par le sidecar dans data/backgrounds/ ; vide = aucune). */
+    background: {
+      file: "",
+      fit: "cover" as "cover" | "contain" | "tile",
+      /** Voile de la couleur de fond du thème par-dessus l'image, en % (lisibilité). */
+      dim: 55,
+      blur: 0,
+      /** Opacité des panneaux quand une image est affichée, en %. */
+      panelOpacity: 82,
+    },
   },
   conversations: {
     layout: "tabs" as "tabs" | "grid",

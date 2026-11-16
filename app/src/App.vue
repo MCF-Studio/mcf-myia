@@ -2,7 +2,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AlertTriangle, CheckCircle2, Download, Info, RotateCw } from "lucide-vue-next";
-import { computed, onMounted, onUnmounted, watchEffect } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from "vue";
 import Sidebar from "./components/Sidebar.vue";
 import TitleBar from "./components/TitleBar.vue";
 import { inTauri } from "./lib/rpc";
@@ -11,6 +11,7 @@ import { navigate, restartSidecar, startPolling, state, type View } from "./lib/
 import { applyTheme, BUILTIN_THEMES } from "./lib/themes";
 import { startUpdates, update } from "./lib/update";
 import { startPtt } from "./lib/ptt";
+import { startWallpaper, wallpaper } from "./lib/background";
 import PttIndicator from "./components/PttIndicator.vue";
 import SpeechIndicator from "./components/SpeechIndicator.vue";
 import { speech, stopSpeaking } from "./lib/sound";
@@ -38,7 +39,9 @@ const views = {
 watchEffect(() => {
   const a = settings.appearance;
   const theme = [...BUILTIN_THEMES, ...state.installedThemes].find((t) => t.id === a.theme) ?? BUILTIN_THEMES[0]!;
-  applyTheme(theme, { glow: a.glow });
+  const bg = a.background;
+  applyTheme(theme, { glow: a.glow, panelOpacity: wallpaper.url ? bg.panelOpacity : 100 });
+  document.documentElement.dataset.wallpaper = wallpaper.url ? "on" : "off";
   const root = document.documentElement;
   root.dataset.density = a.density;
   root.dataset.motion = a.reduceMotion ? "reduce" : "full";
@@ -90,6 +93,7 @@ async function startTrayNavigation() {
 onMounted(() => {
   void startUpdates();
   void startPtt();
+  startWallpaper();
   void startTrayNavigation();
   window.addEventListener("keydown", onKey);
   document.addEventListener("click", onClick);
@@ -101,6 +105,27 @@ onUnmounted(() => {
 });
 
 const current = computed(() => views[state.view]);
+
+/** Calque de l'image de fond : ajustement, flou, voile de la couleur du thème pour garder le texte lisible. */
+const wallpaperStyle = computed(() => {
+  const b = settings.appearance.background;
+  const fit = b.fit === "contain" || b.fit === "tile" ? b.fit : "cover";
+  const blur = Math.min(24, Math.max(0, b.blur));
+  return {
+    backgroundSize: fit === "tile" ? "auto" : fit,
+    backgroundRepeat: fit === "tile" ? "repeat" : "no-repeat",
+    filter: blur ? `blur(${blur}px)` : undefined,
+    // Le flou fait baver les bords : on agrandit un peu le calque pour les cacher.
+    inset: blur ? `-${blur * 2}px` : "0",
+  };
+});
+// L'image (data: URL de plusieurs Mo) est posée une seule fois, hors du style réactif : bouger un curseur
+// (flou, voile) ne doit pas faire réanalyser toute l'image au navigateur.
+const wallpaperEl = ref<HTMLDivElement>();
+watch([wallpaperEl, () => wallpaper.url], ([el, url]) => {
+  if (el) el.style.backgroundImage = url ? `url("${url}")` : "";
+});
+const wallpaperDim = computed(() => Math.min(95, Math.max(0, settings.appearance.background.dim)) / 100);
 const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
 </script>
 
@@ -110,6 +135,10 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
   <div class="shell">
     <Sidebar />
     <main class="main">
+      <template v-if="wallpaper.url">
+        <div ref="wallpaperEl" class="wallpaper" :style="wallpaperStyle" aria-hidden="true" />
+        <div class="wallpaper-dim" :style="{ opacity: wallpaperDim }" aria-hidden="true" />
+      </template>
       <div class="ambient" aria-hidden="true" />
       <div v-if="!inTauri" class="offline">
         <AlertTriangle :size="18" />
@@ -172,7 +201,7 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
   flex-direction: column;
   overflow: hidden;
 }
-.main > :not(.ambient):not(.offline) {
+.main > :not(.ambient):not(.offline):not(.wallpaper):not(.wallpaper-dim) {
   position: relative;
   flex: 1;
   min-height: 0;
@@ -184,6 +213,18 @@ const icons = { info: Info, success: CheckCircle2, error: AlertTriangle };
   background:
     radial-gradient(900px 420px at 85% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
     radial-gradient(700px 380px at 10% 110%, color-mix(in srgb, var(--accent-2) 6%, transparent), transparent 70%);
+}
+.wallpaper,
+.wallpaper-dim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.wallpaper {
+  background-position: center;
+}
+.wallpaper-dim {
+  background: var(--bg);
 }
 :root[data-glow="off"] .ambient {
   display: none;

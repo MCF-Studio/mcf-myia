@@ -53,6 +53,7 @@ import type { AgentUI, Service } from "../core/types.js";
 import { buildServices } from "../services/index.js";
 import { RpcError, RpcPeer } from "./rpc.js";
 import { ConversationStore, type Conversation, type DisplayMessage } from "./store.js";
+import { clearBackground, readBackground, setBackground } from "./background.js";
 import { deleteTheme, installTheme, listThemes } from "./themes.js";
 
 // stdout = protocole. Tout le reste part sur stderr (journal du sidecar côté app).
@@ -1033,6 +1034,14 @@ rpc.method("themes.list", () => listThemes());
 rpc.method("themes.install", (params) => installTheme(parse(z.object({ json: z.string() }), params).json));
 rpc.method("themes.delete", (params) => {
   deleteTheme(parse(z.object({ id: z.string() }), params).id);
+  return true;
+});
+
+// Image de fond : copiée dans data/backgrounds/, type reconnu à la signature (voir background.ts).
+rpc.method("background.set", (params) => setBackground(parse(z.object({ path: z.string().min(1).max(1024) }), params).path));
+rpc.method("background.get", (params) => readBackground(parse(z.object({ file: z.string().max(64) }), params).file));
+rpc.method("background.clear", () => {
+  clearBackground();
   return true;
 });
 
