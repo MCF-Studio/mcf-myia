@@ -4,6 +4,7 @@ import { audit } from "./audit.js";
 import { McfAccount, vaultStoreFor } from "./mcf-account.js";
 import { paths } from "./paths.js";
 import { writeJsonAtomic, type AgentProfile } from "./profiles.js";
+import type { Team, TeamNode } from "./teams.js";
 
 /**
  * Carte des agents de mcfstudio.fr (spec du site : docs/superpowers/specs/2026-11-13-carte-agents-design.md).
@@ -13,11 +14,16 @@ import { writeJsonAtomic, type AgentProfile } from "./profiles.js";
  * la Guilde (jeton de renouvellement dans le coffre, secret `mcfstudio_map_refresh`). Au plus 2 envois par jour : au
  * démarrage si le dernier date de plus de 12 h, puis toutes les 12 h, et quand l'utilisateur change sa sélection.
  * Désactiver retire tout de suite les agents du site puis révoque l'autorisation.
+ *
+ * Équipes (spec du site §10) : seulement celles que l'utilisateur coche (aucune par défaut) : leur nom, leur chef et
+ * les liens entre agents PUBLIÉS. Un agent non coché n'apparaît jamais, même à travers une équipe.
  */
 
 export const MAP_REFRESH_SECRET = "mcfstudio_map_refresh";
 export const MAP_SYNC_EVERY_MS = 12 * 60 * 60 * 1000;
 export const MAP_MAX_AGENTS = 12;
+export const MAP_MAX_TEAMS = 4;
+export const MAP_MAX_TEAM_LINKS = 30;
 /** Mêmes règles que le site : 1 à 40 caractères, lettres, chiffres, espaces et . _ ' - */
 const NAME_RE = /^[\p{L}\p{N} ._'-]{1,40}$/u;
 
@@ -25,6 +31,8 @@ export interface MapState {
   enabled: boolean;
   /** Ids des profils montrés sur la carte. */
   agents: string[];
+  /** Ids des équipes montrées (liens entre agents montrés seulement). */
+  teams: string[];
   lastSyncAt?: string;
   lastError?: string;
   /** Désactivée mais pas encore retirée du site (hors ligne) : on garde le jeton et on réessaie. */
@@ -39,12 +47,13 @@ export function loadMapState(file = stateFile()): MapState {
     return {
       enabled: raw.enabled === true,
       agents: Array.isArray(raw.agents) ? raw.agents.filter((a): a is string => typeof a === "string").slice(0, MAP_MAX_AGENTS) : [],
+      teams: Array.isArray(raw.teams) ? raw.teams.filter((t): t is string => typeof t === "string").slice(0, MAP_MAX_TEAMS) : [],
       ...(typeof raw.lastSyncAt === "string" ? { lastSyncAt: raw.lastSyncAt } : {}),
       ...(typeof raw.lastError === "string" ? { lastError: raw.lastError } : {}),
       ...(raw.pendingRemoval === true ? { pendingRemoval: true } : {}),
     };
   } catch {
-    return { enabled: false, agents: [] };
+    return { enabled: false, agents: [], teams: [] };
   }
 }
 
@@ -53,6 +62,8 @@ export function saveMapState(s: MapState, file = stateFile()) {
   writeJsonAtomic(file, s);
 }
 
+const clean = (name: string) => name.normalize("NFC").replace(/\s+/g, " ").trim();
+
 /** Noms envoyés : ceux des profils cochés qui existent encore et respectent les règles du site. */
 export function mapNames(profiles: readonly AgentProfile[], ids: readonly string[]): { names: string[]; refused: string[] } {
   const names: string[] = [];
@@ -60,11 +71,62 @@ export function mapNames(profiles: readonly AgentProfile[], ids: readonly string
   for (const id of ids) {
     const p = profiles.find((x) => x.id === id);
     if (!p) continue;
-    const name = p.name.normalize("NFC").replace(/\s+/g, " ").trim();
+    const name = clean(p.name);
     if (NAME_RE.test(name)) names.push(name);
     else refused.push(p.name);
   }
   return { names: names.slice(0, MAP_MAX_AGENTS), refused };
+}
+
+export interface MapTeamPayload {
+  name: string;
+  lead: string;
+  links: { from: string; to: string; kind: "sub" | "mate" }[];
+}
+
+/**
+ * Équipes envoyées : celles cochées dont le chef est un agent montré ; seuls les liens directs entre deux agents montrés
+ * partent (un agent non coché ne se devine jamais à travers une équipe).
+ */
+export function mapTeams(
+  profiles: readonly AgentProfile[],
+  teams: readonly Team[],
+  agentIds: readonly string[],
+  teamIds: readonly string[],
+): { teams: MapTeamPayload[]; refused: string[] } {
+  const { names } = mapNames(profiles, agentIds);
+  const shown = new Map<string, string>();
+  for (const id of agentIds) {
+    const p = profiles.find((x) => x.id === id);
+    if (p && names.includes(clean(p.name))) shown.set(id, clean(p.name));
+  }
+  const out: MapTeamPayload[] = [];
+  const refused: string[] = [];
+  for (const id of teamIds) {
+    const t = teams.find((x) => x.id === id);
+    if (!t) continue;
+    const name = clean(t.name);
+    if (!NAME_RE.test(name)) {
+      refused.push(t.name);
+      continue;
+    }
+    const lead = shown.get(t.root.agentId);
+    if (!lead || out.length >= MAP_MAX_TEAMS) continue;
+    const links: MapTeamPayload["links"] = [];
+    const visit = (n: TeamNode) => {
+      for (const [kind, list] of [["sub", n.subagents], ["mate", n.teammates]] as const) {
+        for (const c of list) {
+          const from = shown.get(n.agentId);
+          const to = shown.get(c.agentId);
+          if (from && to && from !== to) links.push({ from, to, kind });
+          visit(c);
+        }
+      }
+    };
+    visit(t.root);
+    out.push({ name, lead, links: links.slice(0, MAP_MAX_TEAM_LINKS) });
+  }
+  return { teams: out, refused };
 }
 
 export class AgentsMap {
@@ -76,6 +138,7 @@ export class AgentsMap {
     private readonly profiles: () => readonly AgentProfile[],
     openBrowser: (url: string) => void,
     private readonly file = stateFile(),
+    private readonly teams: () => readonly Team[] = () => [],
   ) {
     this.account = new McfAccount(siteUrl, { scope: "map", store: vaultStoreFor(MAP_REFRESH_SECRET), openBrowser });
   }
@@ -110,8 +173,10 @@ export class AgentsMap {
     if (!s.enabled) return s;
     if (!force && s.lastSyncAt && Date.now() - Date.parse(s.lastSyncAt) < MAP_SYNC_EVERY_MS) return s;
     const { names } = mapNames(this.profiles(), s.agents);
+    const { teams } = mapTeams(this.profiles(), this.teams(), s.agents, s.teams);
     try {
-      await this.call("PUT", { agents: names });
+      // `teams` absent = aucune équipe (le site retire les précédentes).
+      await this.call("PUT", teams.length ? { agents: names, teams } : { agents: names });
       const next: MapState = { ...s, lastSyncAt: new Date().toISOString(), lastError: undefined };
       saveMapState(next, this.file);
       audit({ event: "map_sync", ok: true, input: names.length });
@@ -125,16 +190,32 @@ export class AgentsMap {
   }
 
   /** Active l'option : autorisation `map` dans le navigateur si besoin, puis premier envoi. */
-  async enable(agentIds: string[], signal?: AbortSignal): Promise<MapState> {
+  async enable(agentIds: string[], signal?: AbortSignal, teamIds: string[] = []): Promise<MapState> {
     // Réactiver annule un retrait en attente.
     if (!(await this.account.accessToken().catch(() => undefined))) await this.account.login(signal);
-    saveMapState({ ...this.state(), enabled: true, pendingRemoval: undefined, agents: [...new Set(agentIds)].slice(0, MAP_MAX_AGENTS) }, this.file);
+    saveMapState(
+      {
+        ...this.state(),
+        enabled: true,
+        pendingRemoval: undefined,
+        agents: [...new Set(agentIds)].slice(0, MAP_MAX_AGENTS),
+        teams: [...new Set(teamIds)].slice(0, MAP_MAX_TEAMS),
+      },
+      this.file,
+    );
     return this.sync(true);
   }
 
-  /** Change la sélection (option active) et l'envoie. */
-  async setAgents(agentIds: string[]): Promise<MapState> {
-    saveMapState({ ...this.state(), agents: [...new Set(agentIds)].slice(0, MAP_MAX_AGENTS) }, this.file);
+  /** Change la sélection (option active) et l'envoie. `teamIds` absent = équipes inchangées. */
+  async setAgents(agentIds: string[], teamIds?: string[]): Promise<MapState> {
+    saveMapState(
+      {
+        ...this.state(),
+        agents: [...new Set(agentIds)].slice(0, MAP_MAX_AGENTS),
+        ...(teamIds ? { teams: [...new Set(teamIds)].slice(0, MAP_MAX_TEAMS) } : {}),
+      },
+      this.file,
+    );
     return this.sync(true);
   }
 

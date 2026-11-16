@@ -324,18 +324,24 @@ interface MapSt {
   agents: string[];
   lastSyncAt?: string;
   lastError?: string;
+  teams: string[];
   site: string;
   refused: string[];
+  refusedTeams?: string[];
 }
-const mapState = ref<MapSt>({ enabled: false, agents: [], site: "https://mcfstudio.fr", refused: [] });
+const mapState = ref<MapSt>({ enabled: false, agents: [], teams: [], site: "https://mcfstudio.fr", refused: [] });
 const mapSelection = ref<string[]>([]);
+/** Équipes montrées sur la carte (aucune par défaut) : seuls leurs liens entre agents cochés partent. */
+const mapTeamSelection = ref<string[]>([]);
 const mapBusy = ref(false);
-const mapChanged = computed(() => [...mapSelection.value].sort().join() !== [...mapState.value.agents].sort().join());
+const same = (a: string[], b: string[]) => [...a].sort().join() === [...b].sort().join();
+const mapChanged = computed(() => !same(mapSelection.value, mapState.value.agents) || !same(mapTeamSelection.value, mapState.value.teams ?? []));
 
 async function loadMap() {
   try {
     mapState.value = await call<MapSt>("map.status");
     mapSelection.value = [...mapState.value.agents];
+    mapTeamSelection.value = [...(mapState.value.teams ?? [])];
   } catch {
     /* cœur arrêté */
   }
@@ -346,6 +352,7 @@ async function runMap(method: string, params: object, done: string) {
   try {
     mapState.value = await call<MapSt>(method, params, 6 * 60_000);
     mapSelection.value = [...mapState.value.agents];
+    mapTeamSelection.value = [...(mapState.value.teams ?? [])];
     toast(done, "success");
   } catch (e) {
     toast((e as Error).message, "error");
@@ -356,12 +363,13 @@ async function runMap(method: string, params: object, done: string) {
 }
 
 function setMapEnabled(enabled: boolean) {
-  if (enabled) void runMap("map.enable", { agents: mapSelection.value }, "Carte activée : tes agents cochés apparaîtront sur mcfstudio.fr");
+  if (enabled)
+    void runMap("map.enable", { agents: mapSelection.value, teams: mapTeamSelection.value }, "Carte activée : tes agents cochés apparaîtront sur mcfstudio.fr");
   else void runMap("map.disable", {}, "Tes agents ont été retirés de la carte");
 }
 
 function saveMapSelection() {
-  void runMap("map.setAgents", { agents: mapSelection.value }, "Sélection envoyée à la carte");
+  void runMap("map.setAgents", { agents: mapSelection.value, teams: mapTeamSelection.value }, "Sélection envoyée à la carte");
 }
 
 // ─── Accès des agents à tout le PC ───────────────────────────────────────────
@@ -808,7 +816,7 @@ const shortcuts: [string, string][] = [
         <h3 class="sec-title">Carte des agents</h3>
         <SettingRow
           label="Montrer mes agents sur la carte de mcfstudio.fr"
-          hint="Les noms des agents cochés et ton pseudo apparaissent sur la page publique Carte des agents, où ils se baladent au hasard. Rien d'autre ne part : ni consignes, ni modèle, ni conversations. Une à deux mises à jour par jour. L'activer ouvre ton navigateur pour autoriser MyIA sur mcfstudio.fr."
+          hint="Les noms des agents cochés et ton pseudo apparaissent sur la page publique Carte des agents, en réseau autour de toi. Rien d'autre ne part : ni consignes, ni modèle, ni conversations. Une à deux mises à jour par jour. L'activer ouvre ton navigateur pour autoriser MyIA sur mcfstudio.fr."
         >
           <Toggle :model-value="mapState.enabled" :disabled="mapBusy" @update:model-value="setMapEnabled" />
         </SettingRow>
@@ -818,6 +826,21 @@ const shortcuts: [string, string][] = [
             <span>{{ a.name }}</span>
           </label>
         </div>
+        <template v-if="state.teams.length">
+          <span class="small muted map-sub">Équipes à montrer <em class="tiny">(nom, chef et liens entre agents cochés ; aucune par défaut)</em></span>
+          <div class="map-agents">
+            <label v-for="t in state.teams" :key="t.id" class="map-agent">
+              <input v-model="mapTeamSelection" type="checkbox" :value="t.id" :disabled="mapBusy || mapTeamSelection.length >= 4 && !mapTeamSelection.includes(t.id)" />
+              <span>{{ t.name }}</span>
+            </label>
+          </div>
+          <p v-if="mapTeamSelection.some((id) => !mapSelection.includes(state.teams.find((t) => t.id === id)?.root.agentId ?? ''))" class="tiny muted">
+            Une équipe n'apparaît que si son chef est coché parmi les agents ; un agent non coché n'y figure jamais.
+          </p>
+          <p v-if="mapState.refusedTeams?.length" class="tiny err-text">
+            Noms d'équipe refusés par le site (lettres, chiffres, espaces et . _ ' - seulement, 40 caractères) : {{ mapState.refusedTeams.join(", ") }}
+          </p>
+        </template>
         <p v-if="mapState.refused.length" class="tiny err-text">
           Noms refusés par le site (lettres, chiffres, espaces et . _ ' - seulement, 40 caractères) : {{ mapState.refused.join(", ") }}
         </p>
@@ -1314,6 +1337,10 @@ const shortcuts: [string, string][] = [
   flex-wrap: wrap;
   gap: 6px 16px;
   margin: 8px 0;
+}
+.map-sub {
+  display: block;
+  margin-top: 6px;
 }
 .map-agent {
   display: inline-flex;
