@@ -46,7 +46,7 @@ export type Theme = z.infer<typeof ThemeSchema>;
 const dir = () => path.join(paths.home, "data", "themes");
 
 /** Ids réservés aux thèmes intégrés à l'app. */
-const BUILTIN = new Set(["volcano", "ember-light", "midnight"]);
+const BUILTIN = new Set(["volcano", "ember-light", "midnight", "abysses", "neon-nuit", "sauge"]);
 
 export function listThemes(): Theme[] {
   if (!fs.existsSync(dir())) return [];

@@ -11,6 +11,7 @@ import {
   FilePlus2,
   FolderOpen,
   FolderPlus,
+  ImagePlus,
   Info,
   Keyboard,
   MessagesSquare,
@@ -35,6 +36,7 @@ import { resetSettings, settings } from "../lib/settings";
 import { playSound, SOUND_PACKS, speak, stopSpeaking, voices } from "../lib/sound";
 import { refreshOverview, refreshSidecar, refreshThemes, restartSidecar, state, toast } from "../lib/store";
 import { BUILTIN_THEMES, exportTheme } from "../lib/themes";
+import { BACKGROUND_EXTENSIONS, clearWallpaper, setWallpaper, wallpaper } from "../lib/background";
 import type { Theme } from "../lib/types";
 import { checkForUpdate, update } from "../lib/update";
 import { applyPttKey, ptt } from "../lib/ptt";
@@ -64,6 +66,33 @@ const voiceList = ref<SpeechSynthesisVoice[]>([]);
 const appVersion = ref("");
 
 const fill = (v: number, min: number, max: number) => ({ "--fill": `${((v - min) / (max - min)) * 100}%` });
+
+const bg = a.background;
+const bgBusy = ref(false);
+async function pickBackground() {
+  const file = await openDialog({
+    multiple: false,
+    title: "Image de fond",
+    filters: [{ name: "Image (PNG, JPEG, WebP, GIF)", extensions: BACKGROUND_EXTENSIONS }],
+  });
+  if (typeof file !== "string") return;
+  bgBusy.value = true;
+  try {
+    await setWallpaper(file);
+    toast("Image de fond appliquée", "success");
+  } catch (e) {
+    toast(String((e as Error).message ?? e), "error");
+  } finally {
+    bgBusy.value = false;
+  }
+}
+async function removeBackground() {
+  try {
+    await clearWallpaper();
+  } catch (e) {
+    toast(String((e as Error).message ?? e), "error");
+  }
+}
 
 async function installTheme() {
   try {
@@ -884,6 +913,40 @@ const shortcuts: [string, string][] = [
         </section>
 
         <section class="card">
+          <div class="card-head">
+            <h3 class="sec-title">Image de fond</h3>
+            <div class="row">
+              <button class="btn sm" :disabled="bgBusy || !inTauri" @click="pickBackground">
+                <ImagePlus :size="14" /> {{ bg.file ? "Changer" : "Choisir une image" }}
+              </button>
+              <button v-if="bg.file" class="btn sm ghost danger" @click="removeBackground"><Trash2 :size="13" /> Retirer</button>
+            </div>
+          </div>
+          <img v-if="wallpaper.url" class="bg-preview" :src="wallpaper.url" alt="Aperçu de l'image de fond" />
+          <template v-if="bg.file">
+            <SettingRow label="Ajustement">
+              <div class="segmented">
+                <button :class="{ on: bg.fit === 'cover' }" @click="bg.fit = 'cover'">Remplir</button>
+                <button :class="{ on: bg.fit === 'contain' }" @click="bg.fit = 'contain'">Entière</button>
+                <button :class="{ on: bg.fit === 'tile' }" @click="bg.fit = 'tile'">Mosaïque</button>
+              </div>
+            </SettingRow>
+            <SettingRow label="Voile" :hint="`${bg.dim} % — assombrit (ou éclaircit) l'image pour garder le texte lisible`">
+              <input v-model.number="bg.dim" type="range" min="0" max="95" step="5" class="w-220" :style="fill(bg.dim, 0, 95)" />
+            </SettingRow>
+            <SettingRow label="Flou" :hint="`${bg.blur} px`">
+              <input v-model.number="bg.blur" type="range" min="0" max="24" step="1" class="w-220" :style="fill(bg.blur, 0, 24)" />
+            </SettingRow>
+            <SettingRow label="Opacité des panneaux" :hint="`${bg.panelOpacity} %`">
+              <input v-model.number="bg.panelOpacity" type="range" min="40" max="100" step="2" class="w-220" :style="fill(bg.panelOpacity, 40, 100)" />
+            </SettingRow>
+          </template>
+          <p class="tiny muted">
+            PNG, JPEG, WebP ou GIF animé, 12 Mo max. L'image est copiée dans les données de MyIA : tu peux déplacer ou supprimer l'originale.
+          </p>
+        </section>
+
+        <section class="card">
           <h3 class="sec-title">Affichage</h3>
           <SettingRow label="Lumières en fusion" hint="Halo orange autour des éléments actifs et fond ambiant.">
             <Toggle v-model="a.glow" />
@@ -1317,6 +1380,15 @@ const shortcuts: [string, string][] = [
 }
 .w-280 {
   width: 280px;
+}
+.bg-preview {
+  height: 120px;
+  margin-bottom: 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  width: 100%;
+  object-fit: cover;
+  display: block;
 }
 .themes {
   display: grid;
