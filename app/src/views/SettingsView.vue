@@ -951,6 +951,20 @@ const shortcuts: [string, string][] = [
                 <button :class="{ on: bg.fit === 'tile' }" @click="bg.fit = 'tile'">Mosaïque</button>
               </div>
             </SettingRow>
+            <SettingRow label="Taille" :hint="`${bg.size} %${bg.size < 100 && bg.fit !== 'tile' ? ' — image réduite, posée dans un coin ou au centre' : ''}`">
+              <div class="row">
+                <input v-model.number="bg.size" type="range" min="20" max="100" step="5" class="w-220" :style="fill(bg.size, 20, 100)" />
+                <button class="btn sm ghost" :disabled="bg.size === 50" title="Mode petite image" @click="bg.size = 50">Petite</button>
+              </div>
+            </SettingRow>
+            <SettingRow v-if="bg.size < 100 && bg.fit !== 'tile'" label="Position">
+              <div class="segmented">
+                <button :class="{ on: bg.anchor === 'center' }" @click="bg.anchor = 'center'">Centre</button>
+                <button :class="{ on: bg.anchor === 'bottom-right' }" @click="bg.anchor = 'bottom-right'">Bas droite</button>
+                <button :class="{ on: bg.anchor === 'bottom-left' }" @click="bg.anchor = 'bottom-left'">Bas gauche</button>
+                <button :class="{ on: bg.anchor === 'top-right' }" @click="bg.anchor = 'top-right'">Haut droite</button>
+              </div>
+            </SettingRow>
             <SettingRow label="Voile" :hint="`${bg.dim} % — assombrit (ou éclaircit) l'image pour garder le texte lisible`">
               <input v-model.number="bg.dim" type="range" min="0" max="95" step="5" class="w-220" :style="fill(bg.dim, 0, 95)" />
             </SettingRow>

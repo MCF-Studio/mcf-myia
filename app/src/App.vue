@@ -111,12 +111,21 @@ const wallpaperStyle = computed(() => {
   const b = settings.appearance.background;
   const fit = b.fit === "contain" || b.fit === "tile" ? b.fit : "cover";
   const blur = Math.min(24, Math.max(0, b.blur));
+  const scale = Math.min(100, Math.max(20, b.size)) / 100;
+  const anchor = ["bottom-right", "bottom-left", "top-right"].includes(b.anchor) ? b.anchor.replace("-", " ") : "center";
+  // Le flou fait baver les bords : on agrandit un peu le calque pour les cacher.
+  const bleed = blur * 2;
+  // Mosaïque réduite : calque agrandi de 1/scale puis rétréci, pour des carreaux plus petits sur toute la zone.
+  // Sinon : l'image entière est réduite et posée dans le coin choisi (mode « petite »).
+  const grow = fit === "tile" && scale < 1 ? ((1 / scale - 1) * 50).toFixed(3) : "0";
   return {
     backgroundSize: fit === "tile" ? "auto" : fit,
     backgroundRepeat: fit === "tile" ? "repeat" : "no-repeat",
     filter: blur ? `blur(${blur}px)` : undefined,
-    // Le flou fait baver les bords : on agrandit un peu le calque pour les cacher.
-    inset: blur ? `-${blur * 2}px` : "0",
+    inset: `calc(-${grow}% - ${bleed}px)`,
+    transform: scale < 1 ? `scale(${scale})` : undefined,
+    transformOrigin: fit === "tile" ? "center" : anchor,
+    borderRadius: scale < 1 && fit !== "tile" ? "var(--radius-lg)" : undefined,
   };
 });
 // L'image (data: URL de plusieurs Mo) est posée une seule fois, hors du style réactif : bouger un curseur
