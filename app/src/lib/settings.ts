@@ -16,6 +16,10 @@ export const DEFAULT_SETTINGS = {
     fontScale: 100,
     reduceMotion: false,
     sidebarCollapsed: false,
+    /** Vue Agents : liste, grille ou carte (réseau des agents et de leurs équipes). */
+    agentsLayout: "list" as "list" | "grid" | "map",
+    /** Vue Équipes : carte de l'équipe affichée au-dessus de l'éditeur. */
+    teamMap: true,
     /** Image de fond (copie gérée par le sidecar dans data/backgrounds/ ; vide = aucune). */
     background: {
       file: "",

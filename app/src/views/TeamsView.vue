@@ -22,6 +22,10 @@ import FichesPicker from "../components/FichesPicker.vue";
 import ModalBox from "../components/ModalBox.vue";
 import PublishDialog from "../components/PublishDialog.vue";
 import TeamNodeView from "../components/TeamNodeView.vue";
+import AgentTopology from "../components/AgentTopology.vue";
+import { useAgentStatus } from "../lib/agentStatus";
+import { settings } from "../lib/settings";
+import { teamGraph } from "../lib/topology";
 import TeamScripts from "../components/TeamScripts.vue";
 import WorkflowPreviewDialog from "../components/WorkflowPreviewDialog.vue";
 import { downloadText, pickTextFile } from "../lib/files";
@@ -32,6 +36,9 @@ import type { Team, TeamNode, WorkflowInstalled, WorkflowPreview } from "../lib/
 
 const selectedId = ref<string>();
 const draft = ref<Team>();
+const statusOf = useAgentStatus();
+/** Carte de l'équipe en cours d'édition : suit les modifications avant même l'enregistrement. */
+const teamMapGraph = computed(() => (draft.value ? teamGraph(draft.value, state.agents, statusOf.value) : { nodes: [], edges: [] }));
 const dirty = ref(false);
 const isNew = ref(false);
 const armed = ref(false);
@@ -445,6 +452,13 @@ watch(
           </div>
         </div>
 
+        <div class="team-map">
+          <button type="button" class="btn sm ghost map-toggle" :aria-expanded="settings.appearance.teamMap" @click="settings.appearance.teamMap = !settings.appearance.teamMap">
+            <Network :size="14" /> {{ settings.appearance.teamMap ? "Masquer la carte" : "Afficher la carte de l'équipe" }}
+          </button>
+          <AgentTopology v-if="settings.appearance.teamMap" :graph="teamMapGraph" :title="draft.name.trim() || 'Nouvelle équipe'" :height="360" />
+        </div>
+
         <div
           ref="canvas"
           class="canvas card"
@@ -489,6 +503,18 @@ watch(
 </template>
 
 <style scoped>
+.team-map {
+  position: relative;
+}
+.map-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+}
+.team-map > .map-toggle:only-child {
+  position: static;
+}
 .teams {
   display: flex;
   flex-direction: column;

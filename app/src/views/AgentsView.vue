@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Bot, Camera, ChevronDown, ChevronUp, Crown, Copy, Download, FolderOpen, MessageSquarePlus, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
+import { Bot, Camera, ChevronDown, ChevronUp, Crown, Copy, Download, FolderOpen, LayoutGrid, List, MessageSquarePlus, Network, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
+import AgentTopology from "../components/AgentTopology.vue";
+import { useAgentStatus } from "../lib/agentStatus";
+import { settings } from "../lib/settings";
+import { agentsGraph } from "../lib/topology";
 import Toggle from "../components/Toggle.vue";
 import { downloadText, pickAvatar, pickTextFile } from "../lib/files";
 import { agentColor } from "../lib/format";
@@ -42,6 +46,22 @@ async function chooseWorkspace() {
 const masterOther = computed(() => state.agents.find((a) => a.master && a.id !== form.id)?.name);
 
 const usage = computed(() => new Map((state.overview?.agents ?? []).map((a) => [a.id, a])));
+
+// ─── Affichage : liste, grille ou carte ──────────────────────────────────────
+const MODES = [
+  { id: "list", label: "Liste", icon: List },
+  { id: "grid", label: "Grille", icon: LayoutGrid },
+  { id: "map", label: "Carte", icon: Network },
+] as const;
+const mode = computed(() => (["list", "grid", "map"].includes(settings.appearance.agentsLayout) ? settings.appearance.agentsLayout : "list"));
+const statusOf = useAgentStatus();
+const graph = computed(() => agentsGraph(state.agents, state.teams, statusOf.value));
+const editorEl = ref<HTMLFormElement>();
+/** En grille et en carte, l'éditeur est sous la vue d'ensemble : on y descend quand on choisit un agent. */
+function pick(a?: AgentProfile) {
+  load(a);
+  if (mode.value !== "list") requestAnimationFrame(() => editorEl.value?.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
 
 function slug(s: string) {
   return (
@@ -201,29 +221,35 @@ async function move(id: string, dir: -1 | 1) {
         <p>Chaque agent a son nom, son modèle, son ton et les services qu'il a le droit d'utiliser.</p>
       </div>
       <div class="row">
+        <div class="segmented" role="group" aria-label="Affichage des agents">
+          <button v-for="m in MODES" :key="m.id" :class="{ on: mode === m.id }" :aria-pressed="mode === m.id" :title="m.label" @click="settings.appearance.agentsLayout = m.id">
+            <component :is="m.icon" :size="15" /> {{ m.label }}
+          </button>
+        </div>
         <button class="btn" @click="importFile"><Upload :size="16" /> Importer</button>
-        <button class="btn primary" @click="load()"><Plus :size="16" /> Nouvel agent</button>
+        <button class="btn primary" @click="pick()"><Plus :size="16" /> Nouvel agent</button>
       </div>
     </header>
 
-    <div class="layout">
-      <div class="agent-cards">
+    <div class="layout" :class="`mode-${mode}`">
+      <AgentTopology v-if="mode === 'map'" :graph="graph" :selected="isNew ? undefined : selected" :height="460" @select="(id) => pick(state.agents.find((a) => a.id === id))" />
+      <div v-else class="agent-cards">
         <TransitionGroup name="reorder" tag="div" class="agent-list">
           <div v-for="(a, i) in state.agents" :key="a.id" class="agent-row">
             <button
               class="agent-card card"
               :class="{ active: selected === a.id && !isNew }"
               :style="{ '--c': agentColor(a) }"
-              @click="load(a)"
+              @click="pick(a)"
             >
-              <AgentAvatar :agent="a" :size="42" :busy="(usage.get(a.id)?.busy ?? 0) > 0" />
+              <AgentAvatar :agent="a" :size="mode === 'grid' ? 64 : 42" :busy="(usage.get(a.id)?.busy ?? 0) > 0" />
               <div class="agent-card-meta">
                 <strong>{{ a.name }}</strong>
                 <span class="mono tiny muted">{{ a.model ?? `${state.overview?.defaultModel ?? ""} (défaut)` }}</span>
                 <span class="tiny muted">{{ usage.get(a.id)?.conversations ?? 0 }} conversation(s)</span>
               </div>
             </button>
-            <div v-if="state.agents.length > 1" class="order">
+            <div v-if="state.agents.length > 1 && mode === 'list'" class="order">
               <button type="button" :disabled="i === 0" :title="`Monter ${a.name}`" :aria-label="`Monter ${a.name}`" @click="move(a.id, -1)">
                 <ChevronUp :size="15" />
               </button>
@@ -245,7 +271,7 @@ async function move(id: string, dir: -1 | 1) {
         </button>
       </div>
 
-      <form class="card editor" @submit.prevent="save">
+      <form ref="editorEl" class="card editor" @submit.prevent="save">
         <div class="editor-head">
           <div class="avatar-edit">
             <AgentAvatar
@@ -405,6 +431,42 @@ async function move(id: string, dir: -1 | 1) {
   grid-template-columns: 300px 1fr;
   gap: var(--gap);
   align-items: start;
+}
+.layout.mode-grid,
+.layout.mode-map {
+  grid-template-columns: 1fr;
+}
+.editor {
+  scroll-margin-top: 16px;
+}
+.mode-grid .agent-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+.mode-grid .agent-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+.mode-grid .agent-cards > .agent-list {
+  grid-column: 1 / -1;
+}
+.mode-grid .agent-card {
+  flex-direction: column;
+  text-align: center;
+  padding: 18px 12px 14px;
+  height: 100%;
+}
+.mode-grid .agent-row .agent-card {
+  padding-right: 12px;
+}
+.mode-grid .agent-card-meta {
+  align-items: center;
+}
+.segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .agent-cards {
   display: flex;
