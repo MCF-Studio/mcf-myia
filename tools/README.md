@@ -34,7 +34,7 @@ Chaque manifeste déclare `risk`, avec les définitions de SPEC §3 :
 | ---------- | --------------------------------------------------------------------------------------- | --------------------------------------------- |
 | `read`     | lecture, recherche, analyse, git en lecture, vérifications d'environnement              | exécuté sans demander                         |
 | `launch`   | `folder_open`, `notification_send`                                                      | sans demander, si `app.launch` est accordée   |
-| `local`    | `text_write`, `text_patch`, les 15 outils `images`, `texture_convert`, `texture_resize`, `cargo_*`, `godot_headless_check`, `app_launch` | **confirmation** |
+| `local`    | `text_write`, `text_patch`, les 15 outils `images`, `texture_convert`, `texture_resize`, `cargo_*`, `tauri_build`, `godot_headless_check`, `app_launch` | **confirmation** |
 | `external` | `url_open`                                                                              | **confirmation toujours**                     |
 
 Un outil `local` ou `external` lancé sans `--confirmed` **n'exécute rien** : il renvoie `ConfirmationRequired` et un
@@ -53,7 +53,7 @@ programme ou sort de la machine doit être ajouté **explicitement** à `granted
 | Permission              | Outils                                                                 |
 | ----------------------- | ---------------------------------------------------------------------- |
 | `process.exec.readonly` | `git_status`, `git_log`, `git_diff`, `environment_check`, `rust_environment_check` |
-| `process.exec`          | `cargo_check`, `cargo_test`, `cargo_build`, `cargo_clippy`, `cargo_fmt_check`, `godot_headless_check` (exécutent le code du projet) |
+| `process.exec`          | `cargo_check`, `cargo_test`, `cargo_build`, `cargo_clippy`, `cargo_fmt_check`, `tauri_build`, `godot_headless_check` (exécutent le code du projet) |
 | `app.launch`            | `app_launch`, `folder_open`, `notification_send`                       |
 | `url.open`              | `url_open` (ouvrir une adresse = canal de sortie de données)           |
 | `network.local`         | `server_check` (127.0.0.1 uniquement)                                  |
@@ -103,13 +103,13 @@ programme ou sort de la machine doit être ajouté **explicitement** à `granted
    `safety.check_text_target`), contrôles sur le chemin FINAL.
 6. Ajouter un test dans `tools/tests/` pour chaque refus.
 
-## Existants (47)
+## Existants (48)
 system : environment_check, app_catalog, app_launch, url_open, folder_open, notification_send
 files : file_search, folder_tree, text_read, text_write, text_patch
 dev : code_search, code_symbols, project_scan, syntax_check, log_analyzer, todo_scan, server_check
 git : git_status, git_log, git_diff
 godot : godot_project_inspector, godot_headless_check
-rust : cargo_check, cargo_test, cargo_build, cargo_clippy, cargo_fmt_check, rust_environment_check
+rust : cargo_check, cargo_test, cargo_build, cargo_clippy, cargo_fmt_check, tauri_build, rust_environment_check
 textures : texture_info, texture_resize, texture_convert
 images : image_color_replace, image_overlay, image_fit, image_adjust, image_crop, image_transform, image_text,
          image_palette, image_frame, image_generate, image_icon_create, image_sprite_sheet, image_app_icons,

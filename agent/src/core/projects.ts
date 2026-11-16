@@ -139,6 +139,19 @@ function tauriCli(dir: string, pm: string, args: string[]): string[] {
   return nodeCmd([pm, "exec", "tauri", ...args]);
 }
 
+/** Sous-dossier direct dont le package.json déclare @tauri-apps/cli, s'il n'y en a qu'un. */
+function tauriFrontend(dir: string): string | undefined {
+  const found = subdirs(dir).filter((s) => {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(dir, s, "package.json"), "utf8")) as Record<string, Record<string, string> | undefined>;
+      return Boolean(pkg.dependencies?.["@tauri-apps/cli"] ?? pkg.devDependencies?.["@tauri-apps/cli"]);
+    } catch {
+      return false;
+    }
+  });
+  return found.length === 1 ? path.join(dir, found[0]!) : undefined;
+}
+
 // ───────────── Détection ─────────────
 
 interface Component {
@@ -179,8 +192,20 @@ export function componentAt(dir: string, godotExes: Record<string, string>): Com
     c.kinds.push("tauri");
     const pm = packageManager(dir);
     const rs = path.join(dir, "src-tauri");
-    c.targets.build = { argv: tauriCli(dir, pm, ["build"]), cwd: dir };
-    c.targets["build-debug"] = { argv: tauriCli(dir, pm, ["build", "--debug"]), cwd: dir };
+    const front = exists(dir, "package.json") ? undefined : tauriFrontend(dir);
+    if (front) {
+      // Frontend dans un sous-dossier (racine sans package.json) : CLI Tauri de ce sous-dossier lancé par node, depuis
+      // src-tauri. Lancé depuis la racine, il prendrait le frontend pour le dossier de l'application et le
+      // beforeBuildCommand (chemins relatifs à la racine) échouerait.
+      const cli = path.join(front, "node_modules", "@tauri-apps", "cli", "tauri.js");
+      c.targets.build = { argv: ["node", cli, "build"], cwd: rs };
+      c.targets["build-debug"] = { argv: ["node", cli, "build", "--debug"], cwd: rs };
+      c.targets.exe = { argv: ["node", cli, "build", "--no-bundle"], cwd: rs };
+    } else {
+      c.targets.build = { argv: tauriCli(dir, pm, ["build"]), cwd: dir };
+      c.targets["build-debug"] = { argv: tauriCli(dir, pm, ["build", "--debug"]), cwd: dir };
+      c.targets.exe = { argv: tauriCli(dir, pm, ["build", "--no-bundle"]), cwd: dir };
+    }
     c.targets.check = { argv: ["cargo", "check"], cwd: rs };
     c.targets.test = { argv: ["cargo", "test"], cwd: rs };
     if (readScripts(dir).build) c.targets.front = { argv: runScript(pm, "build"), cwd: dir };
