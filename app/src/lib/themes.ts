@@ -152,6 +152,32 @@ export const BUILTIN_THEMES: Theme[] = [
       danger: "#c8392f",
     },
   },
+  {
+    // Clair doux : fond crème, panneaux blanc cassé (jamais de blanc pur), texte brun foncé plutôt que noir.
+    id: "lin",
+    name: "Lin (crème)",
+    author: "MCF Studio",
+    version: "1.0.0",
+    mode: "light",
+    radius: "round",
+    builtin: true,
+    colors: {
+      bg: "#efe7d9",
+      "bg-elevated": "#f4ede1",
+      surface: "#f9f4ea",
+      "surface-2": "#ece3d3",
+      border: "#ddd0bc",
+      text: "#3b3229",
+      "text-muted": "#7a6c5c",
+      accent: "#a55a2a",
+      "accent-2": "#9a7d3a",
+      "accent-contrast": "#fdf8ef",
+      glow: "rgba(165, 90, 42, 0.16)",
+      success: "#4d8358",
+      warning: "#a87b22",
+      danger: "#b4483a",
+    },
+  },
 ];
 
 const RADIUS = { sharp: ["4px", "6px", "8px"], normal: ["8px", "12px", "18px"], round: ["12px", "18px", "26px"] };

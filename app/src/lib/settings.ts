@@ -25,6 +25,9 @@ export const DEFAULT_SETTINGS = {
       blur: 0,
       /** Opacité des panneaux quand une image est affichée, en %. */
       panelOpacity: 82,
+      /** Taille de l'image en % de la zone (100 = toute la zone) ; en dessous, elle est réduite et ancrée selon `anchor`. */
+      size: 100,
+      anchor: "center" as "center" | "bottom-right" | "bottom-left" | "top-right",
     },
   },
   conversations: {
