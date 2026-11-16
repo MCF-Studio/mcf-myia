@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentsMap, loadMapState, mapNames, saveMapState } from "./agents-map.js";
+import { AgentsMap, loadMapState, mapNames, mapTeams, saveMapState, type MapState } from "./agents-map.js";
+import type { Team, TeamNode } from "./teams.js";
 import type { AgentProfile } from "./profiles.js";
 
 const profiles: AgentProfile[] = [
@@ -13,10 +14,17 @@ const profiles: AgentProfile[] = [
 
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "myia-map-")), "agents-map.json");
 
-function setup(state: Parameters<typeof saveMapState>[0]) {
+const node = (agentId: string, subagents: TeamNode[] = [], teammates: TeamNode[] = []): TeamNode => ({ id: `n-${agentId}`, agentId, subagents, teammates });
+const teams: Team[] = [
+  { id: "studio", name: "Studio  jeu", root: node("forgeron", [node("cache", [node("redac")])], [node("redac")]), maxCalls: 6, maxDepth: 3 },
+  { id: "privee", name: "Équipe <secrète>", root: node("forgeron"), maxCalls: 6, maxDepth: 3 },
+  { id: "sans-chef", name: "Sans chef", root: node("cache", [node("forgeron")]), maxCalls: 6, maxDepth: 3 },
+];
+
+function setup(state: Omit<MapState, "teams"> & { teams?: string[] }) {
   const file = tmpFile();
-  saveMapState(state, file);
-  const map = new AgentsMap("https://mcfstudio.test", () => profiles, () => undefined, file);
+  saveMapState({ teams: [], ...state }, file);
+  const map = new AgentsMap("https://mcfstudio.test", () => profiles, () => undefined, file, () => teams);
   const account = { accessToken: vi.fn(async () => "jeton"), login: vi.fn(async () => undefined), logout: vi.fn(async () => undefined) };
   (map as unknown as { account: typeof account }).account = account;
   const calls: { method: string; body?: string; auth?: string }[] = [];
@@ -34,10 +42,30 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("carte des agents (MyIA)", () => {
   it("désactivée par défaut, et un fichier illisible vaut « désactivée »", () => {
-    expect(loadMapState(tmpFile())).toEqual({ enabled: false, agents: [] });
+    expect(loadMapState(tmpFile())).toEqual({ enabled: false, agents: [], teams: [] });
     const f = tmpFile();
     fs.writeFileSync(f, "pas du json");
     expect(loadMapState(f).enabled).toBe(false);
+  });
+
+  it("équipes : seulement celles cochées, avec un chef montré, et les liens entre agents montrés", () => {
+    const profilesWithHidden = [...profiles, { id: "cache", name: "Caché" }];
+    const r = mapTeams(profilesWithHidden, teams, ["forgeron", "redac"], ["studio", "privee", "sans-chef", "inconnue"]);
+    // « Caché » n'est pas coché : ni nœud, ni lien à travers lui (Forgeron → Caché → Rédac ne devient pas Forgeron → Rédac).
+    expect(r.teams).toEqual([{ name: "Studio jeu", lead: "Forgeron", links: [{ from: "Forgeron", to: "Rédac'", kind: "mate" }] }]);
+    expect(r.refused).toEqual(["Équipe <secrète>"]);
+    expect(JSON.stringify(r)).not.toContain("Caché");
+  });
+
+  it("l'envoi joint les équipes cochées ; sans équipe, le champ est absent", async () => {
+    const { map, calls } = setup({ enabled: true, agents: ["forgeron", "redac"], teams: ["studio"] });
+    await map.sync(true);
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      agents: ["Forgeron", "Rédac'"],
+      teams: [{ name: "Studio jeu", lead: "Forgeron", links: [{ from: "Forgeron", to: "Rédac'", kind: "mate" }] }],
+    });
+    await map.setAgents(["forgeron", "redac"], []);
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ agents: ["Forgeron", "Rédac'"] });
   });
 
   it("seuls les noms des agents cochés partent ; un nom hors règles du site est signalé, pas envoyé", () => {

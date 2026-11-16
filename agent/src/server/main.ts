@@ -17,7 +17,7 @@ import { API_KEY_SECRET, apiKeyStatus, CLAUDE_API_MODELS, verifyApiKey } from ".
 import { deleteSecret, setSecret } from "../core/secrets.js";
 import { decide, journal, loadGuild, OfferSchema, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
-import { AgentsMap, mapNames } from "../core/agents-map.js";
+import { AgentsMap, mapNames, mapTeams } from "../core/agents-map.js";
 import { deviceKeys } from "../core/guild-crypto.js";
 import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
@@ -1057,25 +1057,33 @@ function patchConfig(mutate: (raw: Record<string, any>) => void) {
 let mcf = new McfAccount(cfg.site.url, { openBrowser: openInBrowser });
 
 // ─── Carte des agents de mcfstudio.fr (option, noms d'agents seulement) ─────────
-let agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser);
+let agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser, undefined, () => teams);
 agentsMap.start();
 let mapLogin: AbortController | undefined;
 
 const mapStatus = () => {
   const s = agentsMap.state();
-  return { ...s, site: cfg.site.url, refused: mapNames(profiles, s.agents).refused };
+  return {
+    ...s,
+    site: cfg.site.url,
+    refused: mapNames(profiles, s.agents).refused,
+    refusedTeams: mapTeams(profiles, teams, s.agents, s.teams).refused,
+  };
 };
 
 rpc.method("map.status", () => mapStatus());
 
-const MapAgentsParam = z.object({ agents: z.array(z.string().max(40)).max(12) });
+const MapAgentsParam = z.object({
+  agents: z.array(z.string().max(40)).max(12),
+  teams: z.array(z.string().max(40)).max(4).optional(),
+});
 
 rpc.method("map.enable", async (params) => {
-  const { agents } = parse(MapAgentsParam, params);
+  const { agents, teams: teamIds } = parse(MapAgentsParam, params);
   if (mapLogin) throw new Error("autorisation déjà en cours dans le navigateur");
   mapLogin = new AbortController();
   try {
-    await agentsMap.enable(agents, mapLogin.signal);
+    await agentsMap.enable(agents, mapLogin.signal, teamIds);
   } finally {
     mapLogin = undefined;
   }
@@ -1088,7 +1096,8 @@ rpc.method("map.cancelLogin", () => {
 });
 
 rpc.method("map.setAgents", async (params) => {
-  await agentsMap.setAgents(parse(MapAgentsParam, params).agents);
+  const { agents, teams: teamIds } = parse(MapAgentsParam, params);
+  await agentsMap.setAgents(agents, teamIds);
   return mapStatus();
 });
 
@@ -1668,7 +1677,7 @@ rpc.method("config.reload", async () => {
   market = new Market(cfg.site.url, openInBrowser);
   await scriptsChanged();
   agentsMap.stop();
-  agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser);
+  agentsMap = new AgentsMap(cfg.site.url, () => profiles, openInBrowser, undefined, () => teams);
   agentsMap.start();
   stopLink();
   void startLink();
