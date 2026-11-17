@@ -1,0 +1,39 @@
+{
+  "name": "blender_export_glb",
+  "version": "1.0.0",
+  "description": "Exporte un .blend en .glb pour Godot (Y en haut, modificateurs appliqués, suffixe -col des collisions gardé, suffixes .001 retirés) dans le dossier output, puis rouvre le .glb et compare objets et triangles (gaps = écarts trouvés).",
+  "category": "blender",
+  "risk": "local",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "file": {
+      "type": "string",
+      "kind": "path",
+      "required": true,
+      "description": "Fichier .blend à exporter."
+    },
+    "output": {
+      "type": "string",
+      "kind": "path",
+      "access": "write",
+      "required": true,
+      "description": "Dossier où écrire <nom>.glb."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer un .glb existant (défaut false : refus)."
+    },
+    "timeout": {
+      "type": "integer",
+      "min": 5,
+      "max": 600,
+      "description": "Délai maximal en secondes (défaut 300, 600 au plus) : Blender est arrêté au-delà."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write",
+    "process.exec"
+  ]
+}

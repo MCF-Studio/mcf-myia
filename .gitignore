@@ -18,6 +18,7 @@ workspace/
 # Boîte à outils : politique et catalogue d'applications du poste (modèles publiés : *.example.json)
 tools/policy.json
 tools/apps.json
+tools/blender.json
 
 # Notes personnelles hors projet
 opencode-godot-setup.md

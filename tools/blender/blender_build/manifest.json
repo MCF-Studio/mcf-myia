@@ -1,0 +1,39 @@
+{
+  "name": "blender_build",
+  "version": "1.0.0",
+  "description": "Construit un objet 3D depuis une spec JSON (pièces, matériaux, collisions, pièces animées), sans écrire de code : enregistre <name>.blend et exporte <name>.glb optimisé pour Godot dans le dossier output. Formes : box, boxz, obox, cyl, cyl_between, torus, prism, lathe, tube, heightfield, mesh ; regroupements mirror, array, group, hinged. Mètres et degrés, Z en haut, face avant vers -Y. RÈGLE : ce qui est plaqué sur une surface en est décollé d'au moins 5 mm ou y entre, et deux pièces qui s'aboutent n'ont pas de bord commun (l'une entre dans l'autre), sinon blender_qa échoue (z-fighting). Une erreur de spec renvoie le chemin JSON fautif. Exemples : tools/blender/examples/. Ensuite : blender_qa sur le .glb.",
+  "category": "blender",
+  "risk": "local",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "spec": {
+      "type": "string",
+      "kind": "path",
+      "required": true,
+      "description": "Fichier .json de la spec (voir tools/blender/README.md)."
+    },
+    "output": {
+      "type": "string",
+      "kind": "path",
+      "access": "write",
+      "required": true,
+      "description": "Dossier où écrire <name>.glb et <name>.blend."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer des fichiers existants (défaut false : refus)."
+    },
+    "timeout": {
+      "type": "integer",
+      "min": 5,
+      "max": 600,
+      "description": "Délai maximal en secondes (défaut 300, 600 au plus) : Blender est arrêté au-delà."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write",
+    "process.exec"
+  ]
+}

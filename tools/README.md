@@ -34,7 +34,7 @@ Chaque manifeste déclare `risk`, avec les définitions de SPEC §3 :
 | ---------- | --------------------------------------------------------------------------------------- | --------------------------------------------- |
 | `read`     | lecture, recherche, analyse, git en lecture, vérifications d'environnement              | exécuté sans demander                         |
 | `launch`   | `folder_open`, `notification_send`                                                      | sans demander, si `app.launch` est accordée   |
-| `local`    | `text_write`, `text_patch`, les 15 outils `images`, `texture_convert`, `texture_resize`, `cargo_*`, `tauri_build`, `godot_headless_check`, `app_launch` | **confirmation** |
+| `local`    | `text_write`, `text_patch`, les 15 outils `images`, `texture_convert`, `texture_resize`, `cargo_*`, `tauri_build`, `godot_headless_check`, `blender_build`, `blender_render_views`, `blender_export_glb`, `app_launch` | **confirmation** |
 | `external` | `url_open`                                                                              | **confirmation toujours**                     |
 
 Un outil `local` ou `external` lancé sans `--confirmed` **n'exécute rien** : il renvoie `ConfirmationRequired` et un
@@ -52,8 +52,8 @@ programme ou sort de la machine doit être ajouté **explicitement** à `granted
 
 | Permission              | Outils                                                                 |
 | ----------------------- | ---------------------------------------------------------------------- |
-| `process.exec.readonly` | `git_status`, `git_log`, `git_diff`, `environment_check`, `rust_environment_check` |
-| `process.exec`          | `cargo_check`, `cargo_test`, `cargo_build`, `cargo_clippy`, `cargo_fmt_check`, `tauri_build`, `godot_headless_check` (exécutent le code du projet) |
+| `process.exec.readonly` | `git_status`, `git_log`, `git_diff`, `environment_check`, `rust_environment_check`, `blender_info`, `blender_inspect`, `blender_qa` |
+| `process.exec`          | `cargo_check`, `cargo_test`, `cargo_build`, `cargo_clippy`, `cargo_fmt_check`, `tauri_build`, `godot_headless_check` (exécutent le code du projet), `blender_build`, `blender_render_views`, `blender_export_glb` |
 | `app.launch`            | `app_launch`, `folder_open`, `notification_send`                       |
 | `url.open`              | `url_open` (ouvrir une adresse = canal de sortie de données)           |
 | `network.local`         | `server_check` (127.0.0.1 uniquement)                                  |
@@ -118,7 +118,7 @@ Paramètres > Boîte à outils de l'app : « Copier la convention » copie [CONV
 - Copie dans `tools/imports/<nom>/` (local, ignoré par git). Un outil dont la permission n'est pas accordée dans
   `policy.json` reste désactivé.
 
-## Existants (48)
+## Existants (55)
 system : environment_check, app_catalog, app_launch, url_open, folder_open, notification_send
 files : file_search, folder_tree, text_read, text_write, text_patch
 dev : code_search, code_symbols, project_scan, syntax_check, log_analyzer, todo_scan, server_check
@@ -126,6 +126,8 @@ git : git_status, git_log, git_diff
 godot : godot_project_inspector, godot_headless_check
 rust : cargo_check, cargo_test, cargo_build, cargo_clippy, cargo_fmt_check, tauri_build, rust_environment_check
 textures : texture_info, texture_resize, texture_convert
+blender : blender_info, blender_inspect, blender_build, blender_qa, blender_render_views, blender_export_glb,
+          polyhaven_find (voir [blender/README.md](blender/README.md))
 images : image_color_replace, image_overlay, image_fit, image_adjust, image_crop, image_transform, image_text,
          image_palette, image_frame, image_generate, image_icon_create, image_sprite_sheet, image_app_icons,
          image_compare, image_optimize
@@ -143,11 +145,13 @@ Un GIF animé est traité sur sa première image.
     python -m unittest discover -s tools/tests -v
 
 `test_images.py` (comportement des outils images), `test_images_safety.py` (écrasements, tailles, décodeurs),
-`test_manager.py` (politique, niveaux de risque, confirmation, écritures interdites, git, applications). Ils tournent
+`test_manager.py` (politique, niveaux de risque, confirmation, écritures interdites, git, applications),
+`test_blender.py` (spec, ligne de commande, empreintes, .blend et .glb piégés, polyhaven_find ; avec
+`MYIA_TEST_BLENDER=1`, le vrai Blender 5.2 du poste). Ils tournent
 dans la CI (job `tools`, Windows, Python 3.13, Pillow figé) et ne dépendent d'aucun chemin du poste.
 
 ## À faire (priorités du doc, §8)
-blender_* (blender en `--background`), compétences composées (§5), boîte à outils et Python embarqués dans
+compétences composées (§5), boîte à outils et Python embarqués dans
 l'installateur.
 
 ## Compatibilité

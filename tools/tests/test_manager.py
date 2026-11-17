@@ -109,7 +109,7 @@ class Manifests(Base):
         tools, problems = tm.discover()
         self.assertEqual(problems, [])
         tools = {n: v for n, v in tools.items() if v[0].parent.name != "imports"}    # outils importés sur ce poste
-        self.assertEqual(len(tools), 48)
+        self.assertEqual(len(tools), 55)
         for name, (folder, m) in tools.items():
             self.assertIn(m["risk"], safety.RISKS, name)
             perms = m["permissions"]

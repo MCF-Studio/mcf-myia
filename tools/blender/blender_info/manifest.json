@@ -1,0 +1,13 @@
+{
+  "name": "blender_info",
+  "version": "1.0.0",
+  "description": "Version et chemin de Blender (5.2 LTS attendu), formes et matériaux du kit que connaît blender_build, état de la bibliothèque Poly Haven. À appeler une fois avant de modéliser.",
+  "category": "blender",
+  "risk": "read",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {},
+  "permissions": [
+    "process.exec.readonly"
+  ]
+}

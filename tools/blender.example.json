@@ -1,0 +1,8 @@
+{
+  "_doc": [
+    "MODÈLE de configuration des outils blender_*. Copier ce fichier en tools/blender.json (local, ignoré par git) et y mettre les chemins de CE poste.",
+    "polyhaven_library : dossier de la bibliothèque Poly Haven (CC0) avec son manifest.json, en lecture seule. Utilisé par polyhaven_find et par les matériaux polyhaven / kit de blender_build.",
+    "Blender lui-même se déclare dans tools/apps.json (entrée « blender », Blender 5.2 LTS) ; ses outils demandent process.exec.readonly et process.exec dans tools/policy.json."
+  ],
+  "polyhaven_library": "C:/chemin/vers/polyhaven"
+}
