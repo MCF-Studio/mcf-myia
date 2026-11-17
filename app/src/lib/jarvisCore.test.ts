@@ -1,7 +1,7 @@
 // Tests de l'assistant vocal (onglet Jarvis). Lancés par `npm test` (node --test, types retirés par Node).
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { DEFAULT_VAD, detectWake, distance, greeting, isPhantom, localIntent, normalize, vadStep, type VadState } from "./jarvisCore.ts";
+import { dayKey, DEFAULT_VAD, detectWake, distance, finishedAgents, greeting, isPhantom, localIntent, normalize, sentinelCheck, vadStep, type VadState } from "./jarvisCore.ts";
 
 describe("mot d'éveil", () => {
   it("nom en début de phrase, ponctuation retirée", () => {
@@ -81,5 +81,39 @@ describe("détection de parole", () => {
     const out = run(steps);
     assert.equal(out.includes("end"), false);
     assert.equal(out.at(-1), "restart");
+  });
+});
+
+describe("sentinelle", () => {
+  it("alerte seulement après un dépassement prolongé, puis se tait pendant le délai", () => {
+    const mem = { highSince: {}, lastAlert: {} };
+    const hot = { cpu: 10, ramPct: 40, gpuTemp: 90 };
+    assert.deepEqual(sentinelCheck(hot, mem, 0), []);
+    assert.deepEqual(sentinelCheck(hot, mem, 5_000), []);
+    const a = sentinelCheck(hot, mem, 11_000);
+    assert.equal(a.length, 1);
+    assert.equal(a[0]!.key, "gpuTemp");
+    assert.match(a[0]!.text, /90 degrés/);
+    assert.deepEqual(sentinelCheck(hot, mem, 60_000), []);
+    assert.equal(sentinelCheck(hot, mem, 11_000 + 10 * 60_000).length, 1);
+  });
+  it("un retour sous le seuil remet le compteur à zéro", () => {
+    const mem = { highSince: {}, lastAlert: {} };
+    sentinelCheck({ cpu: 99, ramPct: 0 }, mem, 0);
+    sentinelCheck({ cpu: 20, ramPct: 0 }, mem, 20_000);
+    assert.deepEqual(sentinelCheck({ cpu: 99, ramPct: 0 }, mem, 35_000), []);
+    assert.equal(sentinelCheck({ cpu: 99, ramPct: 0 }, mem, 66_000).length, 1);
+  });
+  it("agents qui viennent de finir (jamais MASTER)", () => {
+    const prev = { a: 1, b: 0, m: 1 };
+    const cur = [
+      { id: "a", name: "Dev", busy: 0 },
+      { id: "b", name: "Graph", busy: 0 },
+      { id: "m", name: "Atlas", busy: 0, master: true },
+    ];
+    assert.deepEqual(finishedAgents(prev, cur), ["Dev"]);
+  });
+  it("clé du jour", () => {
+    assert.equal(dayKey(new Date(2026, 0, 5, 23, 59)), "2026-01-05");
   });
 });

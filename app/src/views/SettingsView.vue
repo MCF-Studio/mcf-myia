@@ -35,7 +35,7 @@ import { downloadText, pickTextFile } from "../lib/files";
 import { call, inTauri, on } from "../lib/rpc";
 import { refreshDictation } from "../lib/dictation";
 import { resetSettings, settings } from "../lib/settings";
-import { playSound, SOUND_PACKS, speak, stopSpeaking, voices } from "../lib/sound";
+import { piper, playSound, refreshPiper, SOUND_PACKS, speak, stopSpeaking, voices } from "../lib/sound";
 import { refreshOverview, refreshSidecar, refreshThemes, restartSidecar, state, toast } from "../lib/store";
 import { BUILTIN_THEMES, exportTheme } from "../lib/themes";
 import { BACKGROUND_EXTENSIONS, clearWallpaper, setWallpaper, wallpaper } from "../lib/background";
@@ -597,6 +597,42 @@ async function savePttKey() {
   }
 }
 
+// ─── Voix neuronale (Piper) ───────────────────────────────────────────────────
+const PIPER_VOICES = [
+  { id: "tom", label: "Tom · homme, posée" },
+  { id: "upmc", label: "Pierre · homme, grave" },
+  { id: "siwis", label: "Siwis · femme, claire" },
+] as const;
+const pInstalling = ref(false);
+const pProgress = ref<{ what: string; received: number; total?: number }>();
+const pPct = computed(() => (pProgress.value?.total ? Math.round((pProgress.value.received / pProgress.value.total) * 100) : 0));
+const offPiperProgress = on("piper.progress", (p) => (pProgress.value = p));
+onBeforeUnmount(offPiperProgress);
+
+async function installPiperVoice() {
+  pInstalling.value = true;
+  try {
+    await call("piper.install", { voice: s.piperVoice });
+    await refreshPiper();
+    s.voiceEngine = "piper";
+    toast("Voix neuronale installée", "success");
+    speak("Systèmes en ligne. Ma nouvelle voix est prête.", true);
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (!/abort/i.test(msg)) toast(msg, "error");
+  } finally {
+    pInstalling.value = false;
+    pProgress.value = undefined;
+    await refreshPiper();
+  }
+}
+
+async function uninstallPiperVoices() {
+  await call("piper.uninstall").catch((e) => toast(e.message, "error"));
+  s.voiceEngine = "system";
+  await refreshPiper();
+}
+
 // ─── Dictée (whisper.cpp) ─────────────────────────────────────────────────────
 interface WhisperSt {
   ready: boolean;
@@ -1037,7 +1073,7 @@ const shortcuts: [string, string][] = [
 
         <section class="card">
           <h3 class="sec-title">Voix de l'IA</h3>
-          <SettingRow label="Activer la voix" hint="Synthèse vocale de Windows, 100 % locale. Une voix neuronale locale (Piper) est prévue.">
+          <SettingRow label="Activer la voix" hint="Voix de Windows ou voix neuronale Piper : 100 % locales, le texte ne quitte pas le PC.">
             <Toggle v-model="s.voice" />
           </SettingRow>
           <SettingRow label="Lire les réponses">
@@ -1047,7 +1083,31 @@ const shortcuts: [string, string][] = [
               <option value="all">Toutes les réponses</option>
             </select>
           </SettingRow>
-          <SettingRow label="Voix" :hint="voiceList.length ? `${voiceList.length} voix installées` : 'Aucune voix système détectée'">
+          <SettingRow label="Moteur de voix" hint="La voix neuronale (Piper) est bien plus naturelle ; elle se télécharge une fois (moteur 22 Mo + voix 60 à 75 Mo).">
+            <div class="segmented">
+              <button :class="{ on: s.voiceEngine === 'system' }" @click="s.voiceEngine = 'system'">Windows</button>
+              <button :class="{ on: s.voiceEngine === 'piper' }" :disabled="!piper.ready" :title="piper.ready ? '' : 'Installe d\x27abord une voix ci-dessous'" @click="s.voiceEngine = 'piper'">Neuronale (Piper)</button>
+            </div>
+          </SettingRow>
+          <SettingRow label="Voix neuronale" :hint="piper.voices[s.piperVoice] ? 'installée' : 'à installer'">
+            <div class="row-actions">
+              <select v-model="s.piperVoice" class="input select w-220">
+                <option v-for="v in PIPER_VOICES" :key="v.id" :value="v.id">{{ v.label }}{{ piper.voices[v.id] ? " ✓" : "" }}</option>
+              </select>
+              <button v-if="pInstalling" class="btn sm" @click="call('piper.cancelInstall')">Annuler</button>
+              <button v-else-if="!piper.voices[s.piperVoice]" class="btn sm primary" @click="installPiperVoice"><Download :size="14" /> Installer</button>
+              <button v-else-if="piper.ready" class="btn sm danger" title="Supprime le moteur et toutes les voix" @click="uninstallPiperVoices">Désinstaller</button>
+            </div>
+          </SettingRow>
+          <div v-if="pProgress" class="w-progress">
+            <div class="row small">
+              <span>{{ pProgress.what }}</span>
+              <span class="spacer" />
+              <span class="mono muted">{{ pPct }} %</span>
+            </div>
+            <div class="bar"><i :style="{ width: `${pPct}%` }" /></div>
+          </div>
+          <SettingRow v-if="s.voiceEngine === 'system'" label="Voix" :hint="voiceList.length ? `${voiceList.length} voix installées` : 'Aucune voix système détectée'">
             <select v-model="s.voiceName" class="input select w-280">
               <option value="">Automatique (français)</option>
               <option v-for="v in voiceList" :key="v.voiceURI" :value="v.voiceURI">{{ v.name }} — {{ v.lang }}</option>

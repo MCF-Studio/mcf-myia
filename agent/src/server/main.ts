@@ -25,6 +25,7 @@ import { openInBrowser } from "../services/web.js";
 import { openWithDefault } from "../services/files.js";
 import { toolboxDir, toolboxManager } from "../services/toolbox.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
+import { installPiper, piperStatus, synthesize, uninstallPiper, VOICE_IDS, VOICES } from "../core/piper.js";
 import { CLAUDE_LOCAL_CTX, claudeLocalOllamaModel, findOllama, MIN_OLLAMA, MODEL_NAME, OllamaClient, versionAtLeast } from "../core/llm.js";
 import { installOllama } from "../core/ollama-install.js";
 import { createLlm } from "../core/llm-factory.js";
@@ -1322,6 +1323,42 @@ rpc.method("whisper.uninstall", () => {
 rpc.method("whisper.transcribe", async (params) => {
   const p = parse(z.object({ audio: z.string().max(11_200_000), language: z.string().max(4).default("fr") }), params);
   return { text: await transcribe(Buffer.from(p.audio, "base64"), p.language) };
+});
+
+// ─── voix neuronale (Piper) ──────────────────────────────────────────────────
+
+let piperInstall: AbortController | undefined;
+
+rpc.method("piper.status", () => ({
+  ...piperStatus(),
+  voices_info: Object.fromEntries(VOICE_IDS.map((v) => [v, { label: VOICES[v].label, sizeMb: VOICES[v].sizeMb }])),
+}));
+
+rpc.method("piper.install", async (params) => {
+  const p = parse(z.object({ voice: z.enum(VOICE_IDS) }), params);
+  if (piperInstall) throw new Error("installation déjà en cours");
+  piperInstall = new AbortController();
+  try {
+    return await installPiper(p.voice, (pr) => rpc.notify("piper.progress", pr), piperInstall.signal);
+  } finally {
+    piperInstall = undefined;
+  }
+});
+
+rpc.method("piper.cancelInstall", () => {
+  piperInstall?.abort();
+  return true;
+});
+
+rpc.method("piper.uninstall", () => {
+  if (piperInstall) throw new Error("installation en cours");
+  uninstallPiper();
+  return true;
+});
+
+rpc.method("piper.speak", async (params) => {
+  const p = parse(z.object({ text: z.string().min(1).max(8000), voice: z.enum(VOICE_IDS), rate: z.number().min(0.5).max(2).default(1) }), params);
+  return { audio: (await synthesize(p.text, p.voice, p.rate)).toString("base64") };
 });
 
 rpc.method("claude.triage", async (params) => {
