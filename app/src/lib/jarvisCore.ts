@@ -173,3 +173,63 @@ export function vadStep(s: VadState, now: number, level: number, cfg: VadConfig 
   if (s.speechAt === undefined) return now - s.startedAt >= cfg.idleMs ? "restart" : "wait";
   return now - (s.lastVoiceAt ?? now) >= cfg.silenceMs ? "end" : "wait";
 }
+
+// ─── sentinelle : alertes dites à voix haute ─────────────────────────────────
+
+export interface SentinelInput {
+  cpu: number;
+  ramPct: number;
+  gpuTemp?: number;
+  vramPct?: number;
+}
+
+export interface SentinelMemory {
+  /** Depuis quand chaque seuil est dépassé (ms). */
+  highSince: Record<string, number>;
+  /** Dernière alerte dite pour chaque seuil (ms). */
+  lastAlert: Record<string, number>;
+}
+
+export interface SentinelAlert {
+  key: string;
+  text: string;
+}
+
+const RULES: { key: string; value: (i: SentinelInput) => number | undefined; limit: number; sustainMs: number; text: (v: number) => string }[] = [
+  { key: "gpuTemp", value: (i) => i.gpuTemp, limit: 85, sustainMs: 10_000, text: (v) => `Attention : la carte graphique chauffe, ${Math.round(v)} degrés.` },
+  { key: "cpu", value: (i) => i.cpu, limit: 95, sustainMs: 30_000, text: (v) => `Le processeur est à ${Math.round(v)} % depuis plus de trente secondes.` },
+  { key: "ram", value: (i) => i.ramPct, limit: 92, sustainMs: 20_000, text: (v) => `La mémoire est presque pleine : ${Math.round(v)} % utilisés.` },
+  { key: "vram", value: (i) => i.vramPct, limit: 97, sustainMs: 20_000, text: () => "La mémoire de la carte graphique est saturée : un modèle risque de ralentir." },
+];
+
+/**
+ * Seuils dépassés assez longtemps pour mériter une alerte, au plus une fois toutes les `cooldownMs` par seuil.
+ * Pur : `mem` est mis à jour sur place, l'appelant le garde d'un appel à l'autre.
+ */
+export function sentinelCheck(input: SentinelInput, mem: SentinelMemory, now: number, cooldownMs = 10 * 60_000): SentinelAlert[] {
+  const out: SentinelAlert[] = [];
+  for (const r of RULES) {
+    const v = r.value(input);
+    if (v === undefined || !Number.isFinite(v) || v < r.limit) {
+      delete mem.highSince[r.key];
+      continue;
+    }
+    mem.highSince[r.key] ??= now;
+    if (now - mem.highSince[r.key]! < r.sustainMs) continue;
+    if (now - (mem.lastAlert[r.key] ?? -Infinity) < cooldownMs) continue;
+    mem.lastAlert[r.key] = now;
+    out.push({ key: r.key, text: r.text(v) });
+  }
+  return out;
+}
+
+/** Agents (hors MASTER) qui viennent de finir : occupés au relevé précédent, plus maintenant. */
+export function finishedAgents(prev: Record<string, number>, cur: { id: string; name: string; busy: number; master?: boolean }[]): string[] {
+  return cur.filter((a) => !a.master && (prev[a.id] ?? 0) > 0 && a.busy === 0).map((a) => a.name);
+}
+
+/** Date du jour (AAAA-MM-JJ, heure locale) : un seul briefing automatique par jour. */
+export function dayKey(d = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}

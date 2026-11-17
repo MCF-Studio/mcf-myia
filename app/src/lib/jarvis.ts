@@ -1,6 +1,6 @@
 import { reactive, watch } from "vue";
 import { cancelDictation, dictation, refreshDictation, startDictation, stopDictation } from "./dictation";
-import { DEFAULT_VAD, detectWake, greeting, isPhantom, localIntent, normalize, vadStep, type VadState } from "./jarvisCore";
+import { dayKey, DEFAULT_VAD, detectWake, finishedAgents, greeting, isPhantom, localIntent, normalize, sentinelCheck, vadStep, type SentinelMemory, type VadState } from "./jarvisCore";
 import { masterConversation } from "./ptt";
 import { call, inTauri } from "./rpc";
 import { settings } from "./settings";
@@ -39,7 +39,41 @@ export const jarvis = reactive({
   error: "",
   /** Ligne d'état courte affichée sous le réacteur. */
   status: "",
+  /** Séquence de démarrage déjà jouée pendant cette session de l'app. */
+  booted: false,
+  /** Dernières alertes de la sentinelle (affichées dans le HUD). */
+  alerts: [] as { ts: number; text: string }[],
 });
+
+// ─── sentinelle et briefing du jour ──────────────────────────────────────────
+
+const sentinelMem: SentinelMemory = { highSince: {}, lastAlert: {} };
+let busyBefore: Record<string, number> = {};
+
+/** La sentinelle parle-t-elle maintenant ? Onglet affiché, ou écoute en arrière-plan choisie. */
+const sentinelOn = () => settings.jarvis.sentinel && state.ready && (state.view === "jarvis" || (settings.jarvis.background && settings.jarvis.handsFree));
+
+function alert(text: string) {
+  jarvis.alerts.unshift({ ts: Date.now(), text });
+  jarvis.alerts.splice(6);
+  playSound("confirm", true);
+  // Pas de voix par-dessus une réponse ou pendant une écoute : l'alerte reste affichée.
+  if (settings.jarvis.speak && !speech.speaking && dictation.state === "idle") say(text);
+  else toast(text, "info");
+}
+
+/** Briefing automatique : une fois par jour, à la première ouverture de l'onglet (agent MASTER requis). */
+export function maybeDailyBriefing() {
+  const today = dayKey();
+  if (!settings.jarvis.dailyBriefing || settings.jarvis.lastBriefing === today || !state.ready || !masterAgent() || jarvis.busy) return;
+  settings.jarvis.lastBriefing = today;
+  const proto = settings.jarvis.protocols.find((p) => normalize(p.label) === "briefing")?.prompt;
+  jarvis.heard = "Briefing du jour";
+  void ask(
+    proto ??
+      "Fais-moi un briefing rapide : état du PC (pc_status), mes projets avec des changements git non commités, et mes tâches prévues. Quelques phrases courtes.",
+  );
+}
 
 export const masterAgent = () => state.agents.find((a) => a.master);
 
@@ -317,6 +351,30 @@ export function startJarvis() {
       if (!id || !m) return;
       playSound("confirm", true);
       say(`Je dois ton accord : ${m.title ?? "action sensible"}. Je le fais ?`);
+    },
+  );
+  // Sentinelle : chaque relevé des métriques est comparé aux seuils.
+  watch(
+    () => state.metrics,
+    (m) => {
+      if (!m || !sentinelOn()) return;
+      const g = m.gpus[0];
+      for (const a of sentinelCheck(
+        { cpu: m.cpuUsage, ramPct: (m.memoryUsed / m.memoryTotal) * 100, gpuTemp: g?.temperatureC, vramPct: g ? (g.memoryUsedMb / g.memoryTotalMb) * 100 : undefined },
+        sentinelMem,
+        Date.now(),
+      ))
+        alert(a.text);
+    },
+  );
+  // Un agent a fini son travail : on le dit.
+  watch(
+    () => state.overview?.agents,
+    (agents) => {
+      if (!agents) return;
+      const done = sentinelOn() ? finishedAgents(busyBefore, agents) : [];
+      busyBefore = Object.fromEntries(agents.map((a) => [a.id, a.busy]));
+      if (done.length) alert(done.length === 1 ? `${done[0]} a terminé son travail.` : `${done.join(" et ")} ont terminé leur travail.`);
     },
   );
   // Progression des outils (« ⚙ … ») : affichée sous le réacteur pendant la demande.

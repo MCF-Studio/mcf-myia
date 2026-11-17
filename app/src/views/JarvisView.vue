@@ -24,11 +24,11 @@ import ArcReactor from "../components/ArcReactor.vue";
 import Sparkline from "../components/Sparkline.vue";
 import { dictation } from "../lib/dictation";
 import { bytes, duration } from "../lib/format";
-import { ask, ensureConversation, handle, jarvis, listenNow, masterAgent, pendingConfirm } from "../lib/jarvis";
+import { ask, ensureConversation, handle, jarvis, listenNow, masterAgent, maybeDailyBriefing, pendingConfirm } from "../lib/jarvis";
 import { greeting } from "../lib/jarvisCore";
 import { call, inTauri } from "../lib/rpc";
 import { settings } from "../lib/settings";
-import { speech, stopSpeaking } from "../lib/sound";
+import { piper, playBoot, speech, stopSpeaking } from "../lib/sound";
 import { answerConfirm, navigate, state } from "../lib/store";
 
 defineOptions({ name: "JarvisView" });
@@ -136,7 +136,35 @@ const phaseLabel = computed(() => {
   return PHASES[jarvis.phase];
 });
 const reactorPhase = computed(() => (jarvis.busy && jarvis.phase !== "speaking" && !confirm.value ? "thinking" : jarvis.phase === "off" && jarvis.busy ? "thinking" : jarvis.phase));
-const level = computed(() => (dictation.owner === "jarvis" ? dictation.level : speech.speaking ? 0.4 : 0));
+// Micro pendant l'écoute ; voix Piper réelle pendant qu'il parle (la voix de Windows ne donne pas de niveau).
+const level = computed(() => (dictation.owner === "jarvis" ? dictation.level : speech.speaking ? (speech.level || 0.4) : 0));
+
+// ─── séquence de démarrage ───────────────────────────────────────────────────
+const BOOT_LINES = [
+  "Initialisation du noyau",
+  "Capteurs système",
+  "Liaison avec l'agent MASTER",
+  "Contrôle du PC",
+  "Reconnaissance vocale",
+  "Tous les systèmes sont opérationnels",
+];
+const booting = ref(false);
+const bootStep = ref(0);
+function runBoot() {
+  booting.value = true;
+  bootStep.value = 0;
+  playBoot();
+  const tick = setInterval(() => {
+    bootStep.value++;
+    if (bootStep.value >= BOOT_LINES.length) {
+      clearInterval(tick);
+      setTimeout(() => {
+        booting.value = false;
+        maybeDailyBriefing();
+      }, 650);
+    }
+  }, 330);
+}
 
 // ─── plein écran ─────────────────────────────────────────────────────────────
 const immersive = ref(false);
@@ -175,12 +203,18 @@ onMounted(() => {
   void refreshSide();
   window.addEventListener("keydown", onKey);
   if (state.ready && master.value) void ensureConversation().catch(() => undefined);
+  if (!jarvis.booted) {
+    jarvis.booted = true;
+    if (j.bootSequence) runBoot();
+    else maybeDailyBriefing();
+  } else maybeDailyBriefing();
 });
 watch(
   () => [state.ready, master.value?.id],
   () => {
     if (state.ready && master.value) void ensureConversation().catch(() => undefined);
     void refreshSide();
+    if (!booting.value) maybeDailyBriefing();
   },
 );
 onUnmounted(() => {
@@ -325,13 +359,22 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
           </ul>
         </div>
         <div class="panel">
-          <h4><span>Agents actifs</span><small>{{ state.overview?.agents.length ?? 0 }} agents</small></h4>
+          <h4><span>Agents actifs</span><small>{{ state.overview?.agents.length ?? 0 }} agent{{ (state.overview?.agents.length ?? 0) > 1 ? "s" : "" }}</small></h4>
           <ul class="list">
             <li v-for="a in busyAgents" :key="a.id">
               <span class="ellipsis"><i class="pip" :style="{ background: a.color ?? 'var(--accent)' }" /> {{ a.name }}</span>
               <span class="mono ok">en cours</span>
             </li>
             <li v-if="!busyAgents.length" class="muted">Tous au repos</li>
+          </ul>
+        </div>
+        <div v-if="jarvis.alerts.length" class="panel alerts">
+          <h4><span>Sentinelle</span><small>{{ jarvis.alerts.length }}</small></h4>
+          <ul class="list">
+            <li v-for="a in jarvis.alerts" :key="a.ts">
+              <span class="alert-txt">{{ a.text }}</span>
+              <span class="mono muted">{{ fmtTime(new Date(a.ts).toISOString()) }}</span>
+            </li>
           </ul>
         </div>
         <div class="panel">
@@ -369,6 +412,20 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
       </form>
     </footer>
 
+    <!-- ─── séquence de démarrage ─── -->
+    <Transition name="boot">
+      <div v-if="booting" class="boot" @click="booting = false">
+        <ArcReactor phase="thinking" :level="0.2 + bootStep * 0.12" :size="200" />
+        <div class="boot-name mono">{{ j.name }}</div>
+        <ul class="boot-lines mono">
+          <li v-for="(l, i) in BOOT_LINES" :key="l" :class="{ on: i < bootStep, last: i === BOOT_LINES.length - 1 }">
+            <span>{{ i < bootStep ? (i === BOOT_LINES.length - 1 ? "▶" : "✓") : "·" }}</span> {{ l }}
+          </li>
+        </ul>
+        <div class="boot-bar"><i :style="{ width: `${(bootStep / BOOT_LINES.length) * 100}%` }" /></div>
+      </div>
+    </Transition>
+
     <!-- ─── réglages ─── -->
     <Transition name="slide">
       <aside v-if="showSettings" class="drawer">
@@ -389,6 +446,22 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
           <input v-model="j.speak" type="checkbox" />
           <span>Lire les réponses à voix haute (voix choisie dans Paramètres → Son et voix)</span>
         </label>
+        <label class="row check">
+          <input v-model="j.sentinel" type="checkbox" />
+          <span>Sentinelle : me prévenir si le PC chauffe ou sature, et quand un agent a fini</span>
+        </label>
+        <label class="row check">
+          <input v-model="j.dailyBriefing" type="checkbox" />
+          <span>Briefing automatique à la première ouverture de la journée</span>
+        </label>
+        <label class="row check">
+          <input v-model="j.bootSequence" type="checkbox" />
+          <span>Séquence de démarrage</span>
+        </label>
+        <p v-if="!piper.ready" class="hint">
+          Astuce : installe la <strong>voix neuronale</strong> (Paramètres → Son et voix) pour une vraie voix d'assistant, et un modèle
+          de vision (ex. <code>qwen2.5vl:7b</code>, écran Modèles) pour « {{ j.name }}, regarde mon écran ».
+        </p>
         <label class="row">
           <span>Enchaîner sans redire le nom pendant <strong>{{ j.followUp }} s</strong></span>
           <input v-model.number="j.followUp" type="range" min="0" max="30" step="1" />
@@ -986,6 +1059,85 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
   color: var(--text);
   padding: 6px 0;
   box-shadow: none;
+}
+
+.alerts {
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+}
+.alerts h4 {
+  color: var(--warning);
+}
+.alert-txt {
+  white-space: normal;
+  font-size: 0.78rem;
+}
+
+/* ─── démarrage ─── */
+.boot {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--bg) 93%, transparent), var(--bg) 70%);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+.boot-name {
+  font-size: 1.6rem;
+  letter-spacing: 0.6em;
+  color: var(--hud);
+  text-shadow: 0 0 18px var(--glow);
+  padding-left: 0.6em;
+}
+.boot-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 0.8rem;
+  min-width: 300px;
+}
+.boot-lines li {
+  color: color-mix(in srgb, var(--text-muted) 50%, transparent);
+  transition: color 0.2s;
+}
+.boot-lines li.on {
+  color: var(--text);
+}
+.boot-lines li.on span {
+  color: var(--success);
+}
+.boot-lines li.on.last {
+  color: var(--hud);
+}
+.boot-lines li.on.last span {
+  color: var(--hud);
+}
+.boot-bar {
+  width: 300px;
+  height: 3px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--hud) 15%, transparent);
+  overflow: hidden;
+}
+.boot-bar i {
+  display: block;
+  height: 100%;
+  background: var(--lava);
+  box-shadow: 0 0 10px var(--glow);
+  transition: width 0.3s var(--ease);
+}
+.boot-leave-active {
+  transition: opacity 0.5s, transform 0.5s var(--ease);
+}
+.boot-leave-to {
+  opacity: 0;
+  transform: scale(1.06);
 }
 
 /* ─── réglages ─── */

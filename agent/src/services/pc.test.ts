@@ -62,6 +62,9 @@ describe("pc : outils", () => {
     expect(tools.pc_status!.risk).toBe("read");
     expect(tools.pc_window!.confirmIf!({ window: "x", action: "close" }, trust)).toBe(true);
     expect(tools.pc_window!.confirmIf!({ window: "x", action: "focus" }, trust)).toBe(false);
+    // Regarder l'écran : confirmé seulement pour un agent en ligne (la description partirait chez Anthropic).
+    expect(tools.pc_screen_look!.confirmIf!({ question: "?" }, trust, { cloud: true })).toBe(true);
+    expect(tools.pc_screen_look!.confirmIf!({ question: "?" }, trust, {})).toBe(false);
     expect(needsConfirmation(tools.pc_power!, undefined, parseConfig({}), { action: "sleep" })).toBe(true);
     expect(needsConfirmation(tools.pc_process_stop!, undefined, parseConfig({}), { target: "chrome" })).toBe(true);
   });

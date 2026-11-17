@@ -18,12 +18,12 @@ Deux interfaces sur le même cœur :
 | Catégorie          | Contenu                                                                                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------- |
 | **Vue d'ensemble** | CPU, RAM, GPU et VRAM en direct, modèles chargés en mémoire, agents et leur activité, services, processus |
-| **Jarvis**         | assistant vocal au nom de ton choix (relié à MASTER) : HUD en direct (systèmes, projets, agents, planning), écoute mains libres avec mot d'éveil, « oui »/« non » à voix haute pour les confirmations, protocoles en un clic, plein écran (F11) |
+| **Jarvis**         | assistant vocal au nom de ton choix (relié à MASTER) : HUD en direct (systèmes, projets, agents, planning), écoute mains libres avec mot d'éveil, « oui »/« non » à voix haute pour les confirmations, protocoles en un clic, plein écran (F11), voix neuronale locale (Piper), « regarde mon écran » (modèle de vision local), sentinelle qui prévient si le PC chauffe ou quand un agent a fini, briefing du jour |
 | **Conversations**  | une conversation par agent, affichage en **onglets** ou en **grille**, chaque panneau avec sa saisie      |
 | **Agents**         | personnalités : nom, modèle, consignes, couleur, services autorisés ; import et export en fichier         |
 | **Modèles**        | téléchargement avec progression, modèle par défaut, déchargement de la VRAM, suppression                |
 | **Marketplace**    | workflows partagés via mcfstudio.fr (voir plus bas) ; agents et thèmes : installation depuis un fichier  |
-| **Paramètres**     | thèmes (installables), lumières, densité, voix de l'IA, sons de notification, notifications, raccourcis  |
+| **Paramètres**     | thèmes (installables), lumières, densité, voix de l'IA (Windows ou neuronale Piper), sons de notification, notifications, raccourcis  |
 
 Icône MyIA dans la zone de notification (près de l'horloge) : clic gauche pour ramener la fenêtre, clic droit pour
 ouvrir directement Conversations, Agents, Équipes, Modèles ou Paramètres, ou quitter.

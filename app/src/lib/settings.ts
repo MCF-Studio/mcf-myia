@@ -49,6 +49,10 @@ export const DEFAULT_SETTINGS = {
     notifVolume: 70,
     notifSound: "ember" as string,
     voice: false,
+    /** Moteur de la voix : celle de Windows, ou la voix neuronale locale (Piper, à installer). */
+    voiceEngine: "system" as "system" | "piper",
+    /** Voix Piper : tom, upmc ou siwis. */
+    piperVoice: "tom",
     voiceName: "",
     voiceRate: 1,
     voicePitch: 1,
@@ -75,12 +79,21 @@ export const DEFAULT_SETTINGS = {
     speak: true,
     /** Garder l'écoute active même hors de l'onglet Jarvis. */
     background: false,
+    /** Sentinelle : prévenir (voix + notification) si le PC chauffe ou sature, et quand un agent a fini. */
+    sentinel: true,
+    /** Briefing automatique à la première ouverture de l'onglet dans la journée. */
+    dailyBriefing: true,
+    /** Dernier briefing automatique (AAAA-MM-JJ). */
+    lastBriefing: "",
+    /** Séquence de démarrage animée à l'ouverture de l'onglet. */
+    bootSequence: true,
     /** Sensibilité du micro (seuil de voix, 4 à 40 ; plus bas = plus sensible). */
     sensitivity: 12,
     /** Boutons « protocoles » : une demande toute prête envoyée d'un clic (ou en disant « protocole <nom> »). */
     protocols: [
       { label: "Briefing", prompt: "Fais-moi un briefing rapide : état du PC (pc_status), mes projets avec des changements git non commités, et mes tâches prévues. Réponds en quelques phrases courtes, comme un assistant personnel." },
       { label: "Concentration", prompt: "Mode concentration : affiche le bureau (pc_desktop), mets la musique en pause (pc_media play_pause) et confirme-moi en une phrase." },
+      { label: "Regarde l'écran", prompt: "Regarde mon écran (pc_screen_look) et dis-moi en deux phrases ce que tu vois ; s'il y a une erreur, explique-la." },
       { label: "Diagnostic", prompt: "Diagnostic du PC : liste les 8 programmes qui utilisent le plus de mémoire (pc_processes), l'espace disque et dis-moi s'il y a quelque chose d'anormal." },
       { label: "Fin de journée", prompt: "Fin de journée : pour chacun de mes projets git, dis-moi s'il reste des changements non commités ou des commits non poussés. Termine par un résumé en une phrase." },
     ] as { label: string; prompt: string }[],

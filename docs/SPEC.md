@@ -85,6 +85,10 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   avec la liste (jamais « la première trouvée »). Processus du système, de la sécurité et de MyIA (cœur, Ollama,
   llama.cpp, WebView2) refusés à l'arrêt, vérifié avant la confirmation et relu juste avant l'exécution ; redémarrage et
   arrêt passent par `shutdown.exe` avec un délai, annulables (`pc_power cancel`).
+  `pc_screen_look` (« regarde mon écran ») : capture réduite (1600 px de large) envoyée **seulement** à un modèle de vision
+  local d'Ollama (le premier installé qui déclare la capacité « vision »), fichier temporaire supprimé aussitôt ; le texte
+  vu est rendu à l'agent comme une donnée, jamais comme une consigne. Agent sur Claude : confirmation d'abord, la
+  description de l'écran partant alors chez Anthropic.
 - **Onglet Jarvis** (app, `views/JarvisView.vue`, `lib/jarvis.ts`) : un assistant vocal au nom choisi, qui parle avec
   l'agent **MASTER** (même conversation que la touche « parler ») : aucun outil ni droit en plus, mêmes confirmations.
   Mains libres (désactivé par défaut) : le micro écoute tant que l'onglet est affiché (ou partout si l'utilisateur le
@@ -94,6 +98,11 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   courte reconnue dans une liste fermée, jamais interprétée par le modèle ; « stop » coupe la voix, « mode veille » arrête
   l'écoute. Risque assumé : une voix captée par le micro (vidéo, personne dans la pièce) qui dit le nom puis « oui » peut
   valider une confirmation affichée ; l'écoute mains libres reste un choix explicite, signalé en permanence dans l'onglet.
+  **Sentinelle** (activée par défaut, onglet affiché ou écoute en arrière-plan) : dit à voix haute un seuil dépassé
+  durablement (température GPU, processeur, mémoire, VRAM ; au plus une fois toutes les 10 min par seuil) et la fin du
+  travail d'un agent ; elle ne lit que les métriques déjà affichées et ne lance aucun outil. **Briefing du jour** : à la
+  première ouverture de l'onglet dans la journée, le protocole « Briefing » est envoyé à MASTER (désactivable) ; il suit
+  les règles habituelles (outils en lecture).
 - Fichiers et musique : `open_path` ouvre un dossier ou un fichier avec l'application par défaut (via l'Explorateur,
   sans shell), **jamais** un exécutable ou un script (`.exe`, `.bat`, `.ps1`, `.lnk`, `.js`…) ; chemins locaux uniquement ;
   liste d'**autorisation** : sans confirmation uniquement un dossier, ou un média/document d'extension connue (formats
@@ -305,6 +314,12 @@ est interrogé pour refuser tout de suite un nom inexistant.
 est vérifiée avant usage (fichier rejeté sinon) ; archives extraites avec protection « zip slip » et plafond de taille.
 L'audio (WAV 16 kHz) est transcrit localement dans un fichier temporaire supprimé ensuite ; rien ne sort de la machine.
 
+**Voix neuronale** (`core/piper.ts`) : Piper (MIT) et trois voix françaises (Tom, Pierre, Siwis) se téléchargent à la
+demande depuis GitHub et Hugging Face, versions figées, empreintes SHA-256 vérifiées (celles des voix concordent avec
+celles publiées par Hugging Face). Le texte passe par l'entrée standard (jamais par la ligne de commande), nettoyé des
+caractères de contrôle et borné ; le WAV produit dans un fichier temporaire supprimé ensuite. Piper indisponible : la
+voix de Windows prend le relais.
+
 **Photos d'agents** : PNG, JPEG ou WebP en data URL, recadrées et réduites à 256 px par l'app (le passage par un canvas
 retire les métadonnées). Pas de SVG ni d'URL : une image ne peut ni exécuter de script ni appeler un serveur.
 
@@ -447,4 +462,4 @@ et outils autorisés. Aucune donnée d'un projet ne sera passée en contexte à 
 2. WhatsApp (API Cloud officielle de Meta, numéro dédié).
 3. **App Tauri 2 + Vue 3 (v0.1, ici)** : vue d'ensemble, conversations onglets/grille, agents, modèles, réglages.
 4. Installateur autonome (Node embarqué), registre Marketplace sur mcfstudio.fr.
-5. Voix locale de qualité (Whisper en entrée, Piper en sortie ; la synthèse Windows sert en attendant).
+5. ~~Voix locale de qualité~~ : fait (whisper.cpp en entrée, Piper en sortie, au choix avec la voix de Windows).

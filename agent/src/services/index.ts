@@ -28,7 +28,7 @@ export function buildServices(cfg: Config): Service[] {
     claudeService(cfg, reg),
     webService(cfg),
     programsService(),
-    pcService(),
+    pcService(cfg),
     filesService(cfg),
     fileWriteService(cfg),
     memoryService(cfg),
