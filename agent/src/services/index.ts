@@ -9,6 +9,7 @@ import { mcpService } from "./mcp.js";
 import { fileWriteService } from "./file-write.js";
 import { filesService } from "./files.js";
 import { memoryService } from "./memory.js";
+import { pcService } from "./pc.js";
 import { programsService } from "./programs.js";
 import { projectsService } from "./projects.js";
 import { telegramService } from "./telegram.js";
@@ -27,6 +28,7 @@ export function buildServices(cfg: Config): Service[] {
     claudeService(cfg, reg),
     webService(cfg),
     programsService(),
+    pcService(),
     filesService(cfg),
     fileWriteService(cfg),
     memoryService(cfg),

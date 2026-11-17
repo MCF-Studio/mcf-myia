@@ -20,7 +20,7 @@ import type {
   Theme,
 } from "./types";
 
-export type View = "overview" | "conversations" | "agents" | "teams" | "guild" | "models" | "marketplace" | "settings";
+export type View = "overview" | "jarvis" | "conversations" | "agents" | "teams" | "guild" | "models" | "marketplace" | "settings";
 
 interface Toast {
   id: number;

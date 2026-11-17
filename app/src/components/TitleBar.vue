@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowUpCircle, CheckCircle2, CircleHelp, Copy, Loader2, 
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import logo from "../assets/logo.svg";
 import { inTauri } from "../lib/rpc";
+import { settings } from "../lib/settings";
 import { navigate, state, type View } from "../lib/store";
 import { update } from "../lib/update";
 
@@ -14,6 +15,7 @@ import { update } from "../lib/update";
  */
 const LABELS: Record<View, string> = {
   overview: "Vue d'ensemble",
+  jarvis: "Assistant",
   conversations: "Conversations",
   agents: "Agents",
   teams: "Équipes",
@@ -23,7 +25,7 @@ const LABELS: Record<View, string> = {
   settings: "Paramètres",
 };
 
-const title = computed(() => LABELS[state.view]);
+const title = computed(() => (state.view === "jarvis" ? settings.jarvis.name : LABELS[state.view]));
 
 // Version installée + état des mises à jour (recherche faite côté Rust, voir update.rs).
 const version = ref("");

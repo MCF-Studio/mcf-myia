@@ -12,6 +12,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-is-maximized",
     "core:window:allow-close",
+    "core:window:allow-set-fullscreen",
     "notification:default",
     "dialog:allow-open",
     "dialog:allow-confirm",

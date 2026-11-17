@@ -8,6 +8,7 @@ import {
   Handshake,
   MessagesSquare,
   Network,
+  Orbit,
   Settings,
   Store,
 } from "lucide-vue-next";
@@ -16,8 +17,10 @@ import logo from "../assets/logo.svg";
 import { settings } from "../lib/settings";
 import { navigate, state, type View } from "../lib/store";
 
-const items: { id: View; label: string; icon: unknown; key: string }[] = [
+// Le libellé de l'assistant suit le nom choisi dans l'onglet Jarvis.
+const items = computed<{ id: View; label: string; icon: unknown; key: string }[]>(() => [
   { id: "overview", label: "Vue d'ensemble", icon: Gauge, key: "1" },
+  { id: "jarvis", label: settings.jarvis.name || "Jarvis", icon: Orbit, key: "9" },
   { id: "conversations", label: "Conversations", icon: MessagesSquare, key: "2" },
   { id: "agents", label: "Agents", icon: Bot, key: "3" },
   { id: "teams", label: "Équipes", icon: Network, key: "4" },
@@ -25,7 +28,7 @@ const items: { id: View; label: string; icon: unknown; key: string }[] = [
   { id: "models", label: "Modèles", icon: Boxes, key: "6" },
   { id: "marketplace", label: "Marketplace", icon: Store, key: "7" },
   { id: "settings", label: "Paramètres", icon: Settings, key: "8" },
-];
+]);
 
 const collapsed = computed(() => settings.appearance.sidebarCollapsed);
 const busyCount = computed(() => state.overview?.conversations.busy ?? 0);
