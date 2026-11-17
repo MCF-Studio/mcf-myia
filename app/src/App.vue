@@ -23,9 +23,12 @@ import OverviewView from "./views/OverviewView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import GuildView from "./views/GuildView.vue";
 import TeamsView from "./views/TeamsView.vue";
+import JarvisView from "./views/JarvisView.vue";
+import { startJarvis } from "./lib/jarvis";
 
 const views = {
   overview: OverviewView,
+  jarvis: JarvisView,
   conversations: ConversationsView,
   agents: AgentsView,
   teams: TeamsView,
@@ -56,7 +59,8 @@ watchEffect(() => {
   }
 });
 
-const order: View[] = ["overview", "conversations", "agents", "teams", "guild", "models", "marketplace", "settings"];
+// Ctrl+1 à Ctrl+8 : ordre historique (raccourcis déjà appris) ; Jarvis, arrivé ensuite, prend Ctrl+9.
+const order: View[] = ["overview", "conversations", "agents", "teams", "guild", "models", "marketplace", "settings", "jarvis"];
 function onKey(e: KeyboardEvent) {
   // Échap coupe la lecture à voix haute en cours (une fenêtre modale ouverte garde Échap pour elle).
   if (e.key === "Escape" && speech.speaking) return stopSpeaking();
@@ -93,6 +97,7 @@ async function startTrayNavigation() {
 onMounted(() => {
   void startUpdates();
   void startPtt();
+  startJarvis();
   startWallpaper();
   void startTrayNavigation();
   window.addEventListener("keydown", onKey);

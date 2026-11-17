@@ -49,7 +49,7 @@ const beep = (kind: "listen" | "stop" | "error") => {
 };
 
 /** Conversation directe avec MASTER (hors équipe et hors échanges avec d'autres agents) ; créée au besoin. */
-async function masterConversation(masterId: string, masterName: string): Promise<string> {
+export async function masterConversation(masterId: string, masterName: string): Promise<string> {
   await refreshConversations();
   const existing = state.conversations
     .filter((c) => c.agentId === masterId && !c.teamId && !c.title.includes("↔"))
@@ -64,6 +64,11 @@ async function masterConversation(masterId: string, masterName: string): Promise
 let held = false;
 
 async function onPress() {
+  // L'écoute mains libres de Jarvis cède le micro à la touche « parler ».
+  if (dictation.owner === "jarvis") {
+    cancelDictation();
+    for (let i = 0; i < 50 && dictation.state !== "idle"; i++) await new Promise((r) => setTimeout(r, 20));
+  }
   // Une seule écoute à la fois : on le dit au lieu d'ignorer la touche sans rien montrer.
   if (dictation.state !== "idle") {
     if (dictation.owner !== OWNER) {

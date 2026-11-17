@@ -71,6 +71,29 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   Chemins locaux uniquement (pas de chemin réseau, qui ferait fuiter le jeton NTLM), nom réel vérifié (pas de nom court
   8.3), outils du dossier Windows refusés sauf une courte liste inoffensive, empreinte SHA-256 enregistrée : un
   exécutable modifié depuis redemande confirmation avant de se lancer.
+- **Contrôle du PC** (service `pc`, `agent/src/services/pc.ts`, Windows) : fenêtres (lister, premier plan, réduire,
+  agrandir, restaurer, fermer), bureau, touches multimédia, volume, capture d'écran, presse-papiers (écriture), programmes
+  en cours, arrêt d'un programme, verrouillage, veille/redémarrage/arrêt, pages de Paramètres Windows. Le modèle ne compose
+  **jamais** de commande : chaque action est un script PowerShell **fixe** du code, choisi dans une liste fermée, lancé sans
+  shell ni profil (`-NoProfile -EncodedCommand`) ; les valeurs (numéro de fenêtre, volume, texte, PID) passent par des
+  variables d'environnement `MYIA_*`, jamais dans le texte du script ; énumérations et bornes validées par schéma
+  (pages de Paramètres = adresses `ms-settings:` fixes ; délai d'arrêt 30 s à 1 h). Lecture (`read`) : état du PC,
+  fenêtres, programmes. `launch` sans confirmation : premier plan/réduire/agrandir, bureau, médias, volume, capture (nouveau
+  fichier PNG dans `DocumentsMyIAcaptures`), presse-papiers, verrouillage, page de Paramètres. **Toujours confirmés**
+  (sauf mode bypass) : fermer une fenêtre (`confirmIf`), arrêter un programme et l'alimentation (`local`, aucun projet
+  donc jamais d'`autoApprove`). Fenêtre ou programme désigné par un texte : une seule correspondance exigée, sinon erreur
+  avec la liste (jamais « la première trouvée »). Processus du système, de la sécurité et de MyIA (cœur, Ollama,
+  llama.cpp, WebView2) refusés à l'arrêt, vérifié avant la confirmation et relu juste avant l'exécution ; redémarrage et
+  arrêt passent par `shutdown.exe` avec un délai, annulables (`pc_power cancel`).
+- **Onglet Jarvis** (app, `views/JarvisView.vue`, `lib/jarvis.ts`) : un assistant vocal au nom choisi, qui parle avec
+  l'agent **MASTER** (même conversation que la touche « parler ») : aucun outil ni droit en plus, mêmes confirmations.
+  Mains libres (désactivé par défaut) : le micro écoute tant que l'onglet est affiché (ou partout si l'utilisateur le
+  choisit), whisper transcrit **en local**, une phrase n'est envoyée que si elle commence par le nom (mot d'éveil), sauf
+  pendant quelques secondes après une réponse. Le micro est coupé pendant que l'assistant parle. « Oui »/« non » ne
+  répondent qu'à une confirmation **déjà affichée** (titre et détail lus à voix haute et montrés à l'écran) : une phrase
+  courte reconnue dans une liste fermée, jamais interprétée par le modèle ; « stop » coupe la voix, « mode veille » arrête
+  l'écoute. Risque assumé : une voix captée par le micro (vidéo, personne dans la pièce) qui dit le nom puis « oui » peut
+  valider une confirmation affichée ; l'écoute mains libres reste un choix explicite, signalé en permanence dans l'onglet.
 - Fichiers et musique : `open_path` ouvre un dossier ou un fichier avec l'application par défaut (via l'Explorateur,
   sans shell), **jamais** un exécutable ou un script (`.exe`, `.bat`, `.ps1`, `.lnk`, `.js`…) ; chemins locaux uniquement ;
   liste d'**autorisation** : sans confirmation uniquement un dossier, ou un média/document d'extension connue (formats
@@ -408,6 +431,8 @@ modèle.
 | Boîte `tools/` : écrire un fichier puis le faire exécuter (`build.rs` + cargo, `.git/config` + git, projet Godot) | Écriture limitée aux formats texte, hors fichiers qui pilotent un outil et hors `.git`/`.cargo`/`.github` ; outils qui lancent un programme désactivés par défaut puis confirmés ; git durci ; arguments d'application en liste blanche |
 | Boîte `tools/` : fuite par ouverture d'adresse, écrasement d'un fichier, modification de la boîte elle-même | `url_open` = `external`, toujours confirmé ; aucun écrasement sans `overwrite`, jamais d'une source ; `tools/` et le dépôt fermés en écriture ; politique et catalogue locaux hors dépôt |
 | Boîte `tools/` : outil importé piégé (code tiers, permissions excessives)            | Import par l'humain seulement, après aperçu du code, du risque et des permissions (accord lié à l'empreinte du contenu) ; chaque exécution confirmée ; code jamais exécuté à l'import ; permission non accordée = outil désactivé ; journal d'audit |
+| Contrôle du PC détourné (injection : « ferme tout », « éteins le PC », commande cachée dans un titre de fenêtre) | Scripts PowerShell fixes, valeurs par variables d'environnement ; listes fermées ; arrêt de programme, fermeture de fenêtre et alimentation toujours confirmés ; système et MyIA protégés ; arrêt différé et annulable |
+| Voix captée par le micro en mode mains libres (vidéo, tiers) qui valide une confirmation | Mains libres désactivé par défaut et signalé ; « oui » seulement face à une confirmation affichée et lue à voix haute ; mot d'éveil exigé hors fenêtre de suivi |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

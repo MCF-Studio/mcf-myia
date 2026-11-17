@@ -61,6 +61,30 @@ export const DEFAULT_SETTINGS = {
     /** Bip au début et à la fin de l'écoute (touche « parler »), audible même quand MyIA est en arrière-plan. */
     pttBeep: true,
   },
+  /** Onglet Jarvis : l'assistant vocal (il parle avec l'agent MASTER). */
+  jarvis: {
+    /** Nom de l'assistant, affiché et utilisé comme mot d'éveil. */
+    name: "JARVIS",
+    /** Écoute mains libres : le micro reste ouvert tant que l'onglet est affiché (ou partout si `background`). */
+    handsFree: false,
+    /** Mains libres : il faut dire le nom avant la demande (sinon toute phrase est envoyée). */
+    wakeWord: true,
+    /** Après une réponse : on peut enchaîner sans redire le nom pendant ce temps (s). */
+    followUp: 10,
+    /** Lire les réponses à voix haute. */
+    speak: true,
+    /** Garder l'écoute active même hors de l'onglet Jarvis. */
+    background: false,
+    /** Sensibilité du micro (seuil de voix, 4 à 40 ; plus bas = plus sensible). */
+    sensitivity: 12,
+    /** Boutons « protocoles » : une demande toute prête envoyée d'un clic (ou en disant « protocole <nom> »). */
+    protocols: [
+      { label: "Briefing", prompt: "Fais-moi un briefing rapide : état du PC (pc_status), mes projets avec des changements git non commités, et mes tâches prévues. Réponds en quelques phrases courtes, comme un assistant personnel." },
+      { label: "Concentration", prompt: "Mode concentration : affiche le bureau (pc_desktop), mets la musique en pause (pc_media play_pause) et confirme-moi en une phrase." },
+      { label: "Diagnostic", prompt: "Diagnostic du PC : liste les 8 programmes qui utilisent le plus de mémoire (pc_processes), l'espace disque et dis-moi s'il y a quelque chose d'anormal." },
+      { label: "Fin de journée", prompt: "Fin de journée : pour chacun de mes projets git, dis-moi s'il reste des changements non commités ou des commits non poussés. Termine par un résumé en une phrase." },
+    ] as { label: string; prompt: string }[],
+  },
   notifications: {
     desktop: true,
     onReply: true,

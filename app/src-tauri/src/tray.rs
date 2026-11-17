@@ -7,8 +7,9 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{App, AppHandle, Emitter, Manager};
 
 /// Vues ouvrables depuis le menu (identifiant = celui de l'interface, libellé = texte du menu).
-const VIEWS: [(&str, &str); 6] = [
+const VIEWS: [(&str, &str); 7] = [
     ("overview", "Vue d'ensemble"),
+    ("jarvis", "Assistant (Jarvis)"),
     ("conversations", "Conversations"),
     ("agents", "Agents"),
     ("teams", "Équipes"),
