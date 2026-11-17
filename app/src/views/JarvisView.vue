@@ -299,7 +299,7 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
 
         <!-- confirmation en attente : bouton ou « oui » / « non » à voix haute -->
         <Transition name="pop">
-          <div v-if="confirm" class="confirm">
+          <div v-if="confirm" class="confirm-card">
             <div class="confirm-head"><ShieldAlert :size="18" /> Autorisation requise</div>
             <strong>{{ confirm.title }}</strong>
             <pre>{{ confirm.text }}</pre>
@@ -833,7 +833,7 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
 .hud-btn.stop {
   margin-top: 4px;
 }
-.confirm {
+.confirm-card {
   position: absolute;
   left: 50%;
   bottom: 6px;
@@ -857,7 +857,7 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
   color: var(--warning);
   margin-bottom: 6px;
 }
-.confirm pre {
+.confirm-card pre {
   margin: 6px 0 10px;
   max-height: 140px;
   overflow: auto;
