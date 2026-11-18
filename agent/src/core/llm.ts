@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Config } from "./config.js";
 import { paths } from "./paths.js";
 import { ollamaGpuEnv } from "./gpus.js";
+import { hasProviderPrefix } from "./api-providers.js";
 
 export interface ToolCall {
   /** Identifiant de l'appel, quand le moteur en donne un (API Claude). */
@@ -25,12 +26,12 @@ export interface ChatMessage {
   blocks?: unknown[];
 }
 
-/** Moteurs dont les échanges quittent le PC (Claude par abonnement ou par clé d'API). */
-export const CLOUD_ENGINES: ReadonlySet<string> = new Set(["claude", "claude-api"]);
+/** Moteurs dont les échanges quittent le PC (Claude par abonnement ou par clé d'API, autres fournisseurs d'IA). */
+export const CLOUD_ENGINES: ReadonlySet<string> = new Set(["claude", "claude-api", "api"]);
 
-/** Modèle d'agent confié à un service en ligne (« claude:… » ou « claude-api:… »). */
+/** Modèle d'agent confié à un service en ligne (« claude:… », « claude-api:… » ou « <fournisseur>-api:… »). */
 export function isCloudModel(model: string | undefined): boolean {
-  return !!model && (model.startsWith("claude:") || model.startsWith("claude-api:"));
+  return !!model && (model.startsWith("claude:") || model.startsWith("claude-api:") || hasProviderPrefix(model));
 }
 
 export interface ToolSpec {
@@ -65,7 +66,7 @@ export interface PullProgress {
  * claude-llm.ts) : mêmes messages, mêmes outils, même gestion des modèles.
  */
 export interface LlmClient {
-  readonly engine: "ollama" | "llamacpp" | "claude" | "claude-api";
+  readonly engine: "ollama" | "llamacpp" | "claude" | "claude-api" | "api";
   /** Modèle effectivement utilisé par ce client. */
   readonly model: string;
   ping(): Promise<boolean>;
@@ -83,6 +84,12 @@ export interface LlmClient {
 
 /** Nom de modèle Ollama accepté (ex. qwen3:8b, hf.co/org/repo:Q4_K_M). Bloque tout ce qui ressemble à une URL ou un chemin. */
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9._-]+)*(:[A-Za-z0-9._-]+)?$/;
+
+/**
+ * Modèle d'un profil d'agent : un nom local (MODEL_NAME), ou « <fournisseur>-api:<identifiant> » (api-providers.ts),
+ * dont l'identifiant peut contenir des « / » (OpenRouter : « openrouter-api:meta-llama/llama-3.3-70b-instruct »).
+ */
+export const AGENT_MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9._-]+)*(:[A-Za-z0-9._-]+)?$|^[a-z]+-api:(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._\/-]{0,119}$/;
 
 /** Contexte donné à Claude Code en local (son prompt seul fait ~15 k tokens). Même valeur côté Rust (pty.rs). */
 export const CLAUDE_LOCAL_CTX = 32_768;

@@ -58,6 +58,25 @@ export async function loadClaudeApi(): Promise<void> {
   }
 }
 
+/** Autres fournisseurs d'IA (OpenAI, Gemini, Mistral…) : état des clés (jamais la clé elle-même). */
+export interface ApiProviderStatus {
+  id: string;
+  label: string;
+  hint: string;
+  keysUrl: string;
+  configured: boolean;
+  /** Fin de la clé enregistrée (« …abcd »). */
+  keyEnd?: string;
+}
+export const apiProviders = ref<ApiProviderStatus[]>([]);
+export async function loadApiProviders(): Promise<void> {
+  try {
+    apiProviders.value = await call<ApiProviderStatus[]>("apiProviders.status");
+  } catch {
+    // cœur pas encore prêt : on réessaiera
+  }
+}
+
 /** Abonnement du compte Claude Code connecté sur cette machine. */
 export interface ClaudeAccount {
   loggedIn: boolean;

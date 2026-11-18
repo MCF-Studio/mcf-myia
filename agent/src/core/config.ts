@@ -162,6 +162,17 @@ export const ConfigSchema = z.object({
       timeoutMinutes: z.number().min(1).max(60).default(10),
     })
     .prefault({}),
+  /**
+   * Agents sur l'API d'un autre fournisseur d'IA (modèle « <fournisseur>-api:<modèle> », core/api-providers.ts), payés
+   * avec la clé d'API du fournisseur rangée dans le coffre Windows.
+   */
+  apiProviders: z
+    .object({
+      /** Jetons de sortie au plus par réponse (borne le coût d'un tour). */
+      maxTokens: z.number().int().min(256).max(128_000).default(8192),
+      timeoutMinutes: z.number().min(1).max(60).default(10),
+    })
+    .prefault({}),
   projects: z.record(z.string(), ProjectSchema).default({}),
   /** Dossiers parcourus pour trouver les projets automatiquement (depth = niveaux de sous-dossiers). */
   projectRoots: z
@@ -215,8 +226,47 @@ export type Config = z.infer<typeof ConfigSchema>;
 export type ProjectConfig = z.infer<typeof ProjectSchema>;
 export type McpServerConfig = z.infer<typeof McpServerSchema>;
 
+/**
+ * Sections dont les valeurs sont des données de l'utilisateur, passées telles quelles (un argument ou une variable
+ * d'environnement vide d'un serveur MCP peut être voulu).
+ */
+const KEEP_BLANKS = new Set(["mcpServers", "projects"]);
+
+/**
+ * Valeur vide = réglage non rempli : "" et [] sont retirés avant validation, et le réglage prend sa valeur par défaut.
+ * C'est ce qui permet à config/agent.json de lister TOUTES les options, vides tant que l'utilisateur ne les remplit pas
+ * (completeConfigFile).
+ */
+export function stripBlanks(raw: unknown, top = true): unknown {
+  if (Array.isArray(raw)) return raw.map((v) => stripBlanks(v, false));
+  if (!raw || typeof raw !== "object") return raw;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (v === "" || (Array.isArray(v) && v.length === 0)) continue;
+    out[k] = top && KEEP_BLANKS.has(k) ? v : stripBlanks(v, false);
+  }
+  return out;
+}
+
+/**
+ * Modèle complet de config/agent.json : chaque option avec sa valeur par défaut, ou vide ("", [], {}) quand elle n'en a
+ * pas ou quand la valeur par défaut est une liste que le code peut faire évoluer. Le site et le relais de la Guilde
+ * n'y figurent pas (réglages de développement).
+ */
+export function configTemplate(): Record<string, unknown> {
+  const d = ConfigSchema.parse({}) as Record<string, any>;
+  delete d.site;
+  d.llm.gpu = { mode: d.llm.gpu.mode, device: "", uuid: "", splitMode: d.llm.gpu.splitMode, ratios: [] };
+  d.llm.otherModels = { ollama: "", llamacpp: "" };
+  d.llm.llamacpp = { port: d.llm.llamacpp.port, backend: "", modelsMax: d.llm.llamacpp.modelsMax, ctx: d.llm.llamacpp.ctx };
+  d.claude = { ...d.claude, model: "", defaultAllowedTools: [] };
+  d.godot = { projectsRoot: "", versionsDir: "", ...d.godot };
+  d.toolbox = { dir: "", ...d.toolbox };
+  return d;
+}
+
 export function parseConfig(raw: unknown): Config {
-  const res = ConfigSchema.safeParse(raw);
+  const res = ConfigSchema.safeParse(stripBlanks(raw));
   if (!res.success) {
     const lines = res.error.issues.map((i) => `  - ${i.path.join(".")} : ${i.message}`);
     throw new Error(`Configuration invalide :\n${lines.join("\n")}`);

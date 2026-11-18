@@ -42,6 +42,8 @@ export interface StatusContext {
   installed: Set<string> | null;
   localEngineOk: boolean;
   claudeApiKey: boolean;
+  /** Fournisseurs d'IA dont la clé d'API est enregistrée (openai, mistral…). */
+  apiKeys?: Set<string>;
 }
 
 /** État d'un agent pour la carte : en train de répondre, modèle absent, moteur local arrêté, clé d'API manquante. */
@@ -50,6 +52,8 @@ export function agentStatus(a: AgentProfile, ctx: StatusContext): { status: Node
   const model = a.model || ctx.defaultModel;
   if (model.startsWith("claude-api:")) return ctx.claudeApiKey ? { status: "ok" } : { status: "warn", hint: "clé d'API Claude manquante" };
   if (model.startsWith("claude:")) return { status: "ok" };
+  const provider = /^([a-z]+)-api:/.exec(model)?.[1];
+  if (provider) return ctx.apiKeys?.has(provider) ? { status: "ok" } : { status: "warn", hint: `clé d'API ${provider} manquante` };
   if (!ctx.localEngineOk) return { status: "error", hint: "moteur local arrêté" };
   if (ctx.installed && model && !ctx.installed.has(model) && !ctx.installed.has(`${model}:latest`)) {
     return { status: "error", hint: `modèle ${model} non installé` };

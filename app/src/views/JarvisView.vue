@@ -224,7 +224,7 @@ onMounted(() => {
   } else maybeDailyBriefing();
 });
 watch(
-  () => [state.ready, master.value?.id, j.agentId, j.model, j.free],
+  () => [state.ready, master.value?.id, j.agentId, j.model, j.free, j.name],
   () => {
     if (state.ready && master.value) void ensureConversation().catch(() => undefined);
     void refreshSide();

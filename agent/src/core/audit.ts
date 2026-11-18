@@ -12,6 +12,8 @@ export interface AuditEvent {
     | "crash"
     | "ollama_install"
     | "claude_api_usage"
+    | "api_key"
+    | "api_usage"
     | "claude_api_key"
     | "files_full_access"
     | "map_sync"
@@ -52,6 +54,8 @@ export interface AuditEvent {
   cacheRead?: number;
   cacheWrite?: number;
   action?: "set" | "delete";
+  /** Autre fournisseur d'IA (events "api_*") : identifiant du fournisseur (jamais la clé). */
+  provider?: string;
 }
 
 function scrub(value: unknown, depth = 0): unknown {

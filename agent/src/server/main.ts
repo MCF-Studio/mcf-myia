@@ -10,12 +10,13 @@ import { Agent } from "../core/agent.js";
 import { checkCoordination, checkWorkspace, usableCoordination, usableWorkspace } from "../core/access.js";
 import { initCoordination, listFiches, readFiches, writeFiches } from "../core/coordination.js";
 import { audit } from "../core/audit.js";
-import { patchConfigFile } from "../core/config-file.js";
+import { completeConfigFile, patchConfigFile } from "../core/config-file.js";
 import { loadConfig, type Config } from "../core/config.js";
 import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
 import { CLAUDE_MODEL_INFO, CLAUDE_MODELS, claudeAccount, triageTask } from "../core/claude-coach.js";
+import { API_PROVIDERS, listProviderModels, PROVIDER_IDS, providerKeyStatus, providerSecret, verifyProviderKey, type ProviderId } from "../core/api-providers.js";
 import { API_KEY_SECRET, apiKeyStatus, CLAUDE_API_MODELS, verifyApiKey } from "../core/claude-api-llm.js";
-import { deleteSecret, setSecret } from "../core/secrets.js";
+import { deleteSecret, getSecret, redact, setSecret } from "../core/secrets.js";
 import { decide, journal, loadGuild, OfferSchema, readJournal, runSandboxed, saveGuild } from "../core/guild.js";
 import { McfAccount } from "../core/mcf-account.js";
 import { AgentsMap, mapNames, mapTeams } from "../core/agents-map.js";
@@ -83,6 +84,13 @@ const VERSION = ((): string => {
 /** Premier lancement (installateur) : dossiers et configuration minimale créés s'ils manquent. */
 for (const d of [path.dirname(paths.config), paths.audit, paths.workspace]) fs.mkdirSync(d, { recursive: true });
 if (!fs.existsSync(paths.config)) writeJsonAtomic(paths.config, { user: { name: "l'utilisateur" }, projectRoots: [] });
+// Toutes les options visibles dans le fichier, vides tant qu'elles ne sont pas remplies (jamais bloquant).
+try {
+  completeConfigFile();
+} catch (e) {
+  process.stderr.write(`[config] complétion impossible : ${(e as Error).message}
+`);
+}
 
 const rpc = new RpcPeer();
 rpc.onClose = () => void shutdown();
@@ -162,7 +170,8 @@ const profileOf = (id: string) => profiles.find((p) => p.id === id) ?? profiles[
  * Jarvis (onglet vocal) : quel agent le fait (vide = MASTER), quel modèle il utilise (vide = celui de l'agent,
  * "auto" = le modèle local rapide le mieux adapté parmi ceux installés) et s'il est en mode libre.
  */
-const jarvisOpts = { agentId: "", model: "auto", free: true, resolved: "" };
+/** Réglages de l'onglet Jarvis ; `name` = nom choisi pour l'assistant (titre de sa conversation, nom dans son prompt). */
+const jarvisOpts = { agentId: "", model: "auto", free: true, resolved: "", name: "" };
 
 /** Modèles locaux rapides qui savent appeler des outils, du meilleur compromis vitesse/qualité au moins bon. */
 const JARVIS_PREFERRED = ["qwen3:8b", "qwen3:14b", "qwen2.5:7b", "qwen2.5:14b", "llama3.1:8b", "mistral-nemo", "qwen3:4b"];
@@ -235,7 +244,7 @@ async function jarvisAgentFor(c: Conversation): Promise<Live> {
   const model = await jarvisModel();
   jarvisOpts.resolved = model ?? base.model ?? cfg.llm.model;
   const profile = { ...base, model: model ?? base.model };
-  const signature = JSON.stringify(["jarvis", profile, cfg.llm.model, jarvisOpts.free]);
+  const signature = JSON.stringify(["jarvis", profile, cfg.llm.model, jarvisOpts.free, jarvisOpts.name]);
   let l = live.get(c.id);
   if (!l || l.signature !== signature) {
     const masterBudget = { used: 0 };
@@ -247,7 +256,7 @@ async function jarvisAgentFor(c: Conversation): Promise<Live> {
       free: jarvisOpts.free,
       voice: true,
       teamNote:
-        `Tu es ${profile.name}, l'assistant vocal personnel de ${cfg.user.name} (onglet Jarvis de MyIA). Tu peux aussi piloter l'app (agents, conversations) ` +
+        `Tu es ${jarvisOpts.name || profile.name}, l'assistant vocal personnel de ${cfg.user.name} (onglet Jarvis de MyIA). Tu peux aussi piloter l'app (agents, conversations) ` +
         "et écrire aux autres agents (app_agent_message) quand une tâche relève de leur rôle. Fais toi-même ce qui est simple.",
     });
     if (c.agentId !== profile.id) {
@@ -267,18 +276,34 @@ async function jarvisAgentFor(c: Conversation): Promise<Live> {
 /** Règle Jarvis (agent, modèle, mode libre) et rend sa conversation (créée au besoin) et le modèle effectif. */
 rpc.method("jarvis.conversation", async (params) => {
   const p = parse(
-    z.object({ agentId: z.string().max(80).optional(), model: z.string().max(200).optional(), free: z.boolean().optional() }),
+    z.object({
+      agentId: z.string().max(80).optional(),
+      model: z.string().max(200).optional(),
+      free: z.boolean().optional(),
+      name: z.string().trim().max(40).optional(),
+    }),
     params,
   );
+  if (p.name !== undefined) jarvisOpts.name = p.name;
   if (p.agentId !== undefined) jarvisOpts.agentId = p.agentId;
   if (p.model !== undefined) jarvisOpts.model = p.model;
   if (p.free !== undefined) jarvisOpts.free = p.free;
   if (!profiles.length) throw new Error("aucun agent : crées-en un dans l'écran Agents");
   const profile = jarvisProfile();
+  // La conversation porte le nom choisi pour l'assistant (« Paul »…), pas « Jarvis ».
+  const title = jarvisOpts.name || "Jarvis";
   let c = store.list().find((x) => x.kind === "jarvis");
   let id = c?.id;
+  if (c && c.title !== title) {
+    const full = store.get(c.id);
+    if (full) {
+      full.title = title;
+      store.save(full);
+      rpc.notify("conversations.changed", {});
+    }
+  }
   if (!id) {
-    const created = store.create(profile.id, "Jarvis");
+    const created = store.create(profile.id, title);
     created.kind = "jarvis";
     store.save(created);
     id = created.id;
@@ -1578,6 +1603,85 @@ rpc.method("claudeApi.deleteKey", () => {
   deleteSecret(API_KEY_SECRET);
   audit({ event: "claude_api_key", action: "delete" });
   return apiKeyStatus();
+});
+
+// ─── Jetons des bots Telegram et Discord (sans console) ──────────────────────
+// Même règle que les clés d'API : le jeton ne fait que l'aller, il est vérifié auprès du service puis rangé dans le
+// coffre Windows ; seule sa fin est affichée.
+
+const BOTS = {
+  telegram: { secret: "telegram_bot_token", format: /^\d{5,15}:[A-Za-z0-9_-]{30,60}$/ },
+  discord: { secret: "discord_bot_token", format: /^[A-Za-z0-9_.-]{50,100}$/ },
+} as const;
+const BotParam = z.object({ bot: z.enum(["telegram", "discord"]) });
+const botStatus = (bot: keyof typeof BOTS) => {
+  const t = getSecret(BOTS[bot].secret);
+  return { configured: !!t, keyEnd: t ? `…${t.slice(-4)}` : undefined };
+};
+
+rpc.method("bots.status", () => ({ telegram: botStatus("telegram"), discord: botStatus("discord") }));
+
+rpc.method("bots.setToken", async (params) => {
+  const { bot, token } = parse(BotParam.extend({ token: z.string().trim().min(20).max(200) }), params);
+  if (!BOTS[bot].format.test(token)) throw new Error(`ce n'est pas un jeton de bot ${bot === "telegram" ? "Telegram (BotFather)" : "Discord (Developer Portal → Bot)"}`);
+  // Vérification auprès du service (identité du bot), adresse figée, sans redirection.
+  let r: Response;
+  try {
+    r =
+      bot === "telegram"
+        ? await fetch(`https://api.telegram.org/bot${token}/getMe`, { redirect: "error", signal: AbortSignal.timeout(15_000) })
+        : await fetch("https://discord.com/api/v10/users/@me", { headers: { authorization: `Bot ${token}` }, redirect: "error", signal: AbortSignal.timeout(15_000) });
+  } catch (e) {
+    throw new Error(`vérification impossible : ${redact((e as Error).message, token)}`);
+  }
+  if (r.status === 401 || r.status === 404) throw new Error("jeton refusé (révoqué ou mal copié)");
+  if (!r.ok) throw new Error(`vérification impossible (réponse ${r.status})`);
+  setSecret(BOTS[bot].secret, token);
+  audit({ event: "api_key", provider: bot, action: "set" });
+  return botStatus(bot);
+});
+
+rpc.method("bots.deleteToken", (params) => {
+  const { bot } = parse(BotParam, params);
+  deleteSecret(BOTS[bot].secret);
+  audit({ event: "api_key", provider: bot, action: "delete" });
+  return botStatus(bot);
+});
+
+// ─── Autres fournisseurs d'IA (OpenAI, Gemini, Mistral…) : clé d'API de l'utilisateur ─────────────
+// Mêmes règles que la clé Claude : la clé ne fait que l'aller (interface → coffre Windows), seule sa fin est affichée.
+
+const ProviderParam = z.object({ provider: z.enum(PROVIDER_IDS as [ProviderId, ...ProviderId[]]) });
+
+rpc.method("apiProviders.status", () =>
+  PROVIDER_IDS.map((id) => {
+    const p = API_PROVIDERS[id];
+    const k = providerKeyStatus(id);
+    return { id, label: p.label, hint: p.hint, keysUrl: p.keysUrl, configured: k.configured, keyEnd: k.hint };
+  }),
+);
+
+rpc.method("apiProviders.setKey", async (params) => {
+  const { provider, key } = parse(ProviderParam.extend({ key: z.string().trim().min(10).max(400) }), params);
+  await verifyProviderKey(provider, key);
+  setSecret(providerSecret(provider), key);
+  audit({ event: "api_key", provider, action: "set" });
+  return providerKeyStatus(provider);
+});
+
+rpc.method("apiProviders.deleteKey", (params) => {
+  const { provider } = parse(ProviderParam, params);
+  deleteSecret(providerSecret(provider));
+  audit({ event: "api_key", provider, action: "delete" });
+  return providerKeyStatus(provider);
+});
+
+/** Modèles disponibles chez un fournisseur avec la clé enregistrée (pour l'écran Agents). */
+rpc.method("apiProviders.models", async (params) => {
+  const { provider } = parse(ProviderParam, params);
+  const key = getSecret(providerSecret(provider));
+  if (!key) throw new Error(`aucune clé ${API_PROVIDERS[provider].label} : Paramètres → Autres IA`);
+  return listProviderModels(provider, key);
 });
 
 /** Passation d'une console : le fichier existe-t-il (et a-t-il fini d'être écrit) ? Dossiers autorisés uniquement. */

@@ -9,6 +9,13 @@ export const KNOWN_SECRETS: Record<string, string> = {
   telegram_bot_token: "Jeton du bot Telegram (BotFather)",
   discord_bot_token: "Jeton du bot Discord (Developer Portal > Bot)",
   anthropic_api_key: "Clé d'API Anthropic des agents sur l'API Claude (platform.claude.com)",
+  openai_api_key: "Clé d'API OpenAI (agents « openai-api:… »)",
+  gemini_api_key: "Clé d'API Google Gemini (agents « gemini-api:… »)",
+  mistral_api_key: "Clé d'API Mistral AI (agents « mistral-api:… »)",
+  openrouter_api_key: "Clé d'API OpenRouter (agents « openrouter-api:… »)",
+  groq_api_key: "Clé d'API Groq (agents « groq-api:… »)",
+  deepseek_api_key: "Clé d'API DeepSeek (agents « deepseek-api:… »)",
+  xai_api_key: "Clé d'API xAI (agents « xai-api:… »)",
   mcfstudio_map_refresh: "Autorisation « carte des agents » de mcfstudio.fr (gérée par MyIA)",
 };
 

@@ -95,7 +95,7 @@ export function pendingConfirm(): DisplayMessage | undefined {
 export async function ensureConversation(): Promise<string> {
   if (!masterAgent()) throw new Error("aucun agent : crées-en un dans l'écran Agents");
   const j = settings.jarvis;
-  const r = await call<{ id: string; model: string }>("jarvis.conversation", { agentId: j.agentId, model: j.model, free: j.free }, 15_000);
+  const r = await call<{ id: string; model: string }>("jarvis.conversation", { agentId: j.agentId, model: j.model, free: j.free, name: j.name }, 15_000);
   const id = r.id;
   jarvis.model = r.model;
   if (!state.open[id]) state.open[id] = await call<ConversationFull>("conversations.get", { id });

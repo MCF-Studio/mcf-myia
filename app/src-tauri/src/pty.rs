@@ -122,10 +122,12 @@ fn local_claude_env() -> Result<LocalEnv, String> {
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
         .unwrap_or(serde_json::Value::Null);
     let llm = cfg.get("llm");
-    let engine = llm.and_then(|l| l.get("engine")).and_then(|v| v.as_str()).unwrap_or("ollama");
+    // Champ vide = valeur par défaut (config/agent.json liste toutes les options, vides tant qu'elles ne sont pas remplies).
+    let engine = llm.and_then(|l| l.get("engine")).and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or("ollama");
     let model = llm
         .and_then(|l| l.get("model"))
         .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(if engine == "llamacpp" { "Qwen3-8B-Q4_K_M" } else { "qwen3:8b" })
         .to_string();
 
@@ -149,6 +151,7 @@ fn local_claude_env() -> Result<LocalEnv, String> {
         let base = llm
             .and_then(|l| l.get("baseUrl"))
             .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
             .unwrap_or("http://127.0.0.1:11434")
             .trim_end_matches('/')
             .to_string();

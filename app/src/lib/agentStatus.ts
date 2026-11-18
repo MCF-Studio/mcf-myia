@@ -1,7 +1,7 @@
 import { computed, onMounted, ref } from "vue";
 import { call } from "./rpc";
 import { state } from "./store";
-import { claudeApi, loadClaudeApi } from "./terminals";
+import { apiProviders, claudeApi, loadApiProviders, loadClaudeApi } from "./terminals";
 import { agentStatus, type StatusContext } from "./topology";
 import type { AgentProfile } from "./types";
 
@@ -10,6 +10,7 @@ export function useAgentStatus() {
   const installed = ref<Set<string> | null>(null);
   onMounted(async () => {
     void loadClaudeApi();
+    void loadApiProviders();
     try {
       const r = await call<{ installed: { name: string }[] }>("models.list", {}, 10_000);
       installed.value = new Set(r.installed.map((m) => m.name));
@@ -23,6 +24,7 @@ export function useAgentStatus() {
     installed: installed.value,
     localEngineOk: state.overview?.ollama.ok ?? true,
     claudeApiKey: claudeApi.value.configured,
+    apiKeys: new Set(apiProviders.value.filter((p) => p.configured).map((p) => p.id)),
   }));
   return computed(() => (a: AgentProfile) => agentStatus(a, ctx.value));
 }

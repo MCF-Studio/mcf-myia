@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isCloudModel, MODEL_NAME } from "../core/llm.js";
+import { AGENT_MODEL_NAME, isCloudModel } from "../core/llm.js";
 import type { AgentProfile } from "../core/profiles.js";
 import { defineTool, truncate, type AgentUI, type Tool } from "../core/types.js";
 
@@ -115,7 +115,8 @@ export function appControlTools(ctl: AppControl, master: AgentProfile, budget: {
       name: "app_agent_create",
       description:
         "Crée un nouvel agent dans l'app (l'utilisateur confirme). Modèle : vide = modèle par défaut, un modèle local installé, " +
-        "« claude:<haiku|sonnet|opus|fable> » (abonnement) ou « claude-api:<haiku|sonnet|opus|fable> » (clé d'API).",
+        "« claude:<haiku|sonnet|opus|fable> » (abonnement), « claude-api:<haiku|sonnet|opus|fable> » (clé d'API), ou " +
+        "« <fournisseur>-api:<modèle> » avec un fournisseur parmi openai, gemini, mistral, openrouter, groq, deepseek, xai (clé d'API).",
       schema: z.object({
         name: z.string().trim().min(1).max(40),
         description: z.string().max(300).default(""),
@@ -124,7 +125,7 @@ export function appControlTools(ctl: AppControl, master: AgentProfile, budget: {
       }),
       risk: "external",
       async check(a) {
-        if (a.model && !MODEL_NAME.test(a.model)) throw new Error(`nom de modèle invalide : ${a.model}`);
+        if (a.model && !AGENT_MODEL_NAME.test(a.model)) throw new Error(`nom de modèle invalide : ${a.model}`);
         if (a.model && !isCloudModel(a.model) && !(await ctl.installedModels()).includes(a.model)) {
           throw new Error(`modèle local non installé : ${a.model} (onglet Modèles)`);
         }

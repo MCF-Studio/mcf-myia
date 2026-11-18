@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { MODEL_NAME } from "./llm.js";
+import { AGENT_MODEL_NAME } from "./llm.js";
 import { paths } from "./paths.js";
 
 /**
@@ -16,8 +16,8 @@ export const AgentProfileSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, "id : minuscules, chiffres et tirets (40 max)"),
   name: z.string().trim().min(1).max(40),
   description: z.string().max(300).optional(),
-  /** Modèle local, ou « claude:<alias> » pour confier l'agent à Claude (claude-llm.ts) ; absent = llm.model de la config. */
-  model: z.string().max(120).regex(MODEL_NAME).optional(),
+  /** Modèle local, « claude:<alias> » / « claude-api:<alias> » (Claude), ou « <fournisseur>-api:<modèle> » (api-providers.ts) ; absent = llm.model de la config. */
+  model: z.string().max(120).regex(AGENT_MODEL_NAME).optional(),
   /** Couleur d'accent dans l'interface. */
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   /** Photo : image PNG/JPEG/WebP en data URL (256 px max, recadrée par l'app). Pas de SVG : il peut contenir du script. */

@@ -321,6 +321,37 @@ le coût), ne reçoit ni la mémoire ni les outils `memory_*`, et la Guilde le r
   ne sont renvoyés que pour la demande en cours et jamais persistés, ce qui revient à retirer toutes les réflexions
   de tête, comme l'API le permet. Repli côté serveur (`fallbacks: "default"`) en cas de refus de sécurité, sauf Haiku.
 
+**Agents sur d'autres fournisseurs d'IA** (modèle `<fournisseur>-api:<modèle>` dans un profil, `core/api-providers.ts` ;
+fournisseurs en liste fermée : `openai`, `gemini`, `mistral`, `openrouter`, `groq`, `deepseek`, `xai`) : même principe que
+l'agent sur l'API Claude, par l'API « chat completions » compatible OpenAI de chaque fournisseur, avec la clé d'API de
+l'utilisateur, facturée à l'usage par le fournisseur. Le suffixe `-api` évite toute confusion avec un modèle Ollama
+(`mistral:7b` est local). Le modèle distant ne fait que choisir des outils de MyIA, exécutés par MyIA avec les règles
+du §3 ; aucun outil côté fournisseur n'est activé. Comme tout agent en ligne : ni mémoire ni outils `memory_*`, refusé
+par la Guilde, et un échange MASTER ↔ agent entre local et en ligne est confirmé (tests).
+- *Qui voit quoi* : la clé n'est connue que du cœur. L'interface l'envoie une fois (`apiProviders.setKey`), le cœur la
+  vérifie (requête de lecture, sans jeton consommé) puis la range dans le coffre Windows (`<fournisseur>_api_key`) ;
+  aucune méthode ne la renvoie, seuls ses 4 derniers caractères sont affichés. Le fournisseur reçoit le prompt système,
+  la conversation et les résultats d'outils de cet agent, rien d'autre (c'est écrit dans l'écran Agents).
+- *Menaces et mesures* : clé détournée vers un autre serveur → adresse de base **figée dans le code** pour chaque
+  fournisseur (ni la config, ni une variable d'environnement, ni le modèle ne la changent), https, redirections refusées
+  (`redirect: "error"`) ; identifiant de modèle qui viserait un chemin ou une URL → expression fermée, sans `..` ni
+  espace, envoyé seulement dans le corps JSON ; clé dans un journal ou une erreur → `redact` sur chaque message,
+  audit limité à l'action (`api_key` set/delete) ; dépense incontrôlée → `apiProviders.maxTokens` par réponse,
+  `maxSteps` par demande, budget d'appels des équipes, consommation de chaque appel au journal (`api_usage`), limite de
+  dépense à fixer chez le fournisseur (rappelé dans Paramètres) ; appel d'outil tronqué (`finish_reason: length`) →
+  rien n'est exécuté ; injection par un résultat d'outil → mêmes confirmations qu'un agent local.
+
+**Jetons des bots Telegram et Discord** (Paramètres → Général → Bots) : même chemin que les clés d'API (`bots.setToken`) ;
+le jeton est vérifié auprès du service (`getMe` de Telegram, `users/@me` de Discord, adresses figées, sans redirection)
+puis rangé dans le coffre Windows ; aucune méthode ne le renvoie. Les destinations restent fermées (§3).
+
+**Configuration complète** (`completeConfigFile`, au démarrage) : `config/agent.json` reçoit toutes les options qui lui
+manquent, vides ou à leur valeur par défaut, pour que l'utilisateur voie tout ce qui se règle (description :
+[CONFIG.md](CONFIG.md)). Une valeur existante n'est jamais modifiée ; le résultat est validé avant l'écriture
+(atomique) ; un fichier illisible ou invalide n'est pas touché. `""` et `[]` valent « non rempli » (valeur par défaut),
+sauf dans `mcpServers` et `projects` où les valeurs passent telles quelles. Le site et le relais de la Guilde n'y sont
+pas écrits. Aucun secret n'y entre.
+
 **Installation d'Ollama** (Paramètres → Système, Windows) : le script officiel `https://ollama.com/install.ps1` est
 enregistré puis lancé seulement si sa signature Authenticode est valide et au nom d'Ollama Inc. ; les variables qui le
 détournent (`OLLAMA_DOWNLOAD_URL`…) ne lui sont pas transmises. Avant un téléchargement de modèle, le registre Ollama
@@ -418,8 +449,9 @@ est proposée, et l'app n'affiche aucun contenu fictif.
 
 ## 4. Secrets
 
-Jetons (bot Telegram, bot Discord) dans le **Gestionnaire d'identification Windows** (service `MyIA`), saisis via
-`myia secret set <nom>` (saisie masquée). Jamais dans `config\agent.json`, jamais dans les journaux, jamais envoyés au
+Jetons (bot Telegram, bot Discord) et clés d'API (Anthropic, autres fournisseurs) dans le **Gestionnaire
+d'identification Windows** (service `MyIA`), saisis dans Paramètres (vérifiés auprès du service avant d'être rangés) ou
+via `myia secret set <nom>` (saisie masquée). Jamais dans `config\agent.json`, jamais dans les journaux, jamais envoyés au
 modèle.
 
 ## 5. Menaces et mesures
@@ -468,6 +500,9 @@ modèle.
 | Boîte `tools/` : Blender écrit ailleurs ou sature le poste                          | Blender n'écrit que dans un dossier temporaire propre à l'appel (supprimé même en cas d'erreur) ; l'outil recopie ensuite vers la sortie contrôlée ; délai ≤ 600 s puis arrêt ; un seul Blender par outil ; plafonds de la spec |
 | Contrôle du PC détourné (injection : « ferme tout », « éteins le PC », commande cachée dans un titre de fenêtre) | Scripts PowerShell fixes, valeurs par variables d'environnement ; listes fermées ; arrêt de programme, fermeture de fenêtre et alimentation toujours confirmés ; système et MyIA protégés ; arrêt différé et annulable |
 | Voix captée par le micro en mode mains libres (vidéo, tiers) qui valide une confirmation | Mains libres désactivé par défaut et signalé ; « oui » seulement face à une confirmation affichée et lue à voix haute ; mot d'éveil exigé hors fenêtre de suivi |
+| Clé d'un fournisseur d'IA envoyée ailleurs que chez lui (config, variable d'environnement, redirection) | Adresses figées dans le code, https, redirections refusées ; la config ne contient aucune adresse de fournisseur |
+| Modèle en ligne choisi par mégarde à la place d'un modèle local du même nom | Préfixe distinct `<fournisseur>-api:` ; « mistral:7b » reste local (test) ; l'écran Agents dit ce qui part chez le fournisseur |
+| Fichier de config complété qui écrase un réglage ou casse le démarrage | Ajout des seules clés absentes ; validation avant écriture atomique ; fichier invalide laissé intact ; complétion jamais bloquante |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation

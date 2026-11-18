@@ -27,7 +27,7 @@ import {
   Volume2,
   Wrench,
 } from "lucide-vue-next";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import SettingRow from "../components/SettingRow.vue";
 import Toggle from "../components/Toggle.vue";
 import ToolboxSettings from "../components/ToolboxSettings.vue";
@@ -42,7 +42,7 @@ import { BACKGROUND_EXTENSIONS, clearWallpaper, setWallpaper, wallpaper } from "
 import type { Theme } from "../lib/types";
 import { checkForUpdate, update } from "../lib/update";
 import { applyPttKey, ptt } from "../lib/ptt";
-import { claudeApi, loadClaudeApi } from "../lib/terminals";
+import { apiProviders, claudeApi, loadApiProviders, loadClaudeApi } from "../lib/terminals";
 
 type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "toolbox" | "system" | "about";
 const section = ref<Section>("general");
@@ -364,6 +364,78 @@ async function deleteApiKey() {
     await call("claudeApi.deleteKey");
     await loadClaudeApi();
     toast("Clé d'API supprimée", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+// ─── Autres IA (OpenAI, Gemini, Mistral…) : une clé d'API par fournisseur ─────
+// Même règle que la clé Claude : la clé part vers le cœur (vérifiée, rangée dans le coffre Windows), jamais relue ici.
+const providerKeyInput = reactive<Record<string, string>>({});
+const providerKeyBusy = ref<string>();
+onMounted(() => void loadApiProviders());
+
+async function saveProviderKey(id: string, label: string) {
+  const key = (providerKeyInput[id] ?? "").trim();
+  if (!key) return;
+  providerKeyBusy.value = id;
+  try {
+    await call("apiProviders.setKey", { provider: id, key }, 30_000);
+    providerKeyInput[id] = "";
+    await loadApiProviders();
+    toast(`Clé ${label} vérifiée et enregistrée dans le coffre Windows`, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    providerKeyBusy.value = undefined;
+  }
+}
+
+async function deleteProviderKey(id: string, label: string) {
+  if (!confirm(`Supprimer la clé d'API ${label} ? Les agents sur ${label} ne pourront plus répondre.`)) return;
+  try {
+    await call("apiProviders.deleteKey", { provider: id });
+    await loadApiProviders();
+    toast(`Clé ${label} supprimée`, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+// ─── Jetons des bots Telegram et Discord ─────────────────────────────────────
+type BotId = "telegram" | "discord";
+const bots = ref<Record<BotId, { configured: boolean; keyEnd?: string }>>({ telegram: { configured: false }, discord: { configured: false } });
+const botInput = reactive<Record<BotId, string>>({ telegram: "", discord: "" });
+const botBusy = ref<BotId>();
+const BOT_LABEL: Record<BotId, string> = { telegram: "Telegram", discord: "Discord" };
+async function loadBots() {
+  try {
+    bots.value = await call("bots.status");
+  } catch {
+    // cœur pas encore prêt
+  }
+}
+onMounted(() => void loadBots());
+async function saveBot(bot: BotId) {
+  const token = botInput[bot].trim();
+  if (!token) return;
+  botBusy.value = bot;
+  try {
+    await call("bots.setToken", { bot, token }, 30_000);
+    botInput[bot] = "";
+    await loadBots();
+    toast(`Jeton du bot ${BOT_LABEL[bot]} vérifié et enregistré dans le coffre Windows`, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    botBusy.value = undefined;
+  }
+}
+async function deleteBot(bot: BotId) {
+  if (!confirm(`Supprimer le jeton du bot ${BOT_LABEL[bot]} ? Les agents ne pourront plus y envoyer de messages.`)) return;
+  try {
+    await call("bots.deleteToken", { bot });
+    await loadBots();
   } catch (e) {
     toast((e as Error).message, "error");
   }
@@ -816,6 +888,72 @@ const shortcuts: [string, string][] = [
             />
             <button class="btn sm" :disabled="apiKeyBusy || !apiKeyInput.trim()" @click="saveApiKey">{{ apiKeyBusy ? "Vérification…" : "Enregistrer" }}</button>
             <button v-if="claudeApi.configured" class="btn sm danger" @click="deleteApiKey">Supprimer</button>
+          </div>
+        </SettingRow>
+      </section>
+
+      <section class="card">
+        <h3 class="sec-title">Bots Telegram et Discord</h3>
+        <p class="tiny muted">
+          Pour que tes agents envoient des messages. Le jeton est vérifié puis rangé dans le coffre Windows. Il faut aussi déclarer les
+          destinations (Telegram) et les salons (Discord) dans le fichier de configuration (Paramètres → Système, sous « Dossier MyIA ») : les agents
+          n'écrivent qu'à ces noms-là.
+        </p>
+        <SettingRow
+          v-for="b in (['telegram', 'discord'] as const)"
+          :key="b"
+          :label="`Bot ${BOT_LABEL[b]}`"
+          :hint="
+            bots[b].configured
+              ? `Enregistré (${bots[b].keyEnd}).`
+              : b === 'telegram'
+                ? 'Crée un bot avec @BotFather sur Telegram et colle le jeton qu’il te donne.'
+                : 'discord.com/developers → New Application → Bot → Reset Token, puis invite le bot sur ton serveur.'
+          "
+        >
+          <div class="row-actions">
+            <input
+              v-model="botInput[b]"
+              class="input w-220"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              :placeholder="bots[b].configured ? 'Remplacer le jeton…' : 'Coller le jeton'"
+              @keydown.enter="saveBot(b)"
+            />
+            <button class="btn sm" :disabled="botBusy === b || !botInput[b].trim()" @click="saveBot(b)">{{ botBusy === b ? "Vérification…" : "Enregistrer" }}</button>
+            <button v-if="bots[b].configured" class="btn sm danger" @click="deleteBot(b)">Supprimer</button>
+          </div>
+        </SettingRow>
+      </section>
+
+      <section class="card">
+        <h3 class="sec-title">Autres IA (clés d'API)</h3>
+        <p class="tiny muted">
+          Pour créer des agents qui réfléchissent avec ChatGPT, Gemini, Mistral… (écran Agents → Modèle → « Autres IA »). Chaque réponse est
+          facturée par le fournisseur sur ton compte : fixe une limite de dépense chez lui. Les clés sont vérifiées puis rangées dans le coffre
+          Windows, jamais dans un fichier, et ne partent que vers l'adresse officielle du fournisseur.
+        </p>
+        <SettingRow
+          v-for="p in apiProviders"
+          :key="p.id"
+          :label="p.label"
+          :hint="p.configured ? `Enregistrée (${p.keyEnd}). ${p.hint}.` : `${p.hint}. Crée une clé sur ${p.keysUrl}`"
+        >
+          <div class="row-actions">
+            <input
+              v-model="providerKeyInput[p.id]"
+              class="input w-220"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              :placeholder="p.configured ? 'Remplacer la clé…' : 'Coller la clé d’API'"
+              @keydown.enter="saveProviderKey(p.id, p.label)"
+            />
+            <button class="btn sm" :disabled="providerKeyBusy === p.id || !(providerKeyInput[p.id] ?? '').trim()" @click="saveProviderKey(p.id, p.label)">
+              {{ providerKeyBusy === p.id ? "Vérification…" : "Enregistrer" }}
+            </button>
+            <button v-if="p.configured" class="btn sm danger" @click="deleteProviderKey(p.id, p.label)">Supprimer</button>
           </div>
         </SettingRow>
       </section>

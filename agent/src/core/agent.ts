@@ -120,6 +120,9 @@ export class Agent {
     this.llm = createLlm(cfg.llm, profile.model ?? cfg.llm.model, cfg.claude.command, {
       ...cfg.claudeApi,
       onUsage: (u) => audit({ event: "claude_api_usage", agent: profile.id, ...u }),
+    }, {
+      ...cfg.apiProviders,
+      onUsage: (u) => audit({ event: "api_usage", agent: profile.id, ...u }),
     });
     // Un profil peut restreindre les services auxquels l'agent a accès (liste blanche d'ids).
     const allow = profile.services;

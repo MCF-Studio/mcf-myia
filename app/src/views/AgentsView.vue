@@ -12,7 +12,7 @@ import { downloadText, pickAvatar, pickTextFile } from "../lib/files";
 import { agentColor } from "../lib/format";
 import { call } from "../lib/rpc";
 import { createConversation, refreshAgents, refreshOverview, state, toast } from "../lib/store";
-import { claudeApi, claudeModels, loadClaudeApi, loadClaudeModels } from "../lib/terminals";
+import { apiProviders, claudeApi, claudeModels, loadApiProviders, loadClaudeApi, loadClaudeModels } from "../lib/terminals";
 import type { AgentProfile, ModelInfo } from "../lib/types";
 
 const SWATCHES = ["#ff7a1a", "#e0a412", "#ff5247", "#f2c14e", "#45c98a", "#4cc9f0", "#8b7bff", "#ff6fae"];
@@ -112,7 +112,41 @@ function toProfile(): AgentProfile {
   return p;
 }
 
+// ─── Autres IA (OpenAI, Gemini, Mistral…) : « <fournisseur>-api:<modèle> » ───────────────────────────
+/** Fournisseur du modèle choisi (« mistral-api:… » → mistral), sinon undefined. */
+const providerOf = (model: string) => apiProviders.value.find((p) => model.startsWith(`${p.id}-api:`));
+const currentProvider = computed(() => providerOf(form.model));
+/** Partie « modèle » de « <fournisseur>-api:<modèle> », éditable à part. */
+const providerModelId = computed({
+  get: () => (currentProvider.value ? form.model.slice(currentProvider.value.id.length + 5) : ""),
+  set: (v: string) => {
+    if (currentProvider.value) form.model = `${currentProvider.value.id}-api:${v.trim()}`;
+  },
+});
+const providerModels = ref<string[]>([]);
+const providerModelsBusy = ref(false);
+async function loadProviderModels(id: string) {
+  providerModels.value = [];
+  if (!apiProviders.value.find((p) => p.id === id)?.configured) return;
+  providerModelsBusy.value = true;
+  try {
+    providerModels.value = await call<string[]>("apiProviders.models", { provider: id }, 30_000);
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    providerModelsBusy.value = false;
+  }
+}
+watch(
+  () => currentProvider.value?.id,
+  (id) => void (id ? loadProviderModels(id) : (providerModels.value = [])),
+);
+
 async function save() {
+  if (currentProvider.value && !providerModelId.value) {
+    toast(`Choisis un modèle ${currentProvider.value.label} (liste sous le champ Modèle)`, "error");
+    return;
+  }
   if (isNew.value && state.agents.some((a) => a.id === form.id)) {
     toast(`L'id « ${form.id} » existe déjà`, "error");
     return;
@@ -180,6 +214,7 @@ async function copyJson() {
 onMounted(async () => {
   void loadClaudeModels();
   void loadClaudeApi();
+  void loadApiProviders();
   const [svc, mod] = await Promise.all([
     call<{ id: string; label: string }[]>("services.list").catch(() => []),
     call<{ installed: ModelInfo[] }>("models.list").catch(() => ({ installed: [] })),
@@ -313,7 +348,35 @@ async function move(id: string, dir: -1 | 1) {
                   API Claude {{ m.label }} · {{ m.hint }}{{ claudeApi.configured ? "" : " — clé manquante" }}
                 </option>
               </optgroup>
+              <optgroup label="Autres IA par clé d'API (facturé à l'usage, en ligne)">
+                <option
+                  v-for="p in apiProviders"
+                  :key="p.id"
+                  :value="currentProvider?.id === p.id ? form.model : `${p.id}-api:`"
+                >
+                  {{ p.label }}{{ currentProvider?.id === p.id && providerModelId ? ` · ${providerModelId}` : " · choisir le modèle…" }}{{ p.configured ? "" : " — clé manquante" }}
+                </option>
+              </optgroup>
             </select>
+            <template v-if="currentProvider">
+              <input
+                v-model.lazy="providerModelId"
+                class="input"
+                list="provider-models"
+                maxlength="120"
+                spellcheck="false"
+                :placeholder="providerModelsBusy ? 'Chargement des modèles…' : `Modèle ${currentProvider.label} (tape ou choisis)`"
+              />
+              <datalist id="provider-models">
+                <option v-for="m in providerModels" :key="m" :value="m" />
+              </datalist>
+              <em class="tiny muted">
+                Cet agent réfléchit avec {{ currentProvider.label }}, payé avec ta clé d'API (facturé à l'usage chez le fournisseur) : ses
+                conversations et les résultats de ses outils partent chez lui. Les outils restent ceux de MyIA, avec les mêmes confirmations. Il
+                n'a pas accès à ta mémoire et ne peut pas être proposé à la Guilde.
+                <strong v-if="!currentProvider.configured">Aucune clé enregistrée : ajoute-la dans Paramètres → Autres IA.</strong>
+              </em>
+            </template>
             <em v-if="form.model.startsWith('claude-api:')" class="tiny muted">
               Cet agent réfléchit avec l'API Claude, payée avec ta clé d'API (chaque réponse est facturée sur ton compte Anthropic) : ses
               conversations et les résultats de ses outils partent chez Anthropic. Les outils restent ceux de MyIA, avec les mêmes confirmations. Il
