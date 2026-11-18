@@ -27,6 +27,7 @@ import { useAgentStatus } from "../lib/agentStatus";
 import { settings } from "../lib/settings";
 import { teamGraph } from "../lib/topology";
 import TeamScripts from "../components/TeamScripts.vue";
+import TeamWork from "../components/TeamWork.vue";
 import WorkflowPreviewDialog from "../components/WorkflowPreviewDialog.vue";
 import { downloadText, pickTextFile } from "../lib/files";
 import { focusTeam } from "../lib/focus";
@@ -477,6 +478,8 @@ watch(
         </div>
 
         <TeamScripts ref="scriptsPanel" v-model="draft.scripts" />
+
+        <TeamWork v-if="!isNew" :team-id="draft.id" />
 
         <p class="tiny muted note">
           <Network :size="14" /> Un agent n'appelle que ses sous-agents et coéquipiers directs, jamais un agent déjà

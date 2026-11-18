@@ -55,6 +55,9 @@ Invariants (tests de `core/work.test.ts`) :
   argument d'outil ne désigne un registre, il est donc impossible d'en viser un autre.
 - Écrire dans le registre ne demande pas de confirmation (comme le journal de coordination) : rien ne sort du PC,
   rien n'est exécuté. Supprimer une tâche n'existe pas pour les agents (on ferme, avec une raison).
+- **Identité** : dans le registre, un agent est identifié par l'**id de son nœud** dans l'équipe (unique, même si
+  deux nœuds ont le même profil ou le même nom), l'utilisateur par `@utilisateur` (un id de nœud n'a pas d'@). Le nom
+  ne sert qu'à l'affichage ; prise, remise et fermeture comparent les ids (`createdById`, `assigneeId`).
 - **Fermer et rouvrir** : le chef (agent racine) ferme et rouvre toute tâche ; un autre membre seulement celles qu'il
   a créées et que personne d'autre ne porte. Une tâche confiée par le chef est fermée par le chef, après vérification.
 - **Utilisateur** (écran Équipes) : crée, note, ferme, rouvre, rend une tâche ; chaque fermeture, réouverture et
@@ -100,11 +103,23 @@ Câblage : `server/main.ts` donne à chaque équipe `workStoreFor(teamWorkFile(d
 ajoute les outils au nom de chaque membre et le résumé par `liveNote` (recalculé à chaque demande, `core/agent.ts`).
 Si le membre appelé par `team_ask` plante ou est interrompu, la tâche est notée « Interrompu » et rendue.
 
+### Écran de l'app (étape 3)
+
+Équipes → une équipe enregistrée → carte « Travail de l'équipe » (`app/src/components/TeamWork.vue`) : onglets
+En cours / Prêtes / Bloquées / Décisions / Fermées (30 dernières), fiche d'une tâche (description, dépendances,
+notes), actions Noter, Fermer, Rouvrir, Rendre, et Nouvelle tâche. Relecture toutes les 8 s pendant que l'écran est
+ouvert. Le contenu est affiché comme du texte (interpolation Vue, jamais `v-html`).
+
+Méthodes du sidecar (`server/main.ts`) : `work.list`, `work.create`, `work.note`, `work.close`, `work.reopen`,
+`work.release`. Chacune exige une équipe existante (`teamId`) ; l'utilisateur agit comme `@utilisateur`. Ces
+méthodes n'ont pas de test propre : elles ne font que valider (zod) et appeler le registre, testé dans
+`core/work.test.ts`.
+
 ## 6. État de la branche
 
 | Étape | Contenu                                                                                     | État     |
 | ----- | ------------------------------------------------------------------------------------------- | -------- |
 | 1     | Spec (ce fichier) ; `core/work.ts` : modèle, registre fichier, invariants testés             | fait     |
 | 2     | Outils `work_*` pour les membres d'une équipe ; `team_ask` avec `work_id` ; résumé au prompt | fait     |
-| 3     | Écran de l'app : registre d'une équipe (lecture, fermeture, réouverture)                     | à faire  |
+| 3     | Écran de l'app : registre d'une équipe (lecture, création, note, fermeture, réouverture, remise) | fait     |
 | 4     | Fournisseur `exec:<script>` (registre délégué à un script de l'utilisateur), si utile         | à décider |

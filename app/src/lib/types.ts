@@ -230,3 +230,31 @@ export interface MarketAccount {
   site: string;
   account: { id: number; name: string; avatar: string | null; certified: boolean } | null;
 }
+
+/** Registre de travail d'une équipe (docs/TRAVAIL.md). */
+export type WorkType = "tache" | "bug" | "decision" | "lot";
+export type WorkStatus = "ouverte" | "en_cours" | "fermee";
+export interface WorkItem {
+  id: string;
+  title: string;
+  description: string;
+  type: WorkType;
+  status: WorkStatus;
+  assignee?: string;
+  parent?: string;
+  needs: string[];
+  labels: string[];
+  notes: { at: string; by: string; text: string }[];
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  closedAt?: string;
+  closeReason?: string;
+  rev: number;
+  ready: boolean;
+  blockers: string[];
+}
+export interface WorkList {
+  items: WorkItem[];
+  closedTotal: number;
+}

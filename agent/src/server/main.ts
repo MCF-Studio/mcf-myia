@@ -22,7 +22,7 @@ import { AgentsMap, mapNames, mapTeams } from "../core/agents-map.js";
 import { deviceKeys } from "../core/guild-crypto.js";
 import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
-import { teamWorkFile, workStoreFor } from "../core/work.js";
+import { LIMITS as WORK_LIMITS, teamWorkFile, USER_ACTOR_ID, WORK_TYPES, workStoreFor } from "../core/work.js";
 import { openInBrowser } from "../services/web.js";
 import { openWithDefault } from "../services/files.js";
 import { toolboxDir, toolboxManager, toolboxPython } from "../services/toolbox.js";
@@ -432,6 +432,74 @@ rpc.method("teams.delete", (params) => {
 });
 
 rpc.method("teams.newNodeId", () => newNodeId());
+
+// ─── registre de travail d'une équipe (docs/TRAVAIL.md) ─────────────────────
+// L'utilisateur voit et modifie le registre de chacune de SES équipes ; l'équipe doit exister (pas de fichier arbitraire).
+
+function teamWork(teamId: string) {
+  const team = teams.find((t) => t.id === teamId);
+  if (!team) throw new Error(`équipe inconnue : ${teamId}`);
+  return workStoreFor(teamWorkFile(path.join(paths.home, "data"), team.id));
+}
+
+/** L'utilisateur dans le registre : une identité qu'aucun agent ne peut porter (un id de nœud n'a pas d'@). */
+const userActor = () => ({ id: USER_ACTOR_ID, name: cfg.user.name });
+
+const WorkRef = z.object({ teamId: z.string().max(40), id: z.string().regex(/^t-[a-z0-9]{6}$/) });
+
+rpc.method("work.list", (params) => {
+  const { teamId } = parse(z.object({ teamId: z.string().max(40) }), params);
+  const w = teamWork(teamId);
+  const open = w.list({ status: "non_fermee" });
+  const closed = w.list({ status: "fermee", limit: 30 });
+  const ready = new Set(w.ready().map((i) => i.id));
+  return {
+    items: [...open, ...closed].map((i) => ({ ...i, ready: ready.has(i.id), blockers: i.status === "fermee" ? [] : w.blockers(i.id) })),
+    closedTotal: w.list({ status: "fermee" }).length,
+  };
+});
+
+rpc.method("work.create", (params) => {
+  const p = parse(
+    z.object({
+      teamId: z.string().max(40),
+      title: z.string().trim().min(3).max(WORK_LIMITS.title),
+      description: z.string().max(WORK_LIMITS.description).default(""),
+      type: z.enum(WORK_TYPES).default("tache"),
+    }),
+    params,
+  );
+  const item = teamWork(p.teamId).create({ title: p.title, description: p.description, type: p.type }, userActor());
+  audit({ event: "work_create", tool: item.id, args: { teamId: p.teamId, type: p.type } });
+  return item;
+});
+
+rpc.method("work.note", (params) => {
+  const p = parse(WorkRef.extend({ text: z.string().trim().min(1).max(WORK_LIMITS.note) }), params);
+  return teamWork(p.teamId).note(p.id, p.text, userActor());
+});
+
+rpc.method("work.close", (params) => {
+  const p = parse(WorkRef.extend({ reason: z.string().trim().min(1).max(WORK_LIMITS.note) }), params);
+  const item = teamWork(p.teamId).close(p.id, p.reason, userActor());
+  audit({ event: "work_close", tool: p.id, args: { teamId: p.teamId } });
+  return item;
+});
+
+rpc.method("work.reopen", (params) => {
+  const p = parse(WorkRef.extend({ reason: z.string().trim().min(1).max(WORK_LIMITS.note) }), params);
+  const item = teamWork(p.teamId).reopen(p.id, p.reason, userActor());
+  audit({ event: "work_reopen", tool: p.id, args: { teamId: p.teamId } });
+  return item;
+});
+
+/** Rendre une tâche prise par un membre (bloquée chez lui, membre retiré de l'équipe…). */
+rpc.method("work.release", (params) => {
+  const p = parse(WorkRef, params);
+  const item = teamWork(p.teamId).release(p.id, userActor(), true);
+  audit({ event: "work_release", tool: p.id, args: { teamId: p.teamId } });
+  return item;
+});
 
 /**
  * Remplit un espace de coordination avec la structure d'exemple (règles communes, méthode, journal, état). Ne remplace
