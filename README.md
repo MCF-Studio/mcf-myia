@@ -59,7 +59,7 @@ Les personnalités ne sont **pas** livrées avec le code : chacun crée les sien
 2. Télécharge l'installateur `MyIA_x.y.z_x64-setup.exe` dans les
    [Releases](https://github.com/MCF-Studio/mcf-myia/releases) et lance-le (pas besoin de droits administrateur).
 3. Au premier lancement : ton prénom et tes dossiers de projets dans **Paramètres → Général**, puis un modèle dans
-   **Modèles** (`qwen3:8b` est un bon début).
+   **Modèles** (`qwen3:8b` est un bon début). La suite, pas à pas : [docs/TUTO.md](docs/TUTO.md).
 
 L'installateur n'est pas encore signé : Windows SmartScreen peut afficher un avertissement (« Informations
 complémentaires » → « Exécuter quand même »). L'empreinte SHA-256 est publiée avec chaque release.
@@ -85,8 +85,8 @@ npm run sidecar          # prépare le cœur embarqué (à refaire après une mo
 npm run installer        # construit l'installateur dans app/src-tauri/target/release/bundle/nsis/
 ```
 
-En développement, `config\agent.json` est créé au premier lancement ; `config/agent.example.json` montre toutes les
-options.
+En développement, `config\agent.json` est créé et complété au premier lancement ([docs/CONFIG.md](docs/CONFIG.md)) ;
+`config/agent.example.json` montre un exemple rempli.
 
 ### Console
 
@@ -100,16 +100,22 @@ myia.cmd ask "…"    une seule demande
 
 | Service     | Ce qu'il faut                                                                                |
 | ----------- | -------------------------------------------------------------------------------------------- |
-| Telegram    | `myia secret set telegram_bot_token` + `telegram.destinations` dans `config\agent.json`      |
-| Discord     | `myia secret set discord_bot_token` + `discord.channels` (bot invité sur le serveur)          |
+| Telegram    | jeton dans **Paramètres → Général → Bots** + `telegram.destinations` dans `config\agent.json` |
+| Discord     | jeton dans **Paramètres → Général → Bots** + `discord.channels` (bot invité sur le serveur)   |
 | Builds      | `projects` ou `projectRoots` : projets Godot, Tauri, Rust, Node détectés automatiquement      |
 | Godot       | `godot.projectsRoot` + `godot.versionsDir` ou `godot.executables`                             |
 | Claude Code | la commande `claude` installée et connectée (abonnement Claude, pas de clé API)               |
+| API Claude  | clé d'API dans **Paramètres → Général → Clé d'API Claude** (facturée à l'usage)                |
+| Autres IA   | OpenAI, Gemini, Mistral, OpenRouter, Groq, DeepSeek, xAI : clé dans **Paramètres → Général → Autres IA**, modèle dans **Agents** |
 | Contrôle du PC | rien (Windows) : fenêtres, son, médias, captures, programmes, verrouillage, alimentation ; actions sensibles confirmées |
 | Autre (MCP) | une entrée `mcpServers` : n'importe quel serveur MCP stdio devient un service                 |
 
-Exemple complet : [`config/agent.example.json`](config/agent.example.json). Les jetons vont dans le Gestionnaire
+Au démarrage, MyIA écrit dans `config\agent.json` **toutes** les options, vides tant que tu ne les remplis pas (vide =
+valeur par défaut). Chaque option est expliquée dans [docs/CONFIG.md](docs/CONFIG.md) ; exemple rempli :
+[`config/agent.example.json`](config/agent.example.json). Les jetons et clés vont dans le Gestionnaire
 d'identification Windows, jamais dans la config.
+
+**Nouveau ?** Le [tuto de démarrage](docs/TUTO.md) explique ce qu'il faut installer et quoi faire en premier.
 
 ## Sécurité
 
