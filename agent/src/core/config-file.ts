@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { configTemplate, loadConfig, parseConfig, type Config } from "./config.js";
+import { configTemplate, loadConfig, parseConfig, quoteLongIntegers, type Config } from "./config.js";
 import { paths } from "./paths.js";
 import { writeJsonAtomic } from "./profiles.js";
 
@@ -8,7 +8,7 @@ import { writeJsonAtomic } from "./profiles.js";
  * Le résultat est validé AVANT l'écriture : une modification invalide ne casse jamais la config.
  */
 export function patchConfigFile(mutate: (raw: Record<string, any>) => void, file = paths.config): Config {
-  const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, any>;
+  const raw = JSON.parse(quoteLongIntegers(fs.readFileSync(file, "utf8"))) as Record<string, any>;
   mutate(raw);
   parseConfig(raw);
   writeJsonAtomic(file, raw);
@@ -41,7 +41,7 @@ export function fillMissing(raw: Record<string, any>, tpl: Record<string, any>):
 export function completeConfigFile(file = paths.config): boolean {
   let raw: Record<string, any>;
   try {
-    raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, any>;
+    raw = JSON.parse(quoteLongIntegers(fs.readFileSync(file, "utf8"))) as Record<string, any>;
     parseConfig(raw);
   } catch {
     return false;

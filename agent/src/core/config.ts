@@ -175,6 +175,8 @@ export const ConfigSchema = z.object({
    * Le jeton d'accès est dans le coffre Windows (home_assistant_token), jamais ici.
    */
   homeAssistant: z.object({ url: z.string().max(200).default("") }).prefault({}),
+  /** Contrôle de l'écran : AutoHotkey64.exe (v2). Vide = cherché aux emplacements d'installation habituels. */
+  autohotkey: z.object({ path: z.string().max(500).default("") }).prefault({}),
   /**
    * Registre de travail des équipes (docs/TRAVAIL.md) : « file » = le registre local seul ; « exec:<chemin absolu> » =
    * synchronisé en plus avec un autre outil de suivi par ce script (core/work-sync.ts, protocole dans TRAVAIL.md §7).
@@ -309,13 +311,48 @@ export function parseConfig(raw: unknown): Config {
   return res.data;
 }
 
+/**
+ * Les identifiants Discord et Telegram (salons, discussions) font 17 à 20 chiffres : écrits sans guillemets à la main,
+ * ils dépassent la précision des nombres JavaScript (le dernier chiffre change) et la config attend du texte. Avant
+ * lecture, tout entier d'au moins 16 chiffres HORS d'une chaîne est donc mis entre guillemets, chiffres exacts
+ * conservés. Aucun réglage numérique de MyIA n'a besoin d'un nombre aussi grand.
+ */
+const NUMBER = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+export function quoteLongIntegers(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i]!;
+    if (c === '"') {
+      // Chaîne : recopiée telle quelle, échappements compris.
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    if (c === "-" || (c >= "0" && c <= "9")) {
+      NUMBER.lastIndex = i;
+      const m = NUMBER.exec(text);
+      if (m) {
+        out += /^-?\d{16,}$/.test(m[0]) ? `"${m[0]}"` : m[0];
+        i += m[0].length;
+        continue;
+      }
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 export function loadConfig(file = paths.config): Config {
   if (!fs.existsSync(file)) {
     throw new Error(`Configuration introuvable : ${file}`);
   }
   let raw: unknown;
   try {
-    raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    raw = JSON.parse(quoteLongIntegers(fs.readFileSync(file, "utf8")));
   } catch (e) {
     throw new Error(`JSON invalide dans ${file} : ${(e as Error).message}`);
   }

@@ -3,6 +3,7 @@
  * Même cœur que la console : les règles de confirmation (SPEC §3) passent par ui.confirm côté app.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -11,12 +12,13 @@ import { claudeConfigFile, importableServers, mcpSecretName, readMcpServers } fr
 import { readHardware, scanLan } from "../core/devices.js";
 import { BugReportSchema, errorDigest, fetchReleases, sendBugReport } from "../core/feedback.js";
 import { installLsp, lspStatus } from "../core/lsp.js";
+import { findAutoHotkey } from "../services/autohotkey.js";
 import { HA_SECRET, haFetch, validHaUrl } from "../services/home-assistant.js";
 import { checkCoordination, checkWorkspace, usableCoordination, usableWorkspace } from "../core/access.js";
 import { initCoordination, listFiches, readFiches, writeFiches } from "../core/coordination.js";
 import { audit } from "../core/audit.js";
 import { completeConfigFile, patchConfigFile } from "../core/config-file.js";
-import { loadConfig, type Config } from "../core/config.js";
+import { loadConfig, parseConfig, quoteLongIntegers, type Config } from "../core/config.js";
 import { addProgram, assertLocalPath, listPrograms, removeProgram, searchPrograms } from "../core/programs.js";
 import { CLAUDE_MODEL_INFO, CLAUDE_MODELS, claudeAccount, triageTask } from "../core/claude-coach.js";
 import { API_PROVIDERS, listProviderModels, PROVIDER_IDS, providerKeyStatus, providerSecret, verifyProviderKey, type ProviderId } from "../core/api-providers.js";
@@ -114,7 +116,25 @@ process.on("unhandledRejection", (e) => {
 
 // ─── état ────────────────────────────────────────────────────────────────────
 
-const cfg: Config = loadConfig();
+/**
+ * Configuration invalide (fichier modifié à la main…) : le cœur démarre quand même, avec les réglages par défaut
+ * (les plus prudents : aucun dossier de projet, aucun accès élargi), et l'app affiche l'erreur à corriger. Sinon le cœur
+ * s'arrêtait à chaque lancement et « Relancer » ne pouvait rien y faire.
+ */
+let configError = "";
+function loadConfigOrDefaults(): Config {
+  try {
+    const c = loadConfig();
+    configError = "";
+    return c;
+  } catch (e) {
+    configError = (e as Error).message.slice(0, 2000);
+    audit({ event: "config_invalid", error: configError });
+    process.stderr.write(`[config] ${configError}\n`);
+    return parseConfig({});
+  }
+}
+const cfg: Config = loadConfigOrDefaults();
 
 /**
  * Boîte à outils prête dès le premier démarrage : outils livrés copiés (app installée, dossier géré par MyIA),
@@ -354,6 +374,9 @@ const ModelParam = z.object({ name: z.string().regex(MODEL_NAME) });
 
 rpc.method("app.info", () => ({
   version: VERSION,
+  /** Erreur de config/agent.json : le cœur tourne avec les réglages par défaut tant qu'elle n'est pas corrigée. */
+  configError: configError || undefined,
+  configPath: paths.config,
   home: paths.home,
   userName: cfg.user.name,
   node: process.version,
@@ -1308,7 +1331,7 @@ rpc.method("models.unload", async (params) => {
 rpc.method("models.setDefault", async (params) => {
   const { name } = parse(ModelParam, params);
   if (!(await engine().hasModel(name))) throw new Error(`modèle non installé : ${name}`);
-  const raw = JSON.parse(fs.readFileSync(paths.config, "utf8")) as { llm?: Record<string, unknown> };
+  const raw = JSON.parse(quoteLongIntegers(fs.readFileSync(paths.config, "utf8"))) as { llm?: Record<string, unknown> };
   raw.llm = { ...(raw.llm ?? {}), model: name };
   writeJsonAtomic(paths.config, raw);
   setCfg(loadConfig());
@@ -2067,6 +2090,22 @@ rpc.method("app.releases", () => fetchReleases());
 // ─── Appareils et domotique (core/devices.ts, services/home-assistant.ts) ────
 
 rpc.method("devices.hardware", () => readHardware());
+
+// Contrôle de l'écran (services/autohotkey.ts) : AutoHotkey v2, installé par winget (paquet officiel, commande fixe).
+rpc.method("autohotkey.status", () => {
+  const p = findAutoHotkey(cfg.autohotkey.path || undefined);
+  return { installed: !!p, path: p };
+});
+rpc.method("autohotkey.install", async () => {
+  const r = await runProcess(
+    ["winget", "install", "--id", "AutoHotkey.AutoHotkey", "--exact", "--silent", "--accept-package-agreements", "--accept-source-agreements"],
+    { cwd: os.homedir(), timeoutMs: 10 * 60_000, keep: 12 },
+  ).catch((e: Error) => ({ code: -1, tail: [e.message], timedOut: false }));
+  const p = findAutoHotkey(cfg.autohotkey.path || undefined);
+  audit({ event: "autohotkey_install", ok: !!p });
+  if (!p) throw new Error(`installation d'AutoHotkey impossible : ${r.tail.slice(-3).join(" ") || "winget absent ?"} — sinon : https://www.autohotkey.com`);
+  return { installed: true, path: p };
+});
 rpc.method("devices.lan", () => scanLan());
 
 const haStatus = () => {
@@ -2281,6 +2320,7 @@ rpc.method("config.setProjectRoots", (params) => {
 
 rpc.method("config.reload", async () => {
   setCfg(loadConfig());
+  configError = "";
   await Promise.allSettled(services.map((s) => s.close?.()));
   services = buildServices(cfg);
   profiles = loadProfiles();

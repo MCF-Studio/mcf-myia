@@ -1,6 +1,7 @@
 import type { Config } from "../core/config.js";
 import { ProjectRegistry } from "../core/projects.js";
 import type { Service } from "../core/types.js";
+import { autohotkeyService } from "./autohotkey.js";
 import { claudeService } from "./claude.js";
 import { devicesService } from "./devices.js";
 import { discordService } from "./discord.js";
@@ -37,6 +38,7 @@ export function buildServices(cfg: Config): Service[] {
     toolboxService(cfg),
     homeAssistantService(cfg),
     devicesService(),
+    autohotkeyService(cfg),
     ...Object.entries(cfg.mcpServers).map(([name, s]) => mcpService(name, s)),
   ];
 }

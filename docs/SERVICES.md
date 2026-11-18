@@ -16,6 +16,7 @@ jeton dans le coffre Windows, adresse figée).
 | Serveurs MCP | n'importe quel serveur stdio, pour TOUS les modèles ; import depuis Claude Code | Paramètres → Général → Serveurs MCP |
 | Messageries | bots Telegram et Discord | Paramètres → Général → Bots |
 | Domotique | Home Assistant (API REST, jeton longue durée) | Paramètres → Appareils et domotique |
+| Contrôle de l'écran | AutoHotkey v2 : cliquer, taper, raccourcis, défiler, glisser (avec confirmation) | Paramètres → Appareils et domotique |
 | Appareils | Bluetooth, ports COM, réseau local (SSDP), box internet | Paramètres → Appareils et domotique |
 | Suivi de travail | script `exec:` (GitHub Issues, bd, Jira…) | config/agent.json → work.provider |
 

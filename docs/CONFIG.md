@@ -105,6 +105,7 @@ Les agents ne peuvent écrire **qu'aux noms déclarés ici**. À gauche, un nom 
 | Option              | Par défaut | Rôle                                                                                     |
 | ------------------- | ---------- | ---------------------------------------------------------------------------------------- |
 | `homeAssistant.url` | vide       | Adresse de Home Assistant (Paramètres → Appareils et domotique). Le jeton est dans le coffre Windows. |
+| `autohotkey.path`   | vide       | AutoHotkey64.exe (v2) pour le contrôle de l'écran ; vide = emplacement d'installation habituel. |
 
 ## Registre de travail des équipes
 

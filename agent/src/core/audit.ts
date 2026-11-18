@@ -35,6 +35,8 @@ export interface AuditEvent {
     | "lsp_install"
     | "bug_report"
     | "mcp_import"
+    | "config_invalid"
+    | "autohotkey_install"
     | "planner_fire"
     | "config_open"
     | "toolbox_import"

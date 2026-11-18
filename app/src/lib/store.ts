@@ -34,7 +34,7 @@ export const state = reactive({
   view: "overview" as View,
   ready: false,
   sidecar: { running: false, home: "" } as SidecarStatus,
-  info: undefined as undefined | { version: string; home: string; userName: string; node: string },
+  info: undefined as undefined | { version: string; home: string; userName: string; node: string; configError?: string; configPath?: string },
   overview: undefined as Overview | undefined,
   metrics: undefined as SystemMetrics | undefined,
   history: { cpu: [] as number[], ram: [] as number[], gpu: [] as number[], vram: [] as number[] },
@@ -51,10 +51,10 @@ export const state = reactive({
 });
 
 let toastId = 1;
-export function toast(text: string, kind: Toast["kind"] = "info") {
+export function toast(text: string, kind: Toast["kind"] = "info", ms?: number) {
   const id = toastId++;
   state.toasts.push({ id, kind, text });
-  setTimeout(() => (state.toasts = state.toasts.filter((t) => t.id !== id)), kind === "error" ? 7000 : 3500);
+  setTimeout(() => (state.toasts = state.toasts.filter((t) => t.id !== id)), ms ?? (kind === "error" ? 7000 : 3500));
 }
 
 export function navigate(v: View) {
@@ -302,6 +302,10 @@ async function afterReady() {
     return; // le sidecar n'a pas encore fini de démarrer : on attend son « ready »
   }
   state.ready = true;
+  // Config illisible : le cœur tourne avec les réglages par défaut, il faut le dire (sinon tout semble « vide »).
+  if (state.info?.configError) {
+    toast(`Configuration à corriger (${state.info.configPath ?? "config/agent.json"}) : ${state.info.configError} — MyIA tourne en attendant avec les réglages par défaut.`, "error", 60_000);
+  }
   void loadClaudeModels();
   void loadClaudeApi();
   void checkClaudeLogin();

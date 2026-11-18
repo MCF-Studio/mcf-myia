@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Bluetooth, Cable, Home, Network, RefreshCw, Router, Trash2 } from "lucide-vue-next";
+import { Bluetooth, Cable, Home, MousePointerClick, Network, RefreshCw, Router, Trash2 } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { call } from "../lib/rpc";
 import { toast } from "../lib/store";
@@ -74,9 +74,28 @@ async function unlinkHa() {
   toast("Home Assistant délié, jeton effacé", "success");
 }
 
+// Contrôle de l'écran par AutoHotkey (services/autohotkey.ts)
+const ahk = ref<{ installed: boolean; path?: string }>();
+const ahkBusy = ref(false);
+async function loadAhk() {
+  ahk.value = await call<{ installed: boolean; path?: string }>("autohotkey.status").catch(() => undefined);
+}
+async function installAhk() {
+  ahkBusy.value = true;
+  try {
+    ahk.value = await call<{ installed: boolean; path?: string }>("autohotkey.install", {}, 11 * 60_000);
+    toast("AutoHotkey installé : tes agents peuvent cliquer et taper à l'écran (avec ta confirmation).", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    ahkBusy.value = false;
+  }
+}
+
 onMounted(() => {
   void loadHw();
   void loadHa();
+  void loadAhk();
 });
 </script>
 
@@ -141,6 +160,20 @@ onMounted(() => {
         {{ lan.homeAssistant ? `Home Assistant trouvé : ${lan.homeAssistant.url}` : "Pas de Home Assistant sur le réseau." }}
       </p>
     </template>
+  </section>
+
+  <section class="card">
+    <h3 class="sec-title"><MousePointerClick :size="16" /> Contrôle de l'écran (AutoHotkey)</h3>
+    <p class="small muted">
+      Avec AutoHotkey v2, tes agents peuvent cliquer, taper, appuyer sur des raccourcis, faire défiler et glisser à l'écran — pour les logiciels qui n'ont pas
+      d'autre moyen d'être pilotés. Chaque action te demande ton accord (sauf mode bypass) ; l'IA ne lance jamais son propre script AutoHotkey, seulement des
+      actions précises. Pour trouver où cliquer, elle utilise un modèle de vision local (Ollama).
+    </p>
+    <div class="row">
+      <span v-if="ahk?.installed" class="badge ok">installé</span>
+      <span v-if="ahk?.installed" class="tiny muted mono">{{ ahk.path }}</span>
+      <button v-else class="btn sm primary" :disabled="ahkBusy || !ahk" @click="installAhk">{{ ahkBusy ? "Installation…" : "Installer AutoHotkey v2" }}</button>
+    </div>
   </section>
 
   <section class="card">

@@ -66,3 +66,19 @@ describe("config/agent.json complet (toutes les options, vides si non remplies)"
     expect(raw).toEqual({ a: [1], b: { c: 2, d: "" }, e: {} });
   });
 });
+
+describe("identifiants longs écrits sans guillemets", () => {
+  it("passent en texte, chiffres exacts, sans toucher aux chaînes ni aux petits nombres", async () => {
+    const { quoteLongIntegers, parseConfig } = await import("./config.js");
+    const raw = '{"discord":{"channels":{"maj":1566995561155133470}},"telegram":{"destinations":{"moi":-1003782138337123}},"note":"id 12345678901234567890 dans un texte","web":{"maxPageBytes":2000000},"x":1.5e3}';
+    const fixed = quoteLongIntegers(raw);
+    const json = JSON.parse(fixed);
+    expect(json.discord.channels.maj).toBe("1566995561155133470");
+    expect(json.telegram.destinations.moi).toBe("-1003782138337123");
+    expect(json.note).toBe("id 12345678901234567890 dans un texte");
+    expect(json.web.maxPageBytes).toBe(2000000);
+    expect(json.x).toBe(1500);
+    expect(parseConfig(JSON.parse(quoteLongIntegers('{"discord":{"channels":{"maj":1566995561155133470}}}'))).discord.channels.maj).toBe("1566995561155133470");
+    expect(quoteLongIntegers('{"a":"\\"1234567890123456789\\""}')).toBe('{"a":"\\"1234567890123456789\\""}');
+  });
+});
