@@ -183,7 +183,7 @@ Le script devrait ne relayer que des tickets d'auteurs de confiance (ex. filtrer
 
 ### Fournisseur livré : tableau Markdown
 
-`tools/work-sync/markdown.mjs` (Node, sans dépendance) : un tableau par équipe dans `Documents\MyIA	ravail\<équipe>.md`
+`tools/work-sync/markdown.mjs` (Node, sans dépendance) : un tableau par équipe dans `Documents\MyIA\travail\<équipe>.md`
 (dossier changeable par `MYIA_WORK_MD_DIR`), à ouvrir dans n'importe quel éditeur. Cocher une case ferme la tâche,
 la décocher la rouvre, une ligne « - [ ] texte » ajoutée crée une tâche (une seule fois : référence `md:<empreinte>`).
 Rien ne sort du PC. Le dossier `Documents\MyIA` est ouvert aux outils de fichiers des agents, mais modifier un fichier
