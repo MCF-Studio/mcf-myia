@@ -153,6 +153,32 @@ export const BUILTIN_THEMES: Theme[] = [
     },
   },
   {
+    // Bleu nuit profond (fonds) et orange de métal en fusion (accent), avec un bleu vif en second accent.
+    id: "fusion-nuit",
+    name: "Fusion (orange et bleu nuit)",
+    author: "MCF Studio",
+    version: "1.0.0",
+    mode: "dark",
+    radius: "round",
+    builtin: true,
+    colors: {
+      bg: "#060b1a",
+      "bg-elevated": "#0a1124",
+      surface: "#0e172f",
+      "surface-2": "#142040",
+      border: "#1f2d52",
+      text: "#e8eeff",
+      "text-muted": "#8a98bf",
+      accent: "#ff6a1a",
+      "accent-2": "#4f8cff",
+      "accent-contrast": "#1a0a02",
+      glow: "rgba(255, 106, 26, 0.35)",
+      success: "#3ddc97",
+      warning: "#ffc145",
+      danger: "#ff4d6a",
+    },
+  },
+  {
     // Clair doux : fond crème, panneaux blanc cassé (jamais de blanc pur), texte brun foncé plutôt que noir.
     id: "lin",
     name: "Lin (crème)",
