@@ -8,8 +8,9 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-# Dépôt qui contient tools/ (s'il y en a un) : seul son dossier `workspace/` reste ouvert en écriture.
-REPO = ROOT.parent if (ROOT.parent / ".git").exists() else None
+# Dépôt qui contient tools/ (s'il y en a un), ou dossier de données de l'app installée (tools/ y est copié par MyIA,
+# marqueur .myia-version) : seul son dossier `workspace/` reste ouvert en écriture.
+REPO = ROOT.parent if (ROOT.parent / ".git").exists() or (ROOT / ".myia-version").exists() else None
 REPO_WRITABLE = ("workspace",)
 # Données et config de MyIA (clés, agents, scripts acceptés) : fermées aux outils, même en lecture.
 REPO_CLOSED = ("data", "config")

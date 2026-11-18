@@ -2,6 +2,7 @@
 //   main.mjs      tout le cœur en un fichier (esbuild)
 //   node.exe      le runtime Node (celui qui exécute ce script, ou NODE_EXE)
 //   node_modules/ seulement le module natif du coffre Windows (@napi-rs/keyring)
+//   tools/        la boîte à outils Python, copiée dans <MYIA_HOME>/tools au premier démarrage (core/toolbox-setup.ts)
 import { build } from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
@@ -36,6 +37,21 @@ for (const dep of ["@napi-rs/keyring", "@napi-rs/keyring-win32-x64-msvc"]) {
   if (!fs.existsSync(src)) throw new Error(`dépendance manquante : ${dep} (npm ci dans agent/)`);
   fs.cpSync(src, path.join(out, "node_modules", dep), { recursive: true });
 }
+
+// Boîte à outils : jamais les fichiers propres au poste (politique, catalogue d'applications, Blender, outils importés),
+// ni les tests et caches Python.
+const toolsSrc = path.resolve(agent, "..", "tools");
+const TOOLS_SKIP = new Set(["policy.json", "apps.json", "blender.json", "imports", "tests", "__pycache__"]);
+fs.cpSync(toolsSrc, path.join(out, "tools"), {
+  recursive: true,
+  filter: (f) => {
+    const rel = path.relative(toolsSrc, f);
+    if (!rel) return true;
+    const parts = rel.split(path.sep);
+    return !(parts.length === 1 && TOOLS_SKIP.has(parts[0])) && !parts.includes("__pycache__") && !f.endsWith(".pyc");
+  },
+});
+if (!fs.existsSync(path.join(out, "tools", "tool_manager.py"))) throw new Error("boîte à outils absente du paquet");
 
 const nodeExe = process.env.NODE_EXE ?? process.execPath;
 fs.copyFileSync(nodeExe, path.join(out, "node.exe"));

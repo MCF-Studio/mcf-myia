@@ -51,7 +51,7 @@ export const DEFAULT_SETTINGS = {
     voice: false,
     /** Moteur de la voix : celle de Windows, ou la voix neuronale locale (Piper, à installer). */
     voiceEngine: "system" as "system" | "piper",
-    /** Voix Piper : tom, upmc ou siwis. */
+    /** Voix Piper (identifiants de core/piper.ts VOICES) : tom, upmc (Pierre), siwis, jessica, mls_53, mls_25, mls_14. */
     piperVoice: "tom",
     voiceName: "",
     voiceRate: 1,

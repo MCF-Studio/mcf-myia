@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Agent } from "../core/agent.js";
 import { checkCoordination, checkWorkspace, usableCoordination, usableWorkspace } from "../core/access.js";
@@ -23,9 +24,9 @@ import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
 import { openInBrowser } from "../services/web.js";
 import { openWithDefault } from "../services/files.js";
-import { toolboxDir, toolboxManager } from "../services/toolbox.js";
+import { toolboxDir, toolboxManager, toolboxPython } from "../services/toolbox.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
-import { installPiper, piperStatus, synthesize, uninstallPiper, VOICE_IDS, VOICES } from "../core/piper.js";
+import { installPiper, piperStatus, synthesize, uninstallPiper, VOICE_IDS, VOICES, voiceSizeMb } from "../core/piper.js";
 import { CLAUDE_LOCAL_CTX, claudeLocalOllamaModel, findOllama, MIN_OLLAMA, MODEL_NAME, OllamaClient, versionAtLeast } from "../core/llm.js";
 import { installOllama } from "../core/ollama-install.js";
 import { createLlm } from "../core/llm-factory.js";
@@ -53,6 +54,9 @@ import {
 import type { AgentUI, Service } from "../core/types.js";
 import { buildServices } from "../services/index.js";
 import { shellTool } from "../services/shell.js";
+import { defaultWriteDir } from "../services/file-write.js";
+import { ensureToolbox, pythonInfo } from "../core/toolbox-setup.js";
+import { runProcess } from "../core/proc.js";
 import { RpcError, RpcPeer } from "./rpc.js";
 import { ConversationStore, type Conversation, type DisplayMessage } from "./store.js";
 import { clearBackground, readBackground, setBackground } from "./background.js";
@@ -95,6 +99,21 @@ process.on("unhandledRejection", (e) => {
 // ─── état ────────────────────────────────────────────────────────────────────
 
 const cfg: Config = loadConfig();
+
+/**
+ * Boîte à outils prête dès le premier démarrage : outils livrés copiés (app installée, dossier géré par MyIA),
+ * Documents\MyIA créé et ouvert aux outils par une politique par défaut si aucune n'existe (core/toolbox-setup.ts).
+ */
+const toolboxSetup = ensureToolbox({
+  dir: toolboxDir(cfg),
+  ...(process.env.MYIA_BUNDLE_VERSION && !cfg.toolbox.dir
+    ? { bundled: path.join(path.dirname(fileURLToPath(import.meta.url)), "tools"), version: process.env.MYIA_BUNDLE_VERSION }
+    : {}),
+  defaultDirs: [defaultWriteDir()],
+});
+if (toolboxSetup.error) process.stderr.write(`[boîte à outils] mise en place incomplète : ${toolboxSetup.error}
+`);
+if (toolboxSetup.installed || toolboxSetup.policyCreated) audit({ event: "toolbox_setup", args: { ...toolboxSetup } });
 /**
  * Applique une nouvelle configuration EN PLACE : les services et les agents gardent une référence à `cfg`, ils voient
  * donc tout de suite les nouveaux réglages (dossiers de mémoire, accès aux fichiers…) sans redémarrage.
@@ -1415,7 +1434,7 @@ let piperInstall: AbortController | undefined;
 
 rpc.method("piper.status", () => ({
   ...piperStatus(),
-  voices_info: Object.fromEntries(VOICE_IDS.map((v) => [v, { label: VOICES[v].label, sizeMb: VOICES[v].sizeMb }])),
+  voices_info: Object.fromEntries(VOICE_IDS.map((v) => [v, { label: VOICES[v].label, sizeMb: voiceSizeMb(v) }])),
 }));
 
 rpc.method("piper.install", async (params) => {
@@ -1740,6 +1759,51 @@ rpc.method("toolbox.list", async () => {
   const r = await toolboxManager(cfg)(["list"], undefined, 30_000);
   if (!r.success) throw new Error(r.error?.message ?? "boîte à outils indisponible");
   return { dir: toolboxDir(cfg), tools: r.data, problems: r.warnings };
+});
+
+/** État de la mise en place (Paramètres > Boîte à outils) : Python, Pillow, politique, dossier par défaut. */
+rpc.method("toolbox.setup", async () => {
+  const dir = toolboxDir(cfg);
+  const py = await pythonInfo(await toolboxPython(cfg.toolbox.python));
+  return {
+    dir,
+    present: fs.existsSync(path.join(dir, "tool_manager.py")),
+    policy: fs.existsSync(path.join(dir, "policy.json")),
+    defaultDir: defaultWriteDir(),
+    python: py.version ? { command: py.command.join(" "), version: py.version } : null,
+    pillow: py.pillow ?? null,
+  };
+});
+
+/** Installe les dépendances Python de la boîte (tools/requirements.txt, versions figées) : action humaine seulement. */
+let toolboxDepsRunning = false;
+rpc.method("toolbox.installDeps", async () => {
+  if (toolboxDepsRunning) throw new Error("installation déjà en cours");
+  const req = path.join(toolboxDir(cfg), "requirements.txt");
+  if (!fs.existsSync(req)) throw new Error("requirements.txt introuvable dans la boîte à outils");
+  const py = await toolboxPython(cfg.toolbox.python);
+  toolboxDepsRunning = true;
+  try {
+    const r = await runProcess([...py, "-m", "pip", "install", "--user", "--disable-pip-version-check", "--only-binary", ":all:", "-r", req], {
+      cwd: toolboxDir(cfg),
+      timeoutMs: 600_000,
+      keep: 8,
+    });
+    audit({ event: "toolbox_deps", ok: r.code === 0, args: { python: py.join(" ") } });
+    if (r.code !== 0) throw new Error(`pip a échoué (code ${r.code}) : ${r.tail.filter((l) => l.trim()).slice(-2).join(" | ")}`);
+  } finally {
+    toolboxDepsRunning = false;
+  }
+  live.clear(); // les agents relisent le catalogue de la boîte à leur prochain message
+  return true;
+});
+
+/** Ouvre le dossier par défaut des outils (Documents\MyIA) dans l'Explorateur. */
+rpc.method("toolbox.openDefaultDir", () => {
+  const d = defaultWriteDir();
+  fs.mkdirSync(d, { recursive: true });
+  openWithDefault(d);
+  return d;
 });
 
 rpc.method("toolbox.convention", () => fs.readFileSync(path.join(toolboxDir(cfg), "CONVENTION.md"), "utf8"));

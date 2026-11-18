@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Config } from "../core/config.js";
 import { isInside, paths } from "../core/paths.js";
 import { childEnv, runProcess } from "../core/proc.js";
+import { resolvePython } from "../core/toolbox-setup.js";
 import { defineTool, type Risk, type Service, type ToolScope } from "../core/types.js";
 
 /**
@@ -83,11 +84,22 @@ export function toolboxManager(cfg: Config): ManagerRunner {
   return realRunner(cfg.toolbox.python, toolboxDir(cfg));
 }
 
+/** Python trouvé une fois par réglage (« python », ou `py -3` sur un Windows où « python » est l'alias du Store). */
+const pythonCache = new Map<string, Promise<string[]>>();
+export function toolboxPython(setting: string): Promise<string[]> {
+  let p = pythonCache.get(setting);
+  if (!p) {
+    p = resolvePython(setting);
+    pythonCache.set(setting, p);
+  }
+  return p;
+}
+
 function realRunner(python: string, dir: string): ManagerRunner {
   const script = path.join(dir, "tool_manager.py");
   return async (args, stdin, timeoutMs, signal) => {
     let out = "";
-    const r = await runProcess([python, "-X", "utf8", script, ...args], {
+    const r = await runProcess([...(await toolboxPython(python)), "-X", "utf8", script, ...args], {
       cwd: path.dirname(dir),
       timeoutMs,
       ...(stdin !== undefined ? { stdin } : {}),
