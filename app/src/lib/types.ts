@@ -57,6 +57,8 @@ export interface ConversationSummary {
   createdAt: string;
   updatedAt: string;
   pinned?: boolean;
+  /** Conversation de l'onglet Jarvis. */
+  kind?: "jarvis";
   messageCount: number;
   lastMessage?: string;
 }

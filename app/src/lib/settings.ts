@@ -69,6 +69,12 @@ export const DEFAULT_SETTINGS = {
   jarvis: {
     /** Nom de l'assistant, affiché et utilisé comme mot d'éveil. */
     name: "JARVIS",
+    /** Agent qui fait Jarvis (vide = l'agent MASTER, sinon le premier agent). */
+    agentId: "",
+    /** Modèle : "auto" = le modèle local rapide le mieux adapté, "" = celui de l'agent, sinon un modèle précis. */
+    model: "auto",
+    /** Mode libre : accès total au PC (terminal PowerShell), aucune confirmation, réponses directes. */
+    free: true,
     /** Écoute mains libres : le micro reste ouvert tant que l'onglet est affiché (ou partout si `background`). */
     handsFree: false,
     /** Mains libres : il faut dire le nom avant la demande (sinon toute phrase est envoyée). */
