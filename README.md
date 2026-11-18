@@ -31,7 +31,9 @@ ouvrir directement Conversations, Agents, Équipes, Modèles ou Paramètres, ou 
 **Équipes** : un chef, des sous-agents, des coéquipiers, un budget d'appels. Une équipe peut avoir un espace de travail (le
 dossier du projet) et un **espace de coordination** : un dossier à part où elle garde ses règles communes et tient son
 journal, pour que chaque membre sache où en est le travail en arrivant (le « ? » de l'écran Équipes explique tout, et
-un bouton crée une structure d'exemple).
+un bouton crée une structure d'exemple). Chaque équipe a aussi un **registre de travail** : des tâches durables (en cours,
+prêtes, bloquées, décisions qui t'attendent), que les membres prennent, notent et ferment, et que tu suis dans la carte
+« Travail de l'équipe » ([docs/TRAVAIL.md](docs/TRAVAIL.md)).
 
 Thème par défaut : sombre, lumières orange fusion → jaune foncé.
 
