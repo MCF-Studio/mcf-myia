@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool, type Tool } from "./types.js";
-import { LIMITS, WORK_STATUSES, WORK_TYPES, WorkError, type WorkItem, type WorkStore } from "./work.js";
+import { LIMITS, WORK_STATUSES, WORK_TYPES, WorkError, type Actor, type WorkItem, type WorkStore } from "./work.js";
 
 /**
  * Outils du registre de travail (docs/TRAVAIL.md), construits pour UN membre d'UNE équipe : le registre et le nom du
@@ -51,7 +51,7 @@ export function workCard(i: WorkItem, blockers: string[], maxNotes = 8): string 
  * Résumé court pour le prompt système d'un membre : ses tâches en cours, les décisions qui attendent l'utilisateur,
  * les tâches prêtes. Titres seuls, plafonné : le détail se lit avec work_show.
  */
-export function workSummary(store: WorkStore, me: string, maxChars = 1400): string {
+export function workSummary(store: WorkStore, me: Actor, maxChars = 1400): string {
   let open: WorkItem[];
   let ready: WorkItem[];
   try {
@@ -61,8 +61,8 @@ export function workSummary(store: WorkStore, me: string, maxChars = 1400): stri
     return `Registre de travail indisponible : ${(e as Error).message}`;
   }
   if (!open.length) return "Registre de travail de l'équipe : vide. Crée une tâche (work_create) pour un travail en plusieurs étapes ou à confier.";
-  const mine = open.filter((i) => i.assignee === me);
-  const others = open.filter((i) => i.status === "en_cours" && i.assignee !== me);
+  const mine = open.filter((i) => i.assigneeId === me.id);
+  const others = open.filter((i) => i.status === "en_cours" && i.assigneeId !== me.id);
   const decisions = open.filter((i) => i.type === "decision" && i.status !== "en_cours");
   const readyIds = new Set(ready.map((i) => i.id));
   const sections: [string, WorkItem[]][] = [
@@ -115,13 +115,16 @@ export interface WorkToolsOptions {
   lead?: boolean;
 }
 
-export function workTools(store: WorkStore, me: string, opts: WorkToolsOptions = {}): Tool[] {
+export function workTools(store: WorkStore, me: Actor, opts: WorkToolsOptions = {}): Tool[] {
   const card = (i: WorkItem) => `${HEAD}\n${workCard(i, store.blockers(i.id))}`;
   const mayClose = (id: string) => {
     if (opts.lead) return;
     const i = store.get(id);
-    if (i.createdBy !== me || (i.assignee && i.assignee !== me)) {
-      throw new WorkError(`${i.id} a été créée par ${i.createdBy}${i.assignee && i.assignee !== me ? ` et est portée par ${i.assignee}` : ""} : ajoute plutôt une note (work_note), le chef la fermera`);
+    const otherHolder = i.assigneeId && i.assigneeId !== me.id;
+    if (i.createdById !== me.id || otherHolder) {
+      throw new WorkError(
+        `${i.id} a été créée par ${i.createdBy}${otherHolder ? ` et est portée par ${i.assignee}` : ""} : ajoute plutôt une note (work_note), le chef la fermera`,
+      );
     }
   };
   return [
@@ -171,7 +174,7 @@ export function workTools(store: WorkStore, me: string, opts: WorkToolsOptions =
         labels: Labels.optional(),
       }),
       risk: "read",
-      preview: (a) => `${me} crée « ${a.title} »`,
+      preview: (a) => `${me.name} crée « ${a.title} »`,
       run: async (a) => guard(() => `Créée.\n${card(store.create(a, me))}`),
     }),
     defineTool({
@@ -179,7 +182,7 @@ export function workTools(store: WorkStore, me: string, opts: WorkToolsOptions =
       description: "Prends une tâche prête : elle passe en cours à ton nom. Refusé si un autre membre l'a déjà prise ou si elle attend une autre tâche.",
       schema: z.object({ id: Id }),
       risk: "read",
-      preview: (a) => `${me} prend ${a.id}`,
+      preview: (a) => `${me.name} prend ${a.id}`,
       run: async (a) => guard(() => `Prise.\n${card(store.claim(a.id, me))}`),
     }),
     defineTool({
@@ -187,7 +190,7 @@ export function workTools(store: WorkStore, me: string, opts: WorkToolsOptions =
       description: "Rends une tâche que tu as prise sans la finir : elle redevient prête pour un autre membre. Ajoute d'abord une note sur où tu en es.",
       schema: z.object({ id: Id }),
       risk: "read",
-      preview: (a) => `${me} rend ${a.id}`,
+      preview: (a) => `${me.name} rend ${a.id}`,
       run: async (a) => guard(() => `Rendue.\n${workLine(store.release(a.id, me))}`),
     }),
     defineTool({
@@ -197,7 +200,7 @@ export function workTools(store: WorkStore, me: string, opts: WorkToolsOptions =
         "C'est ce qui permet au suivant de reprendre. Jamais de clé ni de mot de passe.",
       schema: z.object({ id: Id, text: z.string().trim().min(3).max(LIMITS.note) }),
       risk: "read",
-      preview: (a) => `${me} note sur ${a.id}`,
+      preview: (a) => `${me.name} note sur ${a.id}`,
       run: async (a) => guard(() => `Note ajoutée.\n${workLine(store.note(a.id, a.text, me))}`),
     }),
     defineTool({
@@ -211,7 +214,7 @@ export function workTools(store: WorkStore, me: string, opts: WorkToolsOptions =
         description: z.string().max(LIMITS.description).optional(),
       }),
       risk: "read",
-      preview: (a) => `${me} complète ${a.id}`,
+      preview: (a) => `${me.name} complète ${a.id}`,
       run: async ({ id, ...change }) => guard(() => `Mise à jour.\n${card(store.update(id, change))}`),
     }),
     defineTool({
@@ -221,7 +224,7 @@ export function workTools(store: WorkStore, me: string, opts: WorkToolsOptions =
         "Ne ferme que ce qu'un outil a confirmé. Les tâches qui l'attendaient deviennent prêtes.",
       schema: z.object({ id: Id, reason: z.string().trim().min(3).max(LIMITS.note) }),
       risk: "read",
-      preview: (a) => `${me} ferme ${a.id} : ${a.reason}`,
+      preview: (a) => `${me.name} ferme ${a.id} : ${a.reason}`,
       run: async (a) =>
         guard(() => {
           mayClose(a.id);
@@ -236,7 +239,7 @@ export function workTools(store: WorkStore, me: string, opts: WorkToolsOptions =
       description: "Rouvre une tâche fermée (régression, travail incomplet), avec la raison.",
       schema: z.object({ id: Id, reason: z.string().trim().min(3).max(LIMITS.note) }),
       risk: "read",
-      preview: (a) => `${me} rouvre ${a.id}`,
+      preview: (a) => `${me.name} rouvre ${a.id}`,
       run: async (a) =>
         guard(() => {
           mayClose(a.id);

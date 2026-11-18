@@ -86,7 +86,7 @@ function teamAskTool(node: TeamNode, ctx: TeamContext, depth: number, chain: Rea
       if (workId && ctx.work) {
         let card: string;
         try {
-          const item = ctx.work.claim(workId, name);
+          const item = ctx.work.claim(workId, { id: target.node.id, name });
           card = workCard(item, ctx.work.blockers(item.id), 5);
         } catch (e) {
           if (e instanceof WorkError) return `Appel impossible : ${e.message}.`;
@@ -114,8 +114,9 @@ function teamAskTool(node: TeamNode, ctx: TeamContext, depth: number, chain: Rea
         // Interrompu ou en échec : la tâche redevient prête, avec une trace, au lieu de rester « en cours » sans personne.
         if (workId && ctx.work) {
           try {
-            ctx.work.note(workId, `Interrompu : ${(e as Error).message.slice(0, 300)}`, name);
-            ctx.work.release(workId, name);
+            const who = { id: target.node.id, name };
+            ctx.work.note(workId, `Interrompu : ${(e as Error).message.slice(0, 300)}`, who);
+            ctx.work.release(workId, who);
           } catch {
             /* on remonte l'erreur d'origine */
           }
@@ -125,7 +126,7 @@ function teamAskTool(node: TeamNode, ctx: TeamContext, depth: number, chain: Rea
       if (workId && ctx.work) {
         try {
           const text = answer.length > ANSWER_NOTE ? `${answer.slice(0, ANSWER_NOTE)} … [réponse tronquée]` : answer;
-          ctx.work.note(workId, `Réponse : ${text || "(vide)"}`, name);
+          ctx.work.note(workId, `Réponse : ${text || "(vide)"}`, { id: target.node.id, name });
         } catch {
           /* la note est un plus : la réponse revient quand même au chef */
         }
@@ -157,6 +158,8 @@ export function makeTeamAgent(node: TeamNode, ctx: TeamContext, depth: number, c
     );
   }
   const work = ctx.work;
+  // Identité dans le registre : l'id du nœud (unique dans l'équipe), le nom du profil pour l'affichage.
+  const self = { id: node.id, name: profile.name };
   if (work) {
     lines.push(
       "REGISTRE DE TRAVAIL. Ton équipe a un registre de tâches durable (outils work_*) : il survit à la conversation et à son " +
@@ -168,10 +171,10 @@ export function makeTeamAgent(node: TeamNode, ctx: TeamContext, depth: number, c
   return new Agent(ctx.cfg, ctx.services, profile, {
     extraTools: [
       ...(tool ? [tool] : []),
-      ...(work ? workTools(work, profile.name, { lead: depth === 0 && !caller }) : []),
+      ...(work ? workTools(work, self, { lead: depth === 0 && !caller }) : []),
       ...(depth === 0 && !caller ? (ctx.rootTools ?? []) : []),
     ],
-    liveNote: work ? () => workSummary(work, profile.name) : undefined,
+    liveNote: work ? () => workSummary(work, self) : undefined,
     teamFirst: !!tool,
     extraServices: ctx.scripts,
     teamNote: lines.join("\n"),

@@ -33,6 +33,17 @@ export const LIMITS = {
 } as const;
 
 const ID = /^t-[a-z0-9]{6}$/;
+/**
+ * Identité d'un acteur : l'id du nœud de l'équipe pour un agent (unique dans l'équipe, même si deux nœuds ont le même
+ * profil ou le même nom), `@utilisateur` pour l'utilisateur. Le nom ne sert qu'à l'affichage.
+ */
+const ACTOR_ID = /^(@utilisateur|[a-z0-9][a-z0-9-]{0,39})$/;
+export const USER_ACTOR_ID = "@utilisateur";
+export interface Actor {
+  id: string;
+  name: string;
+}
+
 const LABEL = /^[\p{L}\p{N}][\p{L}\p{N}:._-]*$/u;
 
 const NoteSchema = z.object({
@@ -48,13 +59,16 @@ export const WorkItemSchema = z.object({
   description: z.string().max(LIMITS.description).default(""),
   type: z.enum(WORK_TYPES),
   status: z.enum(WORK_STATUSES),
+  /** Nom affiché du responsable ; l'identité, elle, est assigneeId (les comparaisons ne se font que sur l'id). */
   assignee: z.string().min(1).max(LIMITS.actor).optional(),
+  assigneeId: z.string().regex(ACTOR_ID).optional(),
   parent: z.string().regex(ID).optional(),
   needs: z.array(z.string().regex(ID)).max(LIMITS.needs).default([]),
   labels: z.array(z.string().max(LIMITS.label)).max(LIMITS.labels).default([]),
   notes: z.array(NoteSchema).max(LIMITS.notesPerItem).default([]),
   createdAt: z.string(),
   createdBy: z.string().min(1).max(LIMITS.actor),
+  createdById: z.string().regex(ACTOR_ID),
   updatedAt: z.string(),
   closedAt: z.string().optional(),
   closeReason: z.string().max(LIMITS.note).optional(),
@@ -71,7 +85,8 @@ export interface NewWork {
   parent?: string;
   needs?: string[];
   labels?: string[];
-  assignee?: string;
+  /** Pris d'office par cet acteur. */
+  assignee?: Actor;
 }
 
 export interface WorkQuery {
@@ -91,6 +106,12 @@ const now = () => new Date().toISOString();
 function cleanText(s: string): string {
   // Pas de caractères de contrôle (hors retour à la ligne et tabulation) : ils n'ont rien à faire dans un titre ou une note.
   return s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim();
+}
+
+function actor(a: Actor): Actor {
+  if (!ACTOR_ID.test(a.id)) throw new WorkError(`acteur invalide : ${a.id}`);
+  const name = cleanText(a.name).replace(/\s+/g, " ").slice(0, LIMITS.actor);
+  return { id: a.id, name: name || a.id };
 }
 
 function cleanLabels(labels: string[]): string[] {
@@ -277,7 +298,7 @@ export class WorkStore {
 
   // ─── écriture ───────────────────────────────────────────────────────────────
 
-  create(input: NewWork, by: string): WorkItem {
+  create(input: NewWork, by: Actor): WorkItem {
     return this.mutate(() => {
       if (this.items.filter((i) => i.status !== "fermee").length >= LIMITS.openItems) {
         throw new WorkError(`registre plein : ${LIMITS.openItems} tâches non fermées. Ferme ou regroupe avant d'en créer.`);
@@ -293,13 +314,15 @@ export class WorkStore {
         description: cleanText(input.description ?? "").slice(0, LIMITS.description),
         type: input.type ?? "tache",
         status: input.assignee ? "en_cours" : "ouverte",
-        assignee: input.assignee ? cleanText(input.assignee) : undefined,
+        assignee: input.assignee ? actor(input.assignee).name : undefined,
+        assigneeId: input.assignee ? actor(input.assignee).id : undefined,
         parent: input.parent?.trim() || undefined,
         needs: [],
         labels: cleanLabels(input.labels ?? []),
         notes: [],
         createdAt: t,
-        createdBy: cleanText(by),
+        createdBy: actor(by).name,
+        createdById: actor(by).id,
         updatedAt: t,
         rev: 1,
       });
@@ -313,18 +336,19 @@ export class WorkStore {
    * Prend une tâche pour `who` : elle passe en cours à son nom. Refusé si elle est fermée, bloquée, ou déjà prise par
    * quelqu'un d'autre. `expectRev` : refuse si la tâche a changé depuis la lecture de l'appelant.
    */
-  claim(id: string, who: string, expectRev?: number): WorkItem {
+  claim(id: string, who: Actor, expectRev?: number): WorkItem {
     return this.mutate(() => {
       const item = this.find(id);
-      const name = cleanText(who);
+      const me = actor(who);
       if (expectRev !== undefined && item.rev !== expectRev) throw new WorkError(`${item.id} a changé depuis ta lecture : relis-la`);
       if (item.status === "fermee") throw new WorkError(`${item.id} est fermée : rouvre-la d'abord si elle doit reprendre`);
       if (item.type === "lot") throw new WorkError(`${item.id} est un lot : prends une de ses tâches`);
-      if (item.assignee && item.assignee !== name) throw new WorkError(`${item.id} est déjà prise par ${item.assignee}`);
+      if (item.assigneeId && item.assigneeId !== me.id) throw new WorkError(`${item.id} est déjà prise par ${item.assignee}`);
       const open = item.needs.filter((d) => this.items.find((i) => i.id === d)?.status !== "fermee");
       if (open.length) throw new WorkError(`${item.id} attend encore : ${open.join(", ")}`);
-      if (item.assignee === name && item.status === "en_cours") return structuredClone(item);
-      item.assignee = name;
+      if (item.assigneeId === me.id && item.status === "en_cours") return structuredClone(item);
+      item.assignee = me.name;
+      item.assigneeId = me.id;
       item.status = "en_cours";
       this.touch(item);
       return structuredClone(item);
@@ -332,19 +356,20 @@ export class WorkStore {
   }
 
   /** Rend une tâche (elle redevient prête). Seul son responsable ou l'utilisateur (`force`) peut la rendre. */
-  release(id: string, who: string, force = false): WorkItem {
+  release(id: string, who: Actor, force = false): WorkItem {
     return this.mutate(() => {
       const item = this.find(id);
       if (item.status === "fermee") throw new WorkError(`${item.id} est fermée`);
-      if (!force && item.assignee && item.assignee !== cleanText(who)) throw new WorkError(`${item.id} est prise par ${item.assignee}, pas par toi`);
+      if (!force && item.assigneeId && item.assigneeId !== actor(who).id) throw new WorkError(`${item.id} est prise par ${item.assignee}, pas par toi`);
       item.assignee = undefined;
+      item.assigneeId = undefined;
       item.status = "ouverte";
       this.touch(item);
       return structuredClone(item);
     });
   }
 
-  note(id: string, text: string, by: string): WorkItem {
+  note(id: string, text: string, by: Actor): WorkItem {
     return this.mutate(() => {
       const item = this.find(id);
       const t = cleanText(text);
@@ -353,7 +378,7 @@ export class WorkStore {
         // On garde la première note (le contexte de départ) et les plus récentes.
         item.notes.splice(1, 1);
       }
-      item.notes.push({ at: now(), by: cleanText(by), text: t.slice(0, LIMITS.note) });
+      item.notes.push({ at: now(), by: actor(by).name, text: t.slice(0, LIMITS.note) });
       this.touch(item);
       return structuredClone(item);
     });
@@ -381,7 +406,7 @@ export class WorkStore {
   }
 
   /** Ferme une tâche avec une raison. Idempotent : refermer une tâche fermée ne change rien. */
-  close(id: string, reason: string, by: string): WorkItem {
+  close(id: string, reason: string, by: Actor): WorkItem {
     return this.mutate(() => {
       const item = this.find(id);
       if (item.status === "fermee") return structuredClone(item);
@@ -390,23 +415,24 @@ export class WorkStore {
       item.status = "fermee";
       item.closedAt = now();
       item.closeReason = r.slice(0, LIMITS.note);
-      item.notes.push({ at: item.closedAt, by: cleanText(by), text: `Fermée : ${item.closeReason}` });
+      item.notes.push({ at: item.closedAt, by: actor(by).name, text: `Fermée : ${item.closeReason}` });
       if (item.notes.length > LIMITS.notesPerItem) item.notes.splice(1, 1);
       this.touch(item);
       return structuredClone(item);
     });
   }
 
-  reopen(id: string, reason: string, by: string): WorkItem {
+  reopen(id: string, reason: string, by: Actor): WorkItem {
     return this.mutate(() => {
       const item = this.find(id);
       if (item.status !== "fermee") return structuredClone(item);
       if (this.items.filter((i) => i.status !== "fermee").length >= LIMITS.openItems) throw new WorkError("registre plein");
       item.status = "ouverte";
       item.assignee = undefined;
+      item.assigneeId = undefined;
       item.closedAt = undefined;
       item.closeReason = undefined;
-      item.notes.push({ at: now(), by: cleanText(by), text: `Rouverte : ${cleanText(reason) || "(sans raison)"}` });
+      item.notes.push({ at: now(), by: actor(by).name, text: `Rouverte : ${cleanText(reason) || "(sans raison)"}` });
       if (item.notes.length > LIMITS.notesPerItem) item.notes.splice(1, 1);
       this.touch(item);
       return structuredClone(item);
