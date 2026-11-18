@@ -64,6 +64,11 @@ export interface AgentOptions {
   /** Paragraphe ajouté au prompt système (contexte d'équipe). */
   teamNote?: string;
   /**
+   * Paragraphe recalculé à chaque demande (ex. résumé du registre de travail de l'équipe, docs/TRAVAIL.md) : ce qui
+   * change entre deux demandes ne peut pas aller dans teamNote, fixé à la création de l'agent.
+   */
+  liveNote?: () => string;
+  /**
    * Faire confiance aux liens présents dans les messages reçus. Faux pour un sous-agent : sa « demande » vient
    * d'un autre agent, qui a pu recopier un lien lu dans une page piégée.
    */
@@ -262,6 +267,16 @@ export class Agent {
     ];
   }
 
+  private liveNote(): string[] {
+    if (!this.opts.liveNote) return [];
+    try {
+      const text = this.opts.liveNote().trim();
+      return text ? ["", text] : [];
+    } catch {
+      return [];
+    }
+  }
+
   private systemPrompt(): string {
     const now = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" });
     const u = this.cfg.user.name;
@@ -272,6 +287,7 @@ export class Agent {
       ...(this.opts.teamNote ? ["", this.opts.teamNote] : []),
       ...this.workspaceNote(),
       ...this.coordinationNote(),
+      ...this.liveNote(),
       ...(this.memoryContext ? ["", this.memoryContext] : []),
       "Ne te présente jamais, ne salue pas et ne rappelle pas ce que tu sais faire : réponds directement à la demande, comme dans une conversation déjà en cours.",
       ...(this.opts.voice

@@ -77,11 +77,29 @@ Invariants (tests de `core/work.test.ts`) :
 - Une demande rognée de l'historique, une conversation fermée ou un agent remplacé ne perdent plus le travail :
   il est dans le registre.
 
+### Outils (core/work-tools.ts)
+
+| Outil          | Rôle                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------- |
+| `work_list`    | tâches prêtes par défaut ; filtre par statut, membre, étiquette (40 au plus)           |
+| `work_show`    | fiche d'une tâche : description, dépendances, 8 dernières notes                        |
+| `work_create`  | nouvelle tâche (type, lot, dépendances, étiquettes)                                    |
+| `work_claim`   | prendre une tâche prête (refus si prise par un autre ou bloquée)                       |
+| `work_release` | rendre une tâche non finie                                                             |
+| `work_note`    | compte rendu daté sur une tâche                                                        |
+| `work_update`  | ajouter étiquettes ou dépendances, ranger dans un lot, préciser la description         |
+| `work_close`   | fermer avec une raison ; annonce les tâches devenues prêtes                            |
+| `work_reopen`  | rouvrir avec une raison                                                                |
+
+Câblage : `server/main.ts` donne à chaque équipe `workStoreFor(teamWorkFile(data, team.id))` ; `team-runner.ts`
+ajoute les outils au nom de chaque membre et le résumé par `liveNote` (recalculé à chaque demande, `core/agent.ts`).
+Si le membre appelé par `team_ask` plante ou est interrompu, la tâche est notée « Interrompu » et rendue.
+
 ## 6. État de la branche
 
 | Étape | Contenu                                                                                     | État     |
 | ----- | ------------------------------------------------------------------------------------------- | -------- |
 | 1     | Spec (ce fichier) ; `core/work.ts` : modèle, registre fichier, invariants testés             | fait     |
-| 2     | Outils `work_*` pour les membres d'une équipe ; `team_ask` avec `work_id` ; résumé au prompt | à faire  |
+| 2     | Outils `work_*` pour les membres d'une équipe ; `team_ask` avec `work_id` ; résumé au prompt | fait     |
 | 3     | Écran de l'app : registre d'une équipe (lecture, fermeture, réouverture)                     | à faire  |
 | 4     | Fournisseur `exec:<script>` (registre délégué à un script de l'utilisateur), si utile         | à décider |

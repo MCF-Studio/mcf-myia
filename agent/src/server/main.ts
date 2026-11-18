@@ -22,6 +22,7 @@ import { AgentsMap, mapNames, mapTeams } from "../core/agents-map.js";
 import { deviceKeys } from "../core/guild-crypto.js";
 import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
+import { teamWorkFile, workStoreFor } from "../core/work.js";
 import { openInBrowser } from "../services/web.js";
 import { openWithDefault } from "../services/files.js";
 import { toolboxDir, toolboxManager, toolboxPython } from "../services/toolbox.js";
@@ -195,7 +196,18 @@ async function agentFor(c: Conversation): Promise<Live> {
     const planTools = plannerTools(planner, c.id, undefined, () => live.get(c.id)?.fromUser === true);
     if (team) {
       budget = new TeamBudget(team.maxCalls, team.maxDepth);
-      agent = makeTeamRoot({ cfg, services, team, profileOf, budget, memory: memoryFor(cfg.memory.folders), scripts: teamScripts(team), rootTools: planTools });
+      agent = makeTeamRoot({
+        cfg,
+        services,
+        team,
+        profileOf,
+        budget,
+        memory: memoryFor(cfg.memory.folders),
+        scripts: teamScripts(team),
+        rootTools: planTools,
+        // Registre de travail de l'équipe (docs/TRAVAIL.md) : un fichier par équipe, partagé par ses conversations.
+        work: workStoreFor(teamWorkFile(path.join(paths.home, "data"), team.id)),
+      });
     } else if (profile.master) {
       masterBudget = { used: 0 };
       agent = new Agent(cfg, services, profile, {
