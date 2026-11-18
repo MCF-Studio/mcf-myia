@@ -66,3 +66,25 @@ describe("mode bypass des agents", () => {
     expect(r.progress.some((m) => m.includes("Mode bypass"))).toBe(true);
   });
 });
+
+describe("mode libre (Jarvis)", () => {
+  it("exécute sans confirmation et dit au modèle qu'il a un terminal", async () => {
+    const runs: string[] = [];
+    const confirms: string[] = [];
+    const agent = new Agent(parseConfig({}), [fakeService(runs)], undefined, { free: true, voice: true });
+    await agent.refreshServices();
+    let step = 0;
+    let system = "";
+    (agent.client as unknown as { chat: unknown }).chat = async (m: ChatMessage[]) => {
+      system = m[0]!.content;
+      return step++ === 0
+        ? { role: "assistant", content: "", tool_calls: [{ function: { name: "envoyer", arguments: { texte: "salut" } } }] }
+        : { role: "assistant", content: "fait" };
+    };
+    await agent.handle("envoie salut", { confirm: async (t) => (confirms.push(t), false), progress: () => undefined });
+    expect(confirms).toEqual([]);
+    expect(runs).toEqual(["salut"]);
+    expect(system).toContain("MODE LIBRE");
+    expect(system).not.toContain("tu n'as pas de terminal");
+  });
+});

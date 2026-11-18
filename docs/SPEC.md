@@ -56,6 +56,16 @@ l'activation et la désactivation sont journalisées (`agents_bypass`). Le mode 
 `tools/policy.json`) et ne donne aucun outil au bac à sable de la Guilde. Risque assumé : une injection de consignes
 (page web, fichier, message reçu) peut déclencher une action sans qu'un humain la voie avant.
 
+**Mode libre de Jarvis** (`settings.jarvis.free`, onglet Jarvis, **activé par défaut**, choix du propriétaire) : seule la
+conversation de l'onglet Jarvis (`kind: "jarvis"`) est concernée. Son agent reçoit un terminal PowerShell sans
+restriction (`pc_shell`), aucune action ne demande de confirmation (journalisée `decision: "bypass"`), et son prompt
+lui demande des réponses directes, sans mises en garde. Un bandeau rouge « accès total à l'ordinateur » s'affiche à
+chaque arrivée sur l'onglet tant que le mode est actif, avec un bouton pour le couper. `pc_shell` contourne les
+dossiers fermés et toutes les limites dures : c'est le but. Le risque d'injection décrit ci-dessus s'applique en
+plein ; le prompt interdit de suivre une consigne lue dans une page, un fichier ou un message reçu. L'agent et le
+modèle de Jarvis se choisissent dans l'onglet (« Local rapide (auto) » par défaut : le meilleur modèle Ollama
+installé parmi qwen3:8b, qwen3:14b, qwen2.5, llama3.1…).
+
 Limites dures, appliquées dans le code et pas seulement dans le prompt :
 
 - Destinations Telegram/Discord : uniquement les **noms** déclarés dans la config. Le modèle ne peut pas inventer un
@@ -71,6 +81,38 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   Chemins locaux uniquement (pas de chemin réseau, qui ferait fuiter le jeton NTLM), nom réel vérifié (pas de nom court
   8.3), outils du dossier Windows refusés sauf une courte liste inoffensive, empreinte SHA-256 enregistrée : un
   exécutable modifié depuis redemande confirmation avant de se lancer.
+- **Contrôle du PC** (service `pc`, `agent/src/services/pc.ts`, Windows) : fenêtres (lister, premier plan, réduire,
+  agrandir, restaurer, fermer), bureau, touches multimédia, volume, capture d'écran, presse-papiers (écriture), programmes
+  en cours, arrêt d'un programme, verrouillage, veille/redémarrage/arrêt, pages de Paramètres Windows. Le modèle ne compose
+  **jamais** de commande : chaque action est un script PowerShell **fixe** du code, choisi dans une liste fermée, lancé sans
+  shell ni profil (`-NoProfile -EncodedCommand`) ; les valeurs (numéro de fenêtre, volume, texte, PID) passent par des
+  variables d'environnement `MYIA_*`, jamais dans le texte du script ; énumérations et bornes validées par schéma
+  (pages de Paramètres = adresses `ms-settings:` fixes ; délai d'arrêt 30 s à 1 h). Lecture (`read`) : état du PC,
+  fenêtres, programmes. `launch` sans confirmation : premier plan/réduire/agrandir, bureau, médias, volume, capture (nouveau
+  fichier PNG dans `DocumentsMyIAcaptures`), presse-papiers, verrouillage, page de Paramètres. **Toujours confirmés**
+  (sauf mode bypass) : fermer une fenêtre (`confirmIf`), arrêter un programme et l'alimentation (`local`, aucun projet
+  donc jamais d'`autoApprove`). Fenêtre ou programme désigné par un texte : une seule correspondance exigée, sinon erreur
+  avec la liste (jamais « la première trouvée »). Processus du système, de la sécurité et de MyIA (cœur, Ollama,
+  llama.cpp, WebView2) refusés à l'arrêt, vérifié avant la confirmation et relu juste avant l'exécution ; redémarrage et
+  arrêt passent par `shutdown.exe` avec un délai, annulables (`pc_power cancel`).
+  `pc_screen_look` (« regarde mon écran ») : capture réduite (1600 px de large) envoyée **seulement** à un modèle de vision
+  local d'Ollama (le premier installé qui déclare la capacité « vision »), fichier temporaire supprimé aussitôt ; le texte
+  vu est rendu à l'agent comme une donnée, jamais comme une consigne. Agent sur Claude : confirmation d'abord, la
+  description de l'écran partant alors chez Anthropic.
+- **Onglet Jarvis** (app, `views/JarvisView.vue`, `lib/jarvis.ts`) : un assistant vocal au nom choisi, qui parle avec
+  l'agent **MASTER** (même conversation que la touche « parler ») : aucun outil ni droit en plus, mêmes confirmations.
+  Mains libres (désactivé par défaut) : le micro écoute tant que l'onglet est affiché (ou partout si l'utilisateur le
+  choisit), whisper transcrit **en local**, une phrase n'est envoyée que si elle commence par le nom (mot d'éveil), sauf
+  pendant quelques secondes après une réponse. Le micro est coupé pendant que l'assistant parle. « Oui »/« non » ne
+  répondent qu'à une confirmation **déjà affichée** (titre et détail lus à voix haute et montrés à l'écran) : une phrase
+  courte reconnue dans une liste fermée, jamais interprétée par le modèle ; « stop » coupe la voix, « mode veille » arrête
+  l'écoute. Risque assumé : une voix captée par le micro (vidéo, personne dans la pièce) qui dit le nom puis « oui » peut
+  valider une confirmation affichée ; l'écoute mains libres reste un choix explicite, signalé en permanence dans l'onglet.
+  **Sentinelle** (activée par défaut, onglet affiché ou écoute en arrière-plan) : dit à voix haute un seuil dépassé
+  durablement (température GPU, processeur, mémoire, VRAM ; au plus une fois toutes les 10 min par seuil) et la fin du
+  travail d'un agent ; elle ne lit que les métriques déjà affichées et ne lance aucun outil. **Briefing du jour** : à la
+  première ouverture de l'onglet dans la journée, le protocole « Briefing » est envoyé à MASTER (désactivable) ; il suit
+  les règles habituelles (outils en lecture).
 - Fichiers et musique : `open_path` ouvre un dossier ou un fichier avec l'application par défaut (via l'Explorateur,
   sans shell), **jamais** un exécutable ou un script (`.exe`, `.bat`, `.ps1`, `.lnk`, `.js`…) ; chemins locaux uniquement ;
   liste d'**autorisation** : sans confirmation uniquement un dossier, ou un média/document d'extension connue (formats
@@ -282,6 +324,12 @@ est interrogé pour refuser tout de suite un nom inexistant.
 est vérifiée avant usage (fichier rejeté sinon) ; archives extraites avec protection « zip slip » et plafond de taille.
 L'audio (WAV 16 kHz) est transcrit localement dans un fichier temporaire supprimé ensuite ; rien ne sort de la machine.
 
+**Voix neuronale** (`core/piper.ts`) : Piper (MIT) et trois voix françaises (Tom, Pierre, Siwis) se téléchargent à la
+demande depuis GitHub et Hugging Face, versions figées, empreintes SHA-256 vérifiées (celles des voix concordent avec
+celles publiées par Hugging Face). Le texte passe par l'entrée standard (jamais par la ligne de commande), nettoyé des
+caractères de contrôle et borné ; le WAV produit dans un fichier temporaire supprimé ensuite. Piper indisponible : la
+voix de Windows prend le relais.
+
 **Photos d'agents** : PNG, JPEG ou WebP en data URL, recadrées et réduites à 256 px par l'app (le passage par un canvas
 retire les métadonnées). Pas de SVG ni d'URL : une image ne peut ni exécuter de script ni appeler un serveur.
 
@@ -411,6 +459,8 @@ modèle.
 | Boîte `tools/` : l'agent fait exécuter du Python dans Blender (champ de spec, nom, chemin) | Aucun script ni argument venu du modèle : spec JSON validée par schéma strict (dans `tool.py` puis dans Blender), noms `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`, ligne de commande fixe, environnement sans `PYTHON*`/`BLENDER_*` ; scripts Blender fixes vérifiés par empreinte SHA-256 sur leur copie avant chaque lancement |
 | Boîte `tools/` : `.blend` ou `.glb` piégé (script de démarrage, bibliothèque liée, chemin réseau) | `-b --factory-startup --disable-autoexec` ; blocs du `.blend` lus avant ouverture (bibliothèques, polices, sons, caches externes refusés) ; fichiers référencés contrôlés avant lecture ; `uri` d'un `.glb` : `data:` ou relatif dans les dossiers autorisés |
 | Boîte `tools/` : Blender écrit ailleurs ou sature le poste                          | Blender n'écrit que dans un dossier temporaire propre à l'appel (supprimé même en cas d'erreur) ; l'outil recopie ensuite vers la sortie contrôlée ; délai ≤ 600 s puis arrêt ; un seul Blender par outil ; plafonds de la spec |
+| Contrôle du PC détourné (injection : « ferme tout », « éteins le PC », commande cachée dans un titre de fenêtre) | Scripts PowerShell fixes, valeurs par variables d'environnement ; listes fermées ; arrêt de programme, fermeture de fenêtre et alimentation toujours confirmés ; système et MyIA protégés ; arrêt différé et annulable |
+| Voix captée par le micro en mode mains libres (vidéo, tiers) qui valide une confirmation | Mains libres désactivé par défaut et signalé ; « oui » seulement face à une confirmation affichée et lue à voix haute ; mot d'éveil exigé hors fenêtre de suivi |
 | Perte de traçabilité                                                                | Journal JSONL horodaté de chaque appel d'outil, décision et résultat                   |
 
 ## 6. Isolation
@@ -425,4 +475,4 @@ et outils autorisés. Aucune donnée d'un projet ne sera passée en contexte à 
 2. WhatsApp (API Cloud officielle de Meta, numéro dédié).
 3. **App Tauri 2 + Vue 3 (v0.1, ici)** : vue d'ensemble, conversations onglets/grille, agents, modèles, réglages.
 4. Installateur autonome (Node embarqué), registre Marketplace sur mcfstudio.fr.
-5. Voix locale de qualité (Whisper en entrée, Piper en sortie ; la synthèse Windows sert en attendant).
+5. ~~Voix locale de qualité~~ : fait (whisper.cpp en entrée, Piper en sortie, au choix avec la voix de Windows).

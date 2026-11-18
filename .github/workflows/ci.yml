@@ -26,7 +26,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm audit --audit-level=high
+      # Dépendances livrées : aucune faille « high ». Outils de dev (tests, build) : seulement « critical », car une faille
+      # sans correctif publié (ex. picomatch GHSA-fc5q-39xc-vjpf, 2026-11) ne doit pas bloquer toutes les PR.
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=critical
 
   # Boîte à outils Python (tools/) : gestionnaire, règles de sécurité, outils images. Non branchée à l'app.
   tools:
@@ -73,4 +76,7 @@ jobs:
       - run: npm run build
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: app/src-tauri
-      - run: npm audit --audit-level=high
+      # Dépendances livrées : aucune faille « high ». Outils de dev (tests, build) : seulement « critical », car une faille
+      # sans correctif publié (ex. picomatch GHSA-fc5q-39xc-vjpf, 2026-11) ne doit pas bloquer toutes les PR.
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=critical

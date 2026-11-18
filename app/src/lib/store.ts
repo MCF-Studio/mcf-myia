@@ -5,7 +5,7 @@ import { reactive } from "vue";
 import { shouldNotify, type WindowState } from "./notifyRule";
 import { call, inTauri, on, onRequest, reply, startRpc } from "./rpc";
 import { settings } from "./settings";
-import { playSound, speak } from "./sound";
+import { playSound, refreshPiper, speak } from "./sound";
 import { checkClaudeLogin, isTerminalKey, loadClaudeApi, loadClaudeModels, startTerminals, terminals } from "./terminals";
 import { refreshDictation } from "./dictation";
 import type {
@@ -20,7 +20,7 @@ import type {
   Theme,
 } from "./types";
 
-export type View = "overview" | "conversations" | "agents" | "teams" | "guild" | "models" | "marketplace" | "settings";
+export type View = "overview" | "jarvis" | "conversations" | "agents" | "teams" | "guild" | "models" | "marketplace" | "settings";
 
 interface Toast {
   id: number;
@@ -305,7 +305,7 @@ async function afterReady() {
   void loadClaudeModels();
   void loadClaudeApi();
   void checkClaudeLogin();
-  await Promise.all([refreshAgents(), refreshTeams(), refreshConversations(), refreshThemes(), refreshOverview(), refreshDictation()]);
+  await Promise.all([refreshAgents(), refreshTeams(), refreshConversations(), refreshThemes(), refreshOverview(), refreshDictation(), refreshPiper()]);
   // Les onglets restaurés doivent encore exister.
   settings.conversations.openTabs = settings.conversations.openTabs.filter((id) => state.conversations.some((c) => c.id === id));
   // Rouvrir les onglets ne doit pas changer l'onglet actif (sinon : le dernier à avoir répondu).

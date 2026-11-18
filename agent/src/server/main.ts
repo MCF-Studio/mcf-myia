@@ -25,6 +25,7 @@ import { openInBrowser } from "../services/web.js";
 import { openWithDefault } from "../services/files.js";
 import { toolboxDir, toolboxManager } from "../services/toolbox.js";
 import { ENGINES, installWhisper, MODELS, transcribe, uninstallWhisper, whisperStatus } from "../core/whisper.js";
+import { installPiper, piperStatus, synthesize, uninstallPiper, VOICE_IDS, VOICES } from "../core/piper.js";
 import { CLAUDE_LOCAL_CTX, claudeLocalOllamaModel, findOllama, MIN_OLLAMA, MODEL_NAME, OllamaClient, versionAtLeast } from "../core/llm.js";
 import { installOllama } from "../core/ollama-install.js";
 import { createLlm } from "../core/llm-factory.js";
@@ -51,6 +52,7 @@ import {
 } from "../core/profiles.js";
 import type { AgentUI, Service } from "../core/types.js";
 import { buildServices } from "../services/index.js";
+import { shellTool } from "../services/shell.js";
 import { RpcError, RpcPeer } from "./rpc.js";
 import { ConversationStore, type Conversation, type DisplayMessage } from "./store.js";
 import { clearBackground, readBackground, setBackground } from "./background.js";
@@ -135,8 +137,32 @@ const planner = new Planner(path.join(paths.home, "data", "planner.json"), {
 
 const profileOf = (id: string) => profiles.find((p) => p.id === id) ?? profiles[0] ?? DEFAULT_PROFILE;
 
+/**
+ * Jarvis (onglet vocal) : quel agent le fait (vide = MASTER), quel modèle il utilise (vide = celui de l'agent,
+ * "auto" = le modèle local rapide le mieux adapté parmi ceux installés) et s'il est en mode libre.
+ */
+const jarvisOpts = { agentId: "", model: "auto", free: true, resolved: "" };
+
+/** Modèles locaux rapides qui savent appeler des outils, du meilleur compromis vitesse/qualité au moins bon. */
+const JARVIS_PREFERRED = ["qwen3:8b", "qwen3:14b", "qwen2.5:7b", "qwen2.5:14b", "llama3.1:8b", "mistral-nemo", "qwen3:4b"];
+
+async function jarvisModel(): Promise<string | undefined> {
+  if (!jarvisOpts.model) return undefined;
+  if (jarvisOpts.model !== "auto") return jarvisOpts.model;
+  try {
+    const names = (await engine().listModels()).map((m) => m.name);
+    const hit = JARVIS_PREFERRED.find((p) => names.some((n) => n === p || n === `${p}:latest` || n.startsWith(`${p}-`)));
+    return hit ? names.find((n) => n === hit || n.startsWith(hit))! : cfg.llm.model;
+  } catch {
+    return cfg.llm.model;
+  }
+}
+
+const jarvisProfile = () => (jarvisOpts.agentId && profiles.find((p) => p.id === jarvisOpts.agentId)) || profiles.find((p) => p.master) || profiles[0] || DEFAULT_PROFILE;
+
 /** Agent d'une conversation, recréé si son profil ou le modèle par défaut a changé (historique conservé). */
 async function agentFor(c: Conversation): Promise<Live> {
+  if (c.kind === "jarvis") return jarvisAgentFor(c);
   const team = c.teamId ? teams.find((t) => t.id === c.teamId) : undefined;
   if (c.teamId && !team) throw new Error("cette équipe n'existe plus");
   const profile = profileOf(team ? team.root.agentId : c.agentId);
@@ -170,6 +196,65 @@ async function agentFor(c: Conversation): Promise<Live> {
   }
   return l;
 }
+
+/** Agent de Jarvis : l'agent choisi, sur le modèle choisi, en mode libre si demandé (terminal, sans confirmation). */
+async function jarvisAgentFor(c: Conversation): Promise<Live> {
+  const base = jarvisProfile();
+  const model = await jarvisModel();
+  jarvisOpts.resolved = model ?? base.model ?? cfg.llm.model;
+  const profile = { ...base, model: model ?? base.model };
+  const signature = JSON.stringify(["jarvis", profile, cfg.llm.model, jarvisOpts.free]);
+  let l = live.get(c.id);
+  if (!l || l.signature !== signature) {
+    const masterBudget = { used: 0 };
+    const planTools = plannerTools(planner, c.id, undefined, () => live.get(c.id)?.fromUser === true);
+    const agent = new Agent(cfg, services, profile, {
+      memory: memoryFor(cfg.memory.folders),
+      workspace: profile.workspace,
+      extraTools: [...appControlTools(appControl, profile, masterBudget), ...planTools, ...(jarvisOpts.free ? [shellTool()] : [])],
+      free: jarvisOpts.free,
+      voice: true,
+      teamNote:
+        `Tu es ${profile.name}, l'assistant vocal personnel de ${cfg.user.name} (onglet Jarvis de MyIA). Tu peux aussi piloter l'app (agents, conversations) ` +
+        "et écrire aux autres agents (app_agent_message) quand une tâche relève de leur rôle. Fais toi-même ce qui est simple.",
+    });
+    if (c.agentId !== profile.id) {
+      c.agentId = profile.id;
+      store.save(c);
+    }
+    agent.importHistory(c.history);
+    await agent.refreshServices();
+    l = { agent, signature, running: l?.running, masterBudget };
+    live.set(c.id, l);
+  }
+  return l;
+}
+
+// ─── Jarvis ──────────────────────────────────────────────────────────────────
+
+/** Règle Jarvis (agent, modèle, mode libre) et rend sa conversation (créée au besoin) et le modèle effectif. */
+rpc.method("jarvis.conversation", async (params) => {
+  const p = parse(
+    z.object({ agentId: z.string().max(80).optional(), model: z.string().max(200).optional(), free: z.boolean().optional() }),
+    params,
+  );
+  if (p.agentId !== undefined) jarvisOpts.agentId = p.agentId;
+  if (p.model !== undefined) jarvisOpts.model = p.model;
+  if (p.free !== undefined) jarvisOpts.free = p.free;
+  if (!profiles.length) throw new Error("aucun agent : crées-en un dans l'écran Agents");
+  const profile = jarvisProfile();
+  let c = store.list().find((x) => x.kind === "jarvis");
+  let id = c?.id;
+  if (!id) {
+    const created = store.create(profile.id, "Jarvis");
+    created.kind = "jarvis";
+    store.save(created);
+    id = created.id;
+    rpc.notify("conversations.changed", {});
+  }
+  const model = (await jarvisModel()) ?? profile.model ?? cfg.llm.model;
+  return { id, agentId: profile.id, agentName: profile.name, model };
+});
 
 // ─── validation des paramètres ───────────────────────────────────────────────
 
@@ -1322,6 +1407,42 @@ rpc.method("whisper.uninstall", () => {
 rpc.method("whisper.transcribe", async (params) => {
   const p = parse(z.object({ audio: z.string().max(11_200_000), language: z.string().max(4).default("fr") }), params);
   return { text: await transcribe(Buffer.from(p.audio, "base64"), p.language) };
+});
+
+// ─── voix neuronale (Piper) ──────────────────────────────────────────────────
+
+let piperInstall: AbortController | undefined;
+
+rpc.method("piper.status", () => ({
+  ...piperStatus(),
+  voices_info: Object.fromEntries(VOICE_IDS.map((v) => [v, { label: VOICES[v].label, sizeMb: VOICES[v].sizeMb }])),
+}));
+
+rpc.method("piper.install", async (params) => {
+  const p = parse(z.object({ voice: z.enum(VOICE_IDS) }), params);
+  if (piperInstall) throw new Error("installation déjà en cours");
+  piperInstall = new AbortController();
+  try {
+    return await installPiper(p.voice, (pr) => rpc.notify("piper.progress", pr), piperInstall.signal);
+  } finally {
+    piperInstall = undefined;
+  }
+});
+
+rpc.method("piper.cancelInstall", () => {
+  piperInstall?.abort();
+  return true;
+});
+
+rpc.method("piper.uninstall", () => {
+  if (piperInstall) throw new Error("installation en cours");
+  uninstallPiper();
+  return true;
+});
+
+rpc.method("piper.speak", async (params) => {
+  const p = parse(z.object({ text: z.string().min(1).max(8000), voice: z.enum(VOICE_IDS), rate: z.number().min(0.5).max(2).default(1) }), params);
+  return { audio: (await synthesize(p.text, p.voice, p.rate)).toString("base64") };
 });
 
 rpc.method("claude.triage", async (params) => {
