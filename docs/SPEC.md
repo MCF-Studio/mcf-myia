@@ -200,7 +200,10 @@ Limites dures, appliquées dans le code et pas seulement dans le prompt :
   chaque outil déclare un des quatre niveaux ci-dessus ; un outil `local` ou `external` n'est exécuté qu'avec le drapeau
   `--confirmed`, posé par l'**appelant** (humain ou harnais) après l'accord de l'utilisateur sur l'aperçu renvoyé, jamais
   par le modèle de lui-même. Rien ne démarre sans politique locale (`tools/policy.json`, hors dépôt) qui liste les
-  dossiers ouverts en lecture et en écriture ; les permissions qui lancent un programme (`process.exec`,
+  dossiers ouverts en lecture et en écriture ; absente, MyIA la crée au démarrage avec le seul `Documents\MyIA`
+  (fichiers seulement, écritures confirmées) et ne réécrit jamais une politique existante. L'installateur livre
+  `tools/`, copié dans le dossier de données (fichiers du poste et outils importés gardés), dont `data/` et `config/`
+  restent fermés aux outils comme ceux du dépôt ; les permissions qui lancent un programme (`process.exec`,
   `process.exec.readonly`, `app.launch`) ou ouvrent une adresse (`url.open`, niveau `external`) sont **désactivées par
   défaut**. Écriture de texte : mêmes formats, mêmes fichiers et mêmes dossiers interdits que `file_write` ; aucune
   écriture dans `tools/`, ni dans ce dépôt hors `workspace\`, ni dans `.git`, `.vscode`, `.claude`, `.github` ; aucun
@@ -324,8 +327,9 @@ est interrogé pour refuser tout de suite un nom inexistant.
 est vérifiée avant usage (fichier rejeté sinon) ; archives extraites avec protection « zip slip » et plafond de taille.
 L'audio (WAV 16 kHz) est transcrit localement dans un fichier temporaire supprimé ensuite ; rien ne sort de la machine.
 
-**Voix neuronale** (`core/piper.ts`) : Piper (MIT) et trois voix françaises (Tom, Pierre, Siwis) se téléchargent à la
-demande depuis GitHub et Hugging Face, versions figées, empreintes SHA-256 vérifiées (celles des voix concordent avec
+**Voix neuronale** (`core/piper.ts`) : Piper (MIT) et sept voix françaises (hommes : Tom, Pierre ; femmes : Siwis,
+Jessica, trois lectrices du corpus MLS) se téléchargent à la demande. Un modèle à plusieurs voix (upmc, mls) est lancé
+avec le numéro de locuteur explicite (`--speaker`) : sans lui, Piper prend la voix 0. Téléchargement depuis GitHub et Hugging Face, versions figées, empreintes SHA-256 vérifiées (celles des voix concordent avec
 celles publiées par Hugging Face). Le texte passe par l'entrée standard (jamais par la ligne de commande), nettoyé des
 caractères de contrôle et borné ; le WAV produit dans un fichier temporaire supprimé ensuite. Piper indisponible : la
 voix de Windows prend le relais.

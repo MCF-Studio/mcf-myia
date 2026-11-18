@@ -2,8 +2,11 @@
 
 **État.** Boîte **expérimentale**, **branchée aux agents de MyIA** par le service `toolbox`
 (`agent/src/services/toolbox.ts` : outils `toolbox_find` et `toolbox_run`, confirmations par l'interface de l'app,
-`--confirmed` posé par le service après l'accord). Pas encore dans l'installateur : l'app installée la trouve par le
-réglage `toolbox.dir` de `config/agent.json` (Python : `toolbox.python`, défaut `python` ; Pillow à installer).
+`--confirmed` posé par le service après l'accord). **Livrée avec l'installateur** : au premier démarrage (puis à chaque
+nouvelle version), MyIA la copie dans `<dossier de données>/tools` sans toucher aux fichiers du poste (`policy.json`,
+`apps.json`, `blender.json`, `imports/`). Un autre dossier se règle par `toolbox.dir` de `config/agent.json` (Python :
+`toolbox.python`, défaut `python`, ou `py -3` si `python` n'est que l'alias du Microsoft Store). Paramètres > Boîte à
+outils montre Python, Pillow (bouton « Installer », version figée de `requirements.txt`) et le dossier de travail.
 Un humain peut aussi lancer `tool_manager.py` directement. Conçue d'après
 [docs/bibliotheque_competences_agents_ia.md](../docs/bibliotheque_competences_agents_ia.md). Ses règles de sécurité
 sont celles de [docs/SPEC.md](../docs/SPEC.md) §3 et §5 : toute modification de ces règles met la spec à jour.
@@ -17,11 +20,16 @@ ou en échec, `2` confirmation requise.
 
 ## Sûr par défaut
 
-### 1. Créer sa politique locale (obligatoire)
-Sans `tools/policy.json`, le gestionnaire **refuse de démarrer** (`PolicyMissing`).
+### 1. Politique locale (créée automatiquement)
+Sans `tools/policy.json`, le gestionnaire **refuse de démarrer** (`PolicyMissing`). MyIA la crée au démarrage si elle
+manque (`agent/src/core/toolbox-setup.ts`) : **un seul dossier**, `Documents\MyIA` (créé s'il n'existe pas), ouvert en
+lecture et en écriture, et seulement `filesystem.read` / `filesystem.write`. Toute écriture reste confirmée ; rien qui
+lance un programme ou ouvre une adresse n'est accordé. Une politique existante n'est jamais réécrite.
+
+Sans l'app (gestionnaire lancé à la main), ou pour repartir du modèle :
 
     copy tools\policy.example.json tools\policy.json
-    copy tools\apps.example.json tools\apps.json      (seulement pour lancer des applications)
+    copy toolspps.example.json toolspps.json      (seulement pour lancer des applications)
 
 Puis adapter `policy.json` à son poste : `allowed_dirs.read` / `allowed_dirs.write` (chemins absolus locaux ; listes
 vides = aucun fichier accessible) et `granted_permissions`. Ces deux fichiers sont **locaux** (`.gitignore`) : ils
@@ -66,8 +74,9 @@ programme ou sort de la machine doit être ajouté **explicitement** à `granted
   un fichier qui pilote un outil (`Cargo.toml`, `package.json`, `CLAUDE.md`, `AGENTS.md`, `.mcp.json`…). Même liste que
   `file_write` de l'app (`agent/src/services/file-write.ts`), reprise dans `safety.py`.
 - **Dossiers interdits en écriture pour tous les outils** : `.git`, `.vscode`, `.claude`, `.github`, `.cargo`,
-  `.husky`, `node_modules`, dossiers de démarrage ; `tools/` lui-même ; le dépôt qui contient `tools/`, sauf son
-  `workspace/`. En lecture, `data/` et `config/` de ce dépôt restent fermés.
+  `.husky`, `node_modules`, dossiers de démarrage ; `tools/` lui-même ; le dépôt qui contient `tools/` (ou, app
+  installée, le dossier de données où MyIA l'a copié : marqueur `.myia-version`), sauf son `workspace/`. En lecture,
+  `data/` et `config/` de ce dossier restent fermés.
 - **Chemins** : contrôlés sur le chemin réel (liens, jonctions, noms courts résolus), et c'est ce chemin que l'outil
   reçoit. Chemins réseau, `C:dossier`, flux alternatifs `a.txt:b`, points ou espaces finaux et noms réservés refusés.
   Un paramètre est un chemin s'il est `"kind": "path"` OU s'il s'appelle path, file, project, directory, repo, output,

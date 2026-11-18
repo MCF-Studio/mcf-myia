@@ -602,6 +602,10 @@ const PIPER_VOICES = [
   { id: "tom", label: "Tom · homme, posée" },
   { id: "upmc", label: "Pierre · homme, grave" },
   { id: "siwis", label: "Siwis · femme, claire" },
+  { id: "jessica", label: "Jessica · femme, douce" },
+  { id: "mls_53", label: "Lectrice A · femme, aiguë" },
+  { id: "mls_25", label: "Lectrice B · femme, chaleureuse" },
+  { id: "mls_14", label: "Lectrice C · femme, posée" },
 ] as const;
 const pInstalling = ref(false);
 const pProgress = ref<{ what: string; received: number; total?: number }>();
@@ -1387,6 +1391,10 @@ const shortcuts: [string, string][] = [
           <a class="btn" href="https://github.com/MCF-Studio/mcf-myia">Code source ↗</a>
           <a class="btn ghost" href="https://mcfstudio.fr">mcfstudio.fr ↗</a>
         </div>
+        <div class="credits">
+          <h3 class="sec-title">Crédits</h3>
+          <p>Aroun LeBricodeur · Joaquine Dev &amp; contributors</p>
+        </div>
       </section>
     </div>
   </div>
@@ -1715,5 +1723,11 @@ kbd {
 .about p {
   margin: 0;
   line-height: 1.6;
+}
+.credits {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+  width: min(100%, 420px);
 }
 </style>

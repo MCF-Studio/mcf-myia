@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { ClipboardCopy, FileCog, PackagePlus, RotateCw, ShieldAlert, Wrench } from "lucide-vue-next";
+import { ClipboardCopy, Download, FileCog, FolderOpen, PackagePlus, RotateCw, ShieldAlert, Wrench } from "lucide-vue-next";
 import { computed, onMounted, ref } from "vue";
 import { call } from "../lib/rpc";
 import { toast } from "../lib/store";
@@ -48,6 +48,47 @@ const RISK_LABEL: Record<string, string> = {
   local: "confirmé",
   external: "externe, confirmé",
 };
+
+interface SetupInfo {
+  dir: string;
+  present: boolean;
+  policy: boolean;
+  defaultDir: string;
+  python: { command: string; version: string } | null;
+  pillow: string | null;
+}
+
+const setup = ref<SetupInfo | null>(null);
+const installingDeps = ref(false);
+
+async function loadSetup() {
+  try {
+    setup.value = await call<SetupInfo>("toolbox.setup", {}, 30_000);
+  } catch {
+    setup.value = null;
+  }
+}
+
+async function installDeps() {
+  installingDeps.value = true;
+  try {
+    await call("toolbox.installDeps", {}, 620_000);
+    toast("Pillow installé : les outils d'images sont prêts", "success");
+    await Promise.all([loadSetup(), load()]);
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    installingDeps.value = false;
+  }
+}
+
+async function openDefaultDir() {
+  try {
+    await call("toolbox.openDefaultDir");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
 
 const tools = ref<ToolEntry[]>([]);
 const problems = ref<string[]>([]);
@@ -127,12 +168,43 @@ async function openPolicy() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadSetup();
+});
 </script>
 
 <template>
   <section class="card">
     <h3 class="sec-title">Boîte à outils</h3>
+    <div v-if="setup" class="tb-setup small">
+      <div class="tb-check">
+        <span class="badge" :class="setup.present ? 'ok' : 'warn'">{{ setup.present ? "installée" : "absente" }}</span>
+        <span>Outils dans <code>{{ setup.dir }}</code></span>
+      </div>
+      <div class="tb-check">
+        <span class="badge" :class="setup.python ? 'ok' : 'warn'">{{ setup.python ? `Python ${setup.python.version}` : "Python manquant" }}</span>
+        <span v-if="setup.python">lancé par <code>{{ setup.python.command }}</code></span>
+        <span v-else>Installe Python 3 depuis <a href="https://www.python.org/downloads/">python.org ↗</a> (coche « Add python.exe to PATH »), puis actualise.</span>
+      </div>
+      <div v-if="setup.python" class="tb-check">
+        <span class="badge" :class="setup.pillow ? 'ok' : 'warn'">{{ setup.pillow ? `Pillow ${setup.pillow}` : "Pillow manquant" }}</span>
+        <span v-if="setup.pillow">outils d'images et de textures prêts</span>
+        <template v-else>
+          <span>nécessaire aux outils d'images et de textures</span>
+          <button class="btn sm primary" :disabled="installingDeps" @click="installDeps"><Download :size="14" /> {{ installingDeps ? "Installation…" : "Installer" }}</button>
+        </template>
+      </div>
+      <div class="tb-check">
+        <span class="badge" :class="setup.policy ? 'ok' : 'warn'">{{ setup.policy ? "dossier prêt" : "pas de politique" }}</span>
+        <span>Dossier de travail des outils : <code>{{ setup.defaultDir }}</code></span>
+        <button class="btn sm ghost" @click="openDefaultDir"><FolderOpen :size="14" /> Ouvrir</button>
+      </div>
+      <p class="tiny muted">
+        Mets dans ce dossier les images, textures ou fichiers que les agents doivent traiter. Pour d'autres dossiers (tes projets), ajoute-les
+        dans policy.json ; chaque écriture te sera demandée.
+      </p>
+    </div>
     <SettingRow
       label="Ajouter un outil"
       hint="Copie la convention, donne-la à une IA avec ta demande (« un outil qui crée des cubes dans Blender »), range ses deux fichiers dans un dossier au nom de l'outil, puis importe ce dossier."
@@ -149,7 +221,7 @@ onMounted(load);
     <div class="tb-head">
       <input v-model="filter" class="input tb-filter" placeholder="Filtrer les outils…" />
       <span class="tiny muted">{{ tools.length }} outils</span>
-      <button class="btn sm ghost icon" title="Actualiser" :disabled="loading" @click="load"><RotateCw :size="14" /></button>
+      <button class="btn sm ghost icon" title="Actualiser" :disabled="loading" @click="load(); loadSetup()"><RotateCw :size="14" /></button>
     </div>
     <p v-if="error" class="small warn-text">{{ error }}</p>
     <ul v-else class="tb-list">
@@ -204,6 +276,23 @@ onMounted(load);
 </template>
 
 <style scoped>
+.tb-setup {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 14px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.tb-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tb-check code {
+  overflow-wrap: anywhere;
+}
 .tb-head {
   display: flex;
   align-items: center;

@@ -26,7 +26,9 @@ export interface AuditEvent {
     | "agents_bypass"
     | "planner_fire"
     | "config_open"
-    | "toolbox_import";
+    | "toolbox_import"
+    | "toolbox_setup"
+    | "toolbox_deps";
   /** Version installée (event "ollama_install"). */
   version?: string;
   tool?: string;
