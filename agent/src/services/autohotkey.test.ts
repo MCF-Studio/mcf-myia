@@ -27,3 +27,17 @@ describe("contrôle de l'écran (AutoHotkey)", () => {
     expect(imageToScreen(-5, 9999, { width: 1288, height: 635 }, screen)).toEqual({ x: 0, y: 1439 });
   });
 });
+
+describe("contrôle de l'écran : confirmation toujours due", () => {
+  it("aucune action n'est rattachée à un projet : l'autoApprove d'un projet ne peut pas la sauter", async () => {
+    const { ConfigSchema } = await import("../core/config.js");
+    const { needsConfirmation } = await import("../core/agent.js");
+    const { autohotkeyService } = await import("./autohotkey.js");
+    const cfg = ConfigSchema.parse({ projects: { jeu: { path: "C:\\jeu", autoApprove: true } } });
+    for (const t of autohotkeyService(cfg).tools()) {
+      if (t.risk === "read" || t.risk === "launch") continue;
+      expect(t.projectOf, t.name).toBeUndefined();
+      expect(needsConfirmation(t, t.projectOf?.({}, {}), cfg, {}), t.name).toBe(true);
+    }
+  });
+});
