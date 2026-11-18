@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Bot, Camera, ChevronDown, ChevronUp, Crown, Copy, Download, FolderOpen, LayoutGrid, List, MessageSquarePlus, Network, Plus, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
+import { Bot, Camera, ChevronDown, ChevronUp, Crown, Copy, Download, FolderOpen, LayoutGrid, List, MessageSquarePlus, Network, Plus, RefreshCw, Save, ShieldCheck, Trash2, Upload, X } from "lucide-vue-next";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import AgentTopology from "../components/AgentTopology.vue";
@@ -125,21 +125,38 @@ const providerModelId = computed({
 });
 const providerModels = ref<string[]>([]);
 const providerModelsBusy = ref(false);
-async function loadProviderModels(id: string) {
+/** Erreur du dernier chargement, affichée sous la liste (une notification passe trop vite). */
+const providerModelsError = ref("");
+/** Saisie libre d'un identifiant (modèle absent de la liste, ou liste indisponible). */
+const providerManual = ref(false);
+let loadedFor = "";
+async function loadProviderModels(id: string, force = false) {
+  if (!force && loadedFor === id && providerModels.value.length) return;
+  loadedFor = id;
   providerModels.value = [];
-  if (!apiProviders.value.find((p) => p.id === id)?.configured) return;
+  providerModelsError.value = "";
   providerModelsBusy.value = true;
   try {
+    // État des clés relu : une clé a pu être ajoutée dans Paramètres depuis l'ouverture de l'app.
+    await loadApiProviders();
+    if (!apiProviders.value.find((p) => p.id === id)?.configured) {
+      providerModelsError.value = "Aucune clé enregistrée pour ce fournisseur : Paramètres → Général → Autres IA.";
+      return;
+    }
     providerModels.value = await call<string[]>("apiProviders.models", { provider: id }, 30_000);
+    if (!providerModels.value.length) providerModelsError.value = "Le fournisseur n'a renvoyé aucun modèle de conversation pour cette clé.";
   } catch (e) {
-    toast((e as Error).message, "error");
+    providerModelsError.value = (e as Error).message;
   } finally {
     providerModelsBusy.value = false;
+    // Modèle déjà choisi mais absent de la liste : on le garde, en saisie libre.
+    providerManual.value = !!providerModelId.value && !providerModels.value.includes(providerModelId.value);
   }
 }
 watch(
   () => currentProvider.value?.id,
   (id) => void (id ? loadProviderModels(id) : (providerModels.value = [])),
+  { immediate: true },
 );
 
 async function save() {
@@ -359,17 +376,43 @@ async function move(id: string, dir: -1 | 1) {
               </optgroup>
             </select>
             <template v-if="currentProvider">
-              <input
-                v-model.lazy="providerModelId"
-                class="input"
-                list="provider-models"
-                maxlength="120"
-                spellcheck="false"
-                :placeholder="providerModelsBusy ? 'Chargement des modèles…' : `Modèle ${currentProvider.label} (tape ou choisis)`"
-              />
-              <datalist id="provider-models">
-                <option v-for="m in providerModels" :key="m" :value="m" />
-              </datalist>
+              <div class="provider-pick">
+                <select
+                  v-if="!providerManual"
+                  class="input select"
+                  :value="providerModelId"
+                  :disabled="providerModelsBusy"
+                  @change="
+                    (e) => {
+                      const v = (e.target as HTMLSelectElement).value;
+                      if (v === '__autre') providerManual = true;
+                      else providerModelId = v;
+                    }
+                  "
+                >
+                  <option value="" disabled>{{ providerModelsBusy ? "Chargement des modèles…" : providerModels.length ? `Choisis un modèle ${currentProvider.label}` : "Aucun modèle chargé" }}</option>
+                  <option v-for="m in providerModels" :key="m" :value="m">{{ m }}</option>
+                  <option value="__autre">Autre modèle (taper son identifiant)…</option>
+                </select>
+                <input
+                  v-else
+                  v-model.lazy="providerModelId"
+                  class="input"
+                  maxlength="120"
+                  spellcheck="false"
+                  :placeholder="`Identifiant du modèle ${currentProvider.label}`"
+                />
+                <button
+                  type="button"
+                  class="btn sm ghost icon"
+                  :title="providerManual ? 'Revenir à la liste' : 'Recharger la liste des modèles'"
+                  :disabled="providerModelsBusy"
+                  @click="providerManual ? (providerManual = false) : loadProviderModels(currentProvider.id, true)"
+                >
+                  <RefreshCw :size="14" :class="{ spin: providerModelsBusy }" />
+                </button>
+              </div>
+              <em v-if="providerModelsError" class="tiny warn-text">{{ providerModelsError }}</em>
               <em class="tiny muted">
                 Cet agent réfléchit avec {{ currentProvider.label }}, payé avec ta clé d'API (facturé à l'usage chez le fournisseur) : ses
                 conversations et les résultats de ses outils partent chez lui. Les outils restent ceux de MyIA, avec les mêmes confirmations. Il
@@ -763,5 +806,16 @@ async function move(id: string, dir: -1 | 1) {
   align-items: center;
   gap: 6px;
   margin-top: 18px;
+}
+.provider-pick {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.provider-pick .input {
+  flex: 1;
+}
+.warn-text {
+  color: var(--warning);
 }
 </style>

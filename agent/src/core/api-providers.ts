@@ -158,8 +158,16 @@ export async function listProviderModels(p: ProviderId, key: string, doFetch: Fe
   const data = (await r.json()) as { data?: { id?: unknown }[] };
   const ids = (data.data ?? [])
     .map((m) => (typeof m.id === "string" ? m.id.replace(/^models\//, "") : ""))
-    .filter((id) => PROVIDER_MODEL_ID.test(id));
+    .filter((id) => PROVIDER_MODEL_ID.test(id) && isChatModel(id));
   return [...new Set(ids)].sort().slice(0, 1000);
+}
+
+/**
+ * Les fournisseurs listent aussi des modèles qui ne discutent pas (vecteurs, images, voix, modération) : choisis pour
+ * un agent, ils feraient échouer chaque demande. On ne garde que ceux qui peuvent répondre dans une conversation.
+ */
+export function isChatModel(id: string): boolean {
+  return !/(embed|embedding|tts|whisper|transcribe|dall-e|imagen|image-generation|veo|lyria|moderation|^text-|babbage|davinci|aqa|audio|realtime|speech|rerank|ocr|guard)/i.test(id);
 }
 
 /** Un appel d'outil resté sans résultat (demande interrompue) ferait refuser la requête : on le clôt. */

@@ -146,6 +146,12 @@ describe("autres fournisseurs d'IA (clé d'API)", () => {
     expect(await listProviderModels("gemini", KEY, f)).toEqual(["gemini-2.5-flash"]);
   });
 
+  it("liste des modèles : seulement ceux qui discutent (pas d'embeddings, d'images ni de voix)", async () => {
+    const ids = ["models/gemini-2.5-pro", "models/text-embedding-004", "models/imagen-4.0-generate", "models/gemini-2.5-flash-preview-tts", "models/veo-3.0", "gpt-4.1-mini", "whisper-1", "dall-e-3", "omni-moderation-latest", "mistral-embed", "mistral-large-latest", "codestral-latest", "deepseek-chat", "llama-3.3-70b-versatile"];
+    const { f } = fakeFetch(() => json({ data: ids.map((id) => ({ id })) }));
+    expect(await listProviderModels("openai", KEY, f)).toEqual(["codestral-latest", "deepseek-chat", "gemini-2.5-pro", "gpt-4.1-mini", "llama-3.3-70b-versatile", "mistral-large-latest"]);
+  });
+
   it("agent en ligne : pas de mémoire, et la Guilde le refuse", async () => {
     const svc = (id: string): Service => ({ id, label: id, available: async () => ({ ok: true }), tools: () => [] });
     let asked = 0;
