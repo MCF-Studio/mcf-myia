@@ -56,6 +56,16 @@ l'activation et la désactivation sont journalisées (`agents_bypass`). Le mode 
 `tools/policy.json`) et ne donne aucun outil au bac à sable de la Guilde. Risque assumé : une injection de consignes
 (page web, fichier, message reçu) peut déclencher une action sans qu'un humain la voie avant.
 
+**Mode libre de Jarvis** (`settings.jarvis.free`, onglet Jarvis, **activé par défaut**, choix du propriétaire) : seule la
+conversation de l'onglet Jarvis (`kind: "jarvis"`) est concernée. Son agent reçoit un terminal PowerShell sans
+restriction (`pc_shell`), aucune action ne demande de confirmation (journalisée `decision: "bypass"`), et son prompt
+lui demande des réponses directes, sans mises en garde. Un bandeau rouge « accès total à l'ordinateur » s'affiche à
+chaque arrivée sur l'onglet tant que le mode est actif, avec un bouton pour le couper. `pc_shell` contourne les
+dossiers fermés et toutes les limites dures : c'est le but. Le risque d'injection décrit ci-dessus s'applique en
+plein ; le prompt interdit de suivre une consigne lue dans une page, un fichier ou un message reçu. L'agent et le
+modèle de Jarvis se choisissent dans l'onglet (« Local rapide (auto) » par défaut : le meilleur modèle Ollama
+installé parmi qwen3:8b, qwen3:14b, qwen2.5, llama3.1…).
+
 Limites dures, appliquées dans le code et pas seulement dans le prompt :
 
 - Destinations Telegram/Discord : uniquement les **noms** déclarés dans la config. Le modèle ne peut pas inventer un

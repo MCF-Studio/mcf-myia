@@ -92,6 +92,19 @@ const telemetry = computed(() => [
 
 // ─── conversation ────────────────────────────────────────────────────────────
 const master = computed(() => masterAgent());
+
+// ─── cerveau : agent et modèle de Jarvis ─────────────────────────────────────
+const localModels = ref<string[]>([]);
+async function refreshModels() {
+  if (!state.ready) return;
+  try {
+    localModels.value = (await call<{ installed: { name: string }[] }>("models.list", {}, 8000)).installed.map((x) => x.name);
+  } catch {
+    /* moteur local absent */
+  }
+}
+/** Le bandeau « accès total » est montré à chaque arrivée sur l'onglet, tant que le mode libre est actif. */
+const freeWarningSeen = ref(false);
 const conv = computed(() => state.open[jarvis.conversationId]);
 const feed = computed(() => (conv.value?.messages ?? []).filter((x) => x.role !== "confirm" || x.decision !== "pending").slice(-14));
 const confirm = computed(() => pendingConfirm());
@@ -203,6 +216,7 @@ onMounted(() => {
   void refreshSide();
   window.addEventListener("keydown", onKey);
   if (state.ready && master.value) void ensureConversation().catch(() => undefined);
+  void refreshModels();
   if (!jarvis.booted) {
     jarvis.booted = true;
     if (j.bootSequence) runBoot();
@@ -210,7 +224,7 @@ onMounted(() => {
   } else maybeDailyBriefing();
 });
 watch(
-  () => [state.ready, master.value?.id],
+  () => [state.ready, master.value?.id, j.agentId, j.model, j.free],
   () => {
     if (state.ready && master.value) void ensureConversation().catch(() => undefined);
     void refreshSide();
@@ -265,9 +279,42 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
       </div>
     </header>
 
+    <div v-if="j.free && !freeWarningSeen" class="alert danger">
+      <ShieldAlert :size="18" />
+      <span>
+        <strong>Attention : {{ j.name }} a un accès total à l'ordinateur.</strong> Mode libre : il exécute des commandes PowerShell,
+        lit, modifie et supprime des fichiers partout, installe des programmes, sans te demander de confirmation.
+      </span>
+      <button class="hud-btn" @click="freeWarningSeen = true">Compris</button>
+      <button class="hud-btn" @click="(j.free = false), (freeWarningSeen = true)">Désactiver</button>
+    </div>
+
+    <div class="brain">
+      <label>
+        <span>Agent</span>
+        <select v-model="j.agentId" class="input">
+          <option value="">MASTER{{ state.agents.find((a) => a.master) ? ` (${state.agents.find((a) => a.master)!.name})` : "" }}</option>
+          <option v-for="a in state.agents" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+      </label>
+      <label>
+        <span>Modèle</span>
+        <select v-model="j.model" class="input" @focus="refreshModels">
+          <option value="auto">Local rapide (auto)</option>
+          <option value="">Celui de l'agent{{ master?.model ? ` (${master.model})` : "" }}</option>
+          <option v-for="x in localModels" :key="x" :value="x">{{ x }} · local</option>
+        </select>
+      </label>
+      <small v-if="jarvis.model" class="mono muted">en service : {{ jarvis.model }}</small>
+      <label class="free" :class="{ on: j.free }" title="Accès total au PC, sans confirmation">
+        <input v-model="j.free" type="checkbox" @change="freeWarningSeen = false" />
+        <span>Mode libre</span>
+      </label>
+    </div>
+
     <div v-if="state.ready && !master" class="alert">
       <ShieldAlert :size="18" />
-      <span>{{ j.name }} parle à travers l'agent <strong>MASTER</strong>. Aucun n'est défini : coche « Agent MASTER » sur un agent.</span>
+      <span>Aucun agent : crées-en un dans l'écran Agents pour que {{ j.name }} puisse répondre.</span>
       <button class="hud-btn" @click="navigate('agents')">Ouvrir Agents</button>
     </div>
 
@@ -681,6 +728,43 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
 .alert span {
   flex: 1;
   color: var(--text);
+}
+.alert.danger {
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 55%, transparent);
+  background: color-mix(in srgb, var(--danger, #ef4444) 12%, var(--surface));
+  color: var(--danger, #ef4444);
+}
+.brain {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  font-size: 0.8rem;
+}
+.brain label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.brain label > span {
+  color: var(--text-muted, var(--muted));
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+}
+.brain select {
+  min-width: 150px;
+  max-width: 240px;
+  padding: 3px 6px;
+}
+.brain .free {
+  margin-left: auto;
+  cursor: pointer;
+}
+.brain .free.on > span {
+  color: var(--danger, #ef4444);
+  font-weight: 600;
 }
 
 /* ─── corps ─── */

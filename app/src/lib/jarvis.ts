@@ -1,7 +1,6 @@
 import { reactive, watch } from "vue";
 import { cancelDictation, dictation, refreshDictation, startDictation, stopDictation } from "./dictation";
 import { dayKey, DEFAULT_VAD, detectWake, finishedAgents, greeting, isPhantom, localIntent, normalize, sentinelCheck, vadStep, type SentinelMemory, type VadState } from "./jarvisCore";
-import { masterConversation } from "./ptt";
 import { call, inTauri } from "./rpc";
 import { settings } from "./settings";
 import { playSound, speak, speech, stopSpeaking } from "./sound";
@@ -41,6 +40,8 @@ export const jarvis = reactive({
   status: "",
   /** Séquence de démarrage déjà jouée pendant cette session de l'app. */
   booted: false,
+  /** Modèle réellement utilisé par Jarvis (rendu par le cœur). */
+  model: "",
   /** Dernières alertes de la sentinelle (affichées dans le HUD). */
   alerts: [] as { ts: number; text: string }[],
 });
@@ -75,7 +76,9 @@ export function maybeDailyBriefing() {
   );
 }
 
-export const masterAgent = () => state.agents.find((a) => a.master);
+/** Agent qui fait Jarvis : celui choisi dans l'onglet, sinon MASTER, sinon le premier. */
+export const masterAgent = () =>
+  (settings.jarvis.agentId && state.agents.find((a) => a.id === settings.jarvis.agentId)) || state.agents.find((a) => a.master) || state.agents[0];
 
 /** Confirmation en attente dans la conversation de MASTER (la plus récente). */
 export function pendingConfirm(): DisplayMessage | undefined {
@@ -88,11 +91,13 @@ export function pendingConfirm(): DisplayMessage | undefined {
   return undefined;
 }
 
-/** Ouvre (sans changer de vue) la conversation de MASTER, pour suivre ses messages en direct. */
+/** Ouvre (sans changer de vue) la conversation de Jarvis, avec l'agent, le modèle et le mode choisis dans l'onglet. */
 export async function ensureConversation(): Promise<string> {
-  const master = masterAgent();
-  if (!master) throw new Error("aucun agent MASTER : coche « Agent MASTER » sur un agent (écran Agents)");
-  const id = await masterConversation(master.id, master.name);
+  if (!masterAgent()) throw new Error("aucun agent : crées-en un dans l'écran Agents");
+  const j = settings.jarvis;
+  const r = await call<{ id: string; model: string }>("jarvis.conversation", { agentId: j.agentId, model: j.model, free: j.free }, 15_000);
+  const id = r.id;
+  jarvis.model = r.model;
   if (!state.open[id]) state.open[id] = await call<ConversationFull>("conversations.get", { id });
   jarvis.conversationId = id;
   return id;
@@ -350,7 +355,7 @@ export function startJarvis() {
       const m = pendingConfirm();
       if (!id || !m) return;
       playSound("confirm", true);
-      say(`Je dois ton accord : ${m.title ?? "action sensible"}. Je le fais ?`);
+      say(`${m.title ?? "Action"} : je le fais ?`);
     },
   );
   // Sentinelle : chaque relevé des métriques est comparé aux seuils.

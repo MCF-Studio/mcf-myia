@@ -27,6 +27,8 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   pinned?: boolean;
+  /** Conversation de l'assistant vocal (onglet Jarvis) : agent et modèle choisis dans l'onglet. */
+  kind?: "jarvis";
   messages: DisplayMessage[];
   history: ChatMessage[];
 }

@@ -52,7 +52,7 @@ const beep = (kind: "listen" | "stop" | "error") => {
 export async function masterConversation(masterId: string, masterName: string): Promise<string> {
   await refreshConversations();
   const existing = state.conversations
-    .filter((c) => c.agentId === masterId && !c.teamId && !c.title.includes("↔"))
+    .filter((c) => c.agentId === masterId && !c.teamId && !c.kind && !c.title.includes("↔"))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
   if (existing) return existing.id;
   const c = await call<{ id: string }>("conversations.create", { agentId: masterId, title: `Avec ${masterName}` });
