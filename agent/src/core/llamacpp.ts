@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Config } from "./config.js";
 import { download, extractZip, type Progress } from "./fetch-verified.js";
 import type { ChatMessage, LlmClient, ModelInfo, PullProgress, RunningModel, ToolSpec } from "./llm.js";
+import { llamaGpuArgs } from "./gpus.js";
 import { isInside, paths } from "./paths.js";
 import { getSecret, setSecret } from "./secrets.js";
 
@@ -82,6 +83,12 @@ const MAX_MODEL_BYTES = 40 * 1024 ** 3;
 
 const buildDir = (b: Build) => path.join(paths.llamacppRoot, b);
 const modelFile = (id: string) => path.join(paths.llamacppModels, `${id}.gguf`);
+
+/** llama-server de la build active, s'il est installé. */
+export function activeServerExe(cfg: Config["llm"]): string | undefined {
+  const b = activeBuild(cfg);
+  return b ? findServer(buildDir(b)) : undefined;
+}
 
 function findServer(dir: string): string | undefined {
   if (!fs.existsSync(dir)) return undefined;
@@ -380,6 +387,7 @@ export class LlamaCppClient implements LlmClient {
       ...(this.cfg.llamacpp.ctx === "auto" ? ["--fit-ctx", "32768"] : ["-c", String(this.cfg.llamacpp.ctx)]),
       "-fa", flash ? "on" : "off",
       ...(flash ? ["-ctk", this.cfg.kvCache, "-ctv", this.cfg.kvCache] : []),
+      ...llamaGpuArgs(this.cfg.gpu),
     ];
     stopLlamaServer();
     server = spawn(exe, args, {

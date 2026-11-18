@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.js";
 import { paths } from "./paths.js";
+import { ollamaGpuEnv } from "./gpus.js";
 
 export interface ToolCall {
   /** Identifiant de l'appel, quand le moteur en donne un (API Claude). */
@@ -342,7 +343,7 @@ export class OllamaClient implements LlmClient {
       windowsHide: true,
       stdio: ["ignore", log, log],
       // Ollama autonome de MyIA : ses modèles dans ollama\models. Ollama installé : on garde ses réglages.
-      env: { ...process.env, OLLAMA_HOST: host, ...(found.bundled ? { OLLAMA_MODELS: paths.ollamaModels } : {}), ...engineEnv(this.cfg) },
+      env: { ...process.env, OLLAMA_HOST: host, ...(found.bundled ? { OLLAMA_MODELS: paths.ollamaModels } : {}), ...engineEnv(this.cfg), ...ollamaGpuEnv(this.cfg.gpu) },
     });
     child.unref();
     for (let i = 0; i < 40; i++) {

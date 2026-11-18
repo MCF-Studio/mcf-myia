@@ -30,7 +30,7 @@ import { installPiper, piperStatus, synthesize, uninstallPiper, VOICE_IDS, VOICE
 import { CLAUDE_LOCAL_CTX, claudeLocalOllamaModel, findOllama, MIN_OLLAMA, MODEL_NAME, OllamaClient, versionAtLeast } from "../core/llm.js";
 import { installOllama } from "../core/ollama-install.js";
 import { createLlm } from "../core/llm-factory.js";
-import { activeBuild, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
+import { activeBuild, activeServerExe, BUILDS, CATALOG, installBuild, installedBuilds, LlamaCppClient, stopLlamaServer, uninstallBuild, type Build } from "../core/llamacpp.js";
 import { makeTeamRoot } from "../core/team-runner.js";
 import { describeSchedule, Planner, plannerTools } from "../core/planner.js";
 import { appControlTools, type AppControl } from "../services/app-control.js";
@@ -56,6 +56,7 @@ import { buildServices } from "../services/index.js";
 import { shellTool } from "../services/shell.js";
 import { defaultWriteDir } from "../services/file-write.js";
 import { ensureToolbox, pythonInfo } from "../core/toolbox-setup.js";
+import { listGpus } from "../core/gpus.js";
 import { runProcess } from "../core/proc.js";
 import { RpcError, RpcPeer } from "./rpc.js";
 import { ConversationStore, type Conversation, type DisplayMessage } from "./store.js";
@@ -1542,8 +1543,14 @@ rpc.method("config.get", () => ({
     kvCache: cfg.llm.kvCache,
     engine: cfg.llm.engine,
     backend: cfg.llm.llamacpp.backend,
+    gpu: cfg.llm.gpu,
   },
 }));
+
+/** Cartes graphiques vues par llama.cpp (build active) et par le pilote NVIDIA : réglage « Plusieurs cartes ». */
+rpc.method("gpus.list", async () => {
+  return listGpus(activeServerExe(cfg.llm));
+});
 
 const DEFAULT_MODEL = { ollama: "qwen3:8b", llamacpp: "Qwen3-8B-Q4_K_M" } as const;
 
@@ -1558,6 +1565,15 @@ rpc.method("config.setEngine", async (params) => {
       kvCache: z.enum(["f16", "q8_0", "q4_0"]),
       engine: z.enum(["ollama", "llamacpp"]).optional(),
       backend: z.enum(["cuda", "vulkan", "cpu"]).optional(),
+      gpu: z
+        .object({
+          mode: z.enum(["auto", "single", "split"]),
+          device: z.string().regex(/^[A-Za-z]{2,12}\d{1,2}$/).optional(),
+          uuid: z.string().regex(/^GPU-[0-9a-fA-F-]{8,60}$/).optional(),
+          splitMode: z.enum(["layer", "row", "tensor"]),
+          ratios: z.array(z.number().min(0).max(100)).max(16).optional(),
+        })
+        .optional(),
     }),
     params,
   );
@@ -1570,6 +1586,7 @@ rpc.method("config.setEngine", async (params) => {
     llm.flashAttention = p.flashAttention;
     llm.kvCache = p.kvCache;
     if (p.backend) llm.llamacpp = { ...(llm.llamacpp ?? {}), backend: p.backend };
+    if (p.gpu) llm.gpu = p.gpu;
     if (next !== cfg.llm.engine) {
       const others = { ...(llm.otherModels ?? {}) };
       others[cfg.llm.engine] = cfg.llm.model;

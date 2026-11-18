@@ -69,6 +69,19 @@ export const ConfigSchema = z.object({
       flashAttention: z.boolean().default(true),
       kvCache: z.enum(["f16", "q8_0", "q4_0"]).default("q8_0"),
       /**
+       * Plusieurs cartes graphiques (core/gpus.ts) : auto (le moteur décide), une seule carte, ou modèle réparti sur
+       * toutes. Appliqué par llama.cpp tout de suite, par Ollama quand MyIA le démarre.
+       */
+      gpu: z
+        .object({
+          mode: z.enum(["auto", "single", "split"]).default("auto"),
+          device: z.string().regex(/^[A-Za-z]{2,12}\d{1,2}$/).optional(),
+          uuid: z.string().regex(/^GPU-[0-9a-fA-F-]{8,60}$/).optional(),
+          splitMode: z.enum(["layer", "row", "tensor"]).default("layer"),
+          ratios: z.array(z.number().min(0).max(100)).max(16).optional(),
+        })
+        .prefault({}),
+      /**
        * Moteur local : Ollama (gestion des modèles intégrée) ou llama.cpp directement (llama-server en mode routeur,
        * modèles GGUF dans llamacpp\models). `model` est le modèle par défaut du moteur actif ; celui de l'autre moteur
        * est gardé dans `otherModels` pour revenir en arrière sans rien perdre.

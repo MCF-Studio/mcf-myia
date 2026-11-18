@@ -269,7 +269,10 @@ mode routeur (`--models-dir llamacpp\models`, modèles chargés à la demande), 
 catalogue est vérifié avec l'empreinte LFS publiée par Hugging Face. Écoute sur 127.0.0.1, clé d'API aléatoire dans le
 coffre Windows, passée par variable d'environnement (jamais en argument). Changer de moteur échange le modèle par
 défaut avec celui gardé pour l'autre moteur. Flash attention et cache de contexte compressé (q8 par défaut) pour les
-deux moteurs.
+deux moteurs. **Plusieurs cartes graphiques** (`core/gpus.ts`, `llm.gpu`) : automatique (le moteur décide), une seule
+carte (llama.cpp `--device`, Ollama `CUDA_VISIBLE_DEVICES` par UUID NVIDIA) ou modèle réparti sur toutes (llama.cpp
+`--split-mode` couches / lignes / tenseurs et `--tensor-split` facultatif, Ollama `OLLAMA_SCHED_SPREAD`). Le nom de
+carte est contrôlé par la config (lettres + chiffres) : il ne peut pas injecter d'argument.
 
 **Claude Code en local** (console, modèle « Local ») : `llama-server` et Ollama (0.40+) exposent l'API Messages
 d'Anthropic ; la console lance `claude` sur le moteur actif (`ANTHROPIC_BASE_URL` local, modèle par défaut, clé du

@@ -137,8 +137,59 @@ async function deleteTheme(id: string) {
 const userName = ref("");
 const roots = ref<{ path: string; depth: number }[]>([]);
 type Build = "cuda" | "vulkan" | "cpu";
-type Engine = { flashAttention: boolean; kvCache: "f16" | "q8_0" | "q4_0"; engine?: "ollama" | "llamacpp"; backend?: Build };
+type GpuSetting = { mode: "auto" | "single" | "split"; device?: string; uuid?: string; splitMode: "layer" | "row" | "tensor"; ratios?: number[] };
+type Engine = { flashAttention: boolean; kvCache: "f16" | "q8_0" | "q4_0"; engine?: "ollama" | "llamacpp"; backend?: Build; gpu?: GpuSetting };
 const engine = ref<Engine>({ flashAttention: true, kvCache: "q8_0", engine: "ollama" });
+
+// ─── Plusieurs cartes graphiques ─────────────────────────────────────────────
+interface GpuDevice {
+  device?: string;
+  uuid?: string;
+  name: string;
+  memoryMb?: number;
+}
+const gpus = ref<{ llama: GpuDevice[]; nvidia: GpuDevice[] }>({ llama: [], nvidia: [] });
+const gpuRatios = ref("");
+/** Cartes du moteur actif : celles de llama.cpp (tous fabricants), sinon celles du pilote NVIDIA (Ollama). */
+const gpuList = computed(() => (engine.value.engine === "llamacpp" && gpus.value.llama.length ? gpus.value.llama : gpus.value.nvidia));
+const gpuKey = (g: GpuDevice) => (engine.value.engine === "llamacpp" ? g.device : g.uuid) ?? "";
+const gpuSelected = computed({
+  get: () => (engine.value.engine === "llamacpp" ? engine.value.gpu?.device : engine.value.gpu?.uuid) ?? "",
+  set: (key: string) => {
+    const g = gpuList.value.find((x) => gpuKey(x) === key);
+    const both = [...gpus.value.llama, ...gpus.value.nvidia];
+    // On retient les deux identifiants de la même carte (même nom) : changer de moteur garde le choix.
+    const twin = both.find((x) => x !== g && x.name === g?.name);
+    engine.value.gpu = { ...gpuDefault(), ...engine.value.gpu, device: g?.device ?? twin?.device, uuid: g?.uuid ?? twin?.uuid };
+    void saveEngine();
+  },
+});
+const gpuDefault = (): GpuSetting => ({ mode: "auto", splitMode: "layer" });
+
+async function loadGpus() {
+  gpus.value = await call<{ llama: GpuDevice[]; nvidia: GpuDevice[] }>("gpus.list", {}, 30_000).catch(() => ({ llama: [], nvidia: [] }));
+}
+
+function setGpuMode(mode: GpuSetting["mode"]) {
+  const gpu = { ...gpuDefault(), ...engine.value.gpu, mode };
+  if (mode === "single" && !(engine.value.engine === "llamacpp" ? gpu.device : gpu.uuid)) {
+    const first = gpuList.value[0];
+    if (first) Object.assign(gpu, { device: first.device ?? gpu.device, uuid: first.uuid ?? gpu.uuid });
+  }
+  engine.value.gpu = gpu;
+  void saveEngine();
+}
+
+function saveRatios() {
+  const raw = gpuRatios.value.trim();
+  const parts = raw ? raw.split(/[\s,;/]+/).map(Number) : [];
+  if (parts.some((n) => !Number.isFinite(n) || n < 0 || n > 100)) {
+    toast("Parts : des nombres séparés par des virgules, ex. 3,1 ou 60,40", "error");
+    return;
+  }
+  engine.value.gpu = { ...gpuDefault(), ...engine.value.gpu, ratios: parts.length ? parts : undefined };
+  void saveEngine();
+}
 
 // ─── llama.cpp : builds (téléchargées à la demande, empreintes vérifiées par le cœur) ───
 interface LlamaStatus {
@@ -245,7 +296,10 @@ async function loadConfigBits() {
       agentsBypass?: boolean;
       engine?: Engine;
     }>("config.get");
-    if (c.engine) engine.value = c.engine;
+    if (c.engine) {
+      engine.value = c.engine;
+      gpuRatios.value = c.engine.gpu?.ratios?.join(",") ?? "";
+    }
     userName.value = c.userName === "l'utilisateur" ? "" : c.userName;
     roots.value = c.projectRoots;
     claudeBypass.value = c.claudeBypassPermissions === true;
@@ -693,6 +747,7 @@ onMounted(async () => {
   void loadMemory();
   void loadLlama();
   void loadOllama();
+  void loadGpus();
   void loadWhisper();
   void loadPlanner();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = loadVoices;
@@ -1358,6 +1413,37 @@ const shortcuts: [string, string][] = [
             <option value="f16">Non compressée (f16)</option>
           </select>
         </SettingRow>
+        <SettingRow
+          label="Plusieurs cartes graphiques"
+          :hint="gpuList.length > 1 ? `${gpuList.length} cartes détectées` : gpuList.length === 1 ? `1 carte détectée (${gpuList[0]!.name}) : utile seulement avec 2 cartes ou plus, ou une carte à deux GPU` : 'Aucune carte détectée'"
+        >
+          <div class="segmented">
+            <button :class="{ on: (engine.gpu?.mode ?? 'auto') === 'auto' }" @click="setGpuMode('auto')">Automatique</button>
+            <button :class="{ on: engine.gpu?.mode === 'single' }" :disabled="!gpuList.length" @click="setGpuMode('single')">Une seule carte</button>
+            <button :class="{ on: engine.gpu?.mode === 'split' }" :disabled="gpuList.length < 2 && engine.gpu?.mode !== 'split'" :title="gpuList.length < 2 ? 'Il faut au moins deux cartes' : ''" @click="setGpuMode('split')">Répartir sur toutes</button>
+          </div>
+        </SettingRow>
+        <SettingRow v-if="engine.gpu?.mode === 'single'" label="Carte utilisée" hint="Les autres cartes restent libres (jeux, rendu, autre programme).">
+          <select v-model="gpuSelected" class="input select w-280">
+            <option v-for="g in gpuList" :key="gpuKey(g)" :value="gpuKey(g)">{{ g.device ?? "GPU" }} · {{ g.name }}{{ g.memoryMb ? ` · ${Math.round(g.memoryMb / 1024)} Go` : "" }}</option>
+          </select>
+        </SettingRow>
+        <template v-if="engine.gpu?.mode === 'split' && engine.engine === 'llamacpp'">
+          <SettingRow label="Répartition" hint="Par couches : marche avec toutes les cartes, même différentes (conseillé). Par lignes ou tenseurs : peut aller plus vite avec des cartes NVIDIA identiques.">
+            <select v-model="engine.gpu.splitMode" class="input select w-220" @change="saveEngine">
+              <option value="layer">Par couches (conseillé)</option>
+              <option value="row">Par lignes</option>
+              <option value="tensor">Par tenseurs</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Part de chaque carte" hint="Facultatif, dans l'ordre des cartes : 3,1 = 75 % sur la première, 25 % sur la seconde. Vide = selon la mémoire de chaque carte.">
+            <input v-model="gpuRatios" class="input w-220" placeholder="ex. 3,1" @change="saveRatios" />
+          </SettingRow>
+        </template>
+        <p v-if="engine.gpu?.mode && engine.gpu.mode !== 'auto' && engine.engine !== 'llamacpp'" class="tiny muted">
+          Avec Ollama : « Une seule carte » vise les cartes NVIDIA (CUDA_VISIBLE_DEVICES) ; « Répartir » pose OLLAMA_SCHED_SPREAD. Appliqué quand
+          MyIA démarre Ollama (quitte Ollama s'il tourne déjà) ; une variable posée dans Windows reste prioritaire.
+        </p>
         <p class="tiny muted">
           Avec llama.cpp, ces deux réglages s'appliquent tout de suite (le serveur redémarre). Avec Ollama, quand MyIA le démarre : s'il
           tourne déjà (icône Ollama près de l'horloge, ou PC pas redémarré), quitte-le puis relance MyIA. Une variable
