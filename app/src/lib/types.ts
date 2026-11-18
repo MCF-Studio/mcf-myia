@@ -240,6 +240,8 @@ export interface WorkItem {
   description: string;
   type: WorkType;
   status: WorkStatus;
+  /** Référence dans le suivi externe (synchronisation exec:). */
+  ext?: string;
   assignee?: string;
   parent?: string;
   needs: string[];

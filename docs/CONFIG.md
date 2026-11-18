@@ -90,12 +90,23 @@ Les agents ne peuvent écrire **qu'aux noms déclarés ici**. À gauche, un nom 
 | `claude.model`                 | vide       | Modèle imposé aux délégations (vide = choix automatique).                              |
 | `claude.autoModel`             | `true`     | Choisir Haiku, Sonnet ou Opus selon la difficulté de chaque tâche.                     |
 | `claude.bypassPermissions`     | `false`    | Consoles Claude Code sans demande d'autorisation (Paramètres → Général).               |
+| `claude.subagentModel`         | vide       | Modèle des sous-agents des consoles : vide (celui de la console), `haiku`, `sonnet`, `opus`. |
+| `claude.consoleMcp.mode`       | `all`      | Serveurs MCP lancés par chaque console : `all` (tous), `none` (aucun), `only` (liste ci-dessous). |
+| `claude.consoleMcp.servers`    | vide       | Avec `only` : noms des serveurs gardés (portées utilisateur et locale de ~/.claude.json). |
 | `claude.maxTurns`              | `40`       | Tours au plus par délégation.                                                          |
 | `claude.timeoutMinutes`        | `30`       | Durée maximale d'une délégation.                                                       |
 | `claude.defaultAllowedTools`   | vide       | Outils accordés à Claude Code par défaut. Vide = lecture, écriture et git en lecture.  |
 | `claudeApi.effort`             | `medium`   | Agents « API Claude » : `low`, `medium`, `high`, `xhigh`, `max` (coût et profondeur).  |
 | `claudeApi.maxTokens`          | `32000`    | Longueur maximale d'une réponse (borne le coût).                                       |
 | `claudeApi.timeoutMinutes`     | `10`       | Durée maximale d'une réponse.                                                          |
+
+## Registre de travail des équipes
+
+| Option               | Par défaut | Rôle                                                                                     |
+| -------------------- | ---------- | ---------------------------------------------------------------------------------------- |
+| `work.provider`      | `file`     | `file` = registre local seul ; `exec:<chemin absolu du script>` = synchronisé avec un autre outil de suivi (docs/TRAVAIL.md §7). |
+| `work.pullMinutes`   | `0`        | Relève automatique du suivi externe toutes les N minutes (0 = bouton « Synchroniser » seulement). |
+| `work.timeoutSeconds`| `30`       | Durée maximale d'un appel du script (5 à 300 s).                                         |
 
 ## Autres IA : OpenAI, Gemini, Mistral, OpenRouter, Groq, DeepSeek, xAI
 

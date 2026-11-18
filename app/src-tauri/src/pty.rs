@@ -89,6 +89,119 @@ fn bypass_permissions() -> bool {
         .unwrap_or(false)
 }
 
+/// Section `claude` de config/agent.json (absente ou illisible = valeurs par défaut).
+fn claude_cfg() -> serde_json::Value {
+    std::fs::read_to_string(crate::sidecar::home().join("config").join("agent.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|cfg| cfg.get("claude").cloned())
+        .unwrap_or(serde_json::Value::Null)
+}
+
+/// Modèle des sous-agents (`claude.subagentModel`) : liste fermée, sinon celui de la console.
+fn subagent_model(claude: &serde_json::Value) -> Option<&'static str> {
+    match claude.get("subagentModel").and_then(|v| v.as_str()) {
+        Some("haiku") => Some("haiku"),
+        Some("sonnet") => Some("sonnet"),
+        Some("opus") => Some("opus"),
+        _ => None,
+    }
+}
+
+/// Serveurs MCP des consoles (`claude.consoleMcp`).
+#[derive(Debug, PartialEq)]
+enum McpMode {
+    /// Comportement de Claude Code : tous les serveurs configurés.
+    All,
+    None,
+    Only(Vec<String>),
+}
+
+fn valid_server_name(n: &str) -> bool {
+    !n.is_empty() && n.len() <= 64 && n.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+}
+
+fn mcp_mode(claude: &serde_json::Value) -> McpMode {
+    let m = claude.get("consoleMcp");
+    match m.and_then(|m| m.get("mode")).and_then(|v| v.as_str()) {
+        Some("none") => McpMode::None,
+        Some("only") => McpMode::Only(
+            m.and_then(|m| m.get("servers"))
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str()).filter(|n| valid_server_name(n)).map(String::from).take(50).collect())
+                .unwrap_or_default(),
+        ),
+        _ => McpMode::All,
+    }
+}
+
+/// Forme comparable d'un chemin de dossier (~/.claude.json range les projets en « G:/Projet »).
+fn path_key(p: &str) -> String {
+    p.trim_start_matches(r"\\?\").replace('\\', "/").trim_end_matches('/').to_lowercase()
+}
+
+/// Serveurs gardés pour une console ouverte dans `cwd` : portée utilisateur, puis portée locale de ce dossier (qui
+/// l'emporte, comme dans Claude Code). Jamais le .mcp.json du dépôt : ces serveurs-là demandent l'accord de
+/// l'utilisateur dans Claude Code, une configuration passée en --mcp-config contournerait cet accord.
+fn mcp_servers_for(claude_json: &serde_json::Value, cwd: &str, keep: &[String]) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    let mut take = |servers: Option<&serde_json::Value>| {
+        if let Some(map) = servers.and_then(|v| v.as_object()) {
+            for (name, def) in map {
+                if keep.iter().any(|k| k == name) && def.is_object() {
+                    out.insert(name.clone(), def.clone());
+                }
+            }
+        }
+    };
+    take(claude_json.get("mcpServers"));
+    let want = path_key(cwd);
+    if let Some(projects) = claude_json.get("projects").and_then(|v| v.as_object()) {
+        for (dir, p) in projects {
+            if path_key(dir) == want {
+                take(p.get("mcpServers"));
+            }
+        }
+    }
+    out
+}
+
+/// Dossier des configurations MCP propres à chaque console (supprimées à sa fermeture).
+fn mcp_dir() -> PathBuf {
+    crate::sidecar::home().join("data").join("claude-mcp")
+}
+
+/// Fichier --mcp-config d'une console : aucun serveur, ou les serveurs choisis. Il peut contenir les variables
+/// d'environnement des serveurs (souvent des jetons) : même dossier utilisateur que ~/.claude.json, et supprimé dès
+/// que la console se ferme ; les restes d'une app coupée net sont effacés à la première console suivante.
+fn write_mcp_config(id: u32, cwd: &str, mode: &McpMode) -> Result<Option<PathBuf>, String> {
+    static CLEAN: std::sync::Once = std::sync::Once::new();
+    let dir = mcp_dir();
+    CLEAN.call_once(|| {
+        let _ = std::fs::remove_dir_all(&dir);
+    });
+    let servers = match mode {
+        McpMode::All => return Ok(None),
+        McpMode::None => serde_json::Map::new(),
+        McpMode::Only(keep) => {
+            let home = std::env::var_os("CLAUDE_CONFIG_DIR")
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
+                .ok_or("dossier utilisateur introuvable")?;
+            let raw = std::fs::read_to_string(home.join(".claude.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                .unwrap_or(serde_json::Value::Null);
+            mcp_servers_for(&raw, cwd, keep)
+        }
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("configuration MCP : {e}"))?;
+    let file = dir.join(format!("console-{id}.json"));
+    let body = serde_json::json!({ "mcpServers": servers }).to_string();
+    std::fs::write(&file, body).map_err(|e| format!("configuration MCP : {e}"))?;
+    Ok(Some(file))
+}
+
 /// Contexte donné à Claude Code en local : même valeur que CLAUDE_LOCAL_CTX côté cœur (llm.ts).
 const LOCAL_CTX: u32 = 32_768;
 
@@ -182,6 +295,56 @@ fn local_claude_env() -> Result<LocalEnv, String> {
     Ok((vars, id))
 }
 
+/// Fenêtre de regroupement de la sortie : Claude Code redessine son écran par petits morceaux (animation, sous-agents,
+/// barre d'état). Un événement par lecture saturait l'interface dès plusieurs consoles ouvertes ; on envoie au plus un
+/// bloc toutes les FLUSH_MS (ou dès FLUSH_BYTES), ce qui reste invisible à l'œil.
+const FLUSH_MS: u64 = 12;
+const FLUSH_BYTES: usize = 256 * 1024;
+
+/// Regroupe les blocs reçus de `rx` et les passe à `send` en texte UTF-8, sans jamais couper un caractère en deux.
+/// Se termine (après avoir tout envoyé) quand le lecteur s'arrête.
+fn pump_output(rx: std::sync::mpsc::Receiver<Vec<u8>>, mut send: impl FnMut(String)) {
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::{Duration, Instant};
+    let mut pending: Vec<u8> = Vec::new();
+    let mut open = true;
+    while open {
+        // Attente du premier bloc, sans limite : une console inactive ne coûte rien.
+        match rx.recv() {
+            Ok(b) => pending.extend_from_slice(&b),
+            Err(_) => break,
+        }
+        let deadline = Instant::now() + Duration::from_millis(FLUSH_MS);
+        while pending.len() < FLUSH_BYTES {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match rx.recv_timeout(left) {
+                Ok(b) => pending.extend_from_slice(&b),
+                Err(RecvTimeoutError::Timeout) => break,
+                Err(RecvTimeoutError::Disconnected) => {
+                    open = false;
+                    break;
+                }
+            }
+        }
+        let valid = match std::str::from_utf8(&pending) {
+            Ok(_) => pending.len(),
+            // Caractère incomplet en fin de bloc : on le garde pour le bloc suivant.
+            Err(e) if e.error_len().is_none() && open => e.valid_up_to(),
+            Err(_) => pending.len(), // octets réellement invalides : remplacés
+        };
+        if valid > 0 {
+            let chunk: Vec<u8> = pending.drain(..valid).collect();
+            send(String::from_utf8_lossy(&chunk).into_owned());
+        }
+    }
+    if !pending.is_empty() {
+        send(String::from_utf8_lossy(&pending).into_owned());
+    }
+}
+
 fn is_allowed(dir: &Path) -> bool {
     match dir.canonicalize() {
         Ok(d) => allowed_roots().iter().any(|r| d.starts_with(r)),
@@ -215,10 +378,21 @@ pub fn pty_spawn(
     }
     let pair = native_pty_system().openpty(clamp_size(cols, rows)).map_err(|e| format!("pty : {e}"))?;
 
+    let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
+    let claude = claude_cfg();
+    let mcp_file = write_mcp_config(id, &cwd, &mcp_mode(&claude))?;
     let program = std::env::var("MYIA_CLAUDE").unwrap_or_else(|_| "claude".into());
     let mut cmd = CommandBuilder::new(program);
     if resume {
         cmd.arg("--continue");
+    }
+    // Serveurs MCP choisis dans les réglages : seuls ceux du fichier (chemin géré par l'app, jamais par l'interface).
+    if let Some(f) = &mcp_file {
+        // Forme « = » : --mcp-config prend plusieurs valeurs, la tâche de départ serait sinon lue comme un fichier.
+        let mut opt = std::ffi::OsString::from("--mcp-config=");
+        opt.push(f.as_os_str());
+        cmd.arg("--strict-mcp-config");
+        cmd.arg(opt);
     }
     // Mode sans demande d'autorisation : seulement si l'utilisateur l'a activé dans les réglages.
     if bypass_permissions() {
@@ -253,6 +427,12 @@ pub fn pty_spawn(
     cmd.cwd(&dir);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    // Sous-agents sur un modèle plus léger (réglage) ; en local, local_claude_env fixe déjà le modèle local.
+    if local_env.is_none() {
+        if let Some(m) = subagent_model(&claude) {
+            cmd.env("CLAUDE_CODE_SUBAGENT_MODEL", m);
+        }
+    }
     if let Some(vars) = local_env {
         // Une clé Anthropic de l'environnement ne doit pas partir vers le serveur local (ni passer avant lui).
         cmd.env_remove("ANTHROPIC_API_KEY");
@@ -261,42 +441,37 @@ pub fn pty_spawn(
         }
     }
 
-    let child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| format!("impossible de lancer Claude Code ({e}). La commande `claude` doit être installée et dans le PATH."))?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| {
+        if let Some(f) = &mcp_file {
+            let _ = std::fs::remove_file(f);
+        }
+        format!("impossible de lancer Claude Code ({e}). La commande `claude` doit être installée et dans le PATH.")
+    })?;
     drop(pair.slave);
 
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-    let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
     state.sessions.lock().unwrap().insert(id, Session { writer, master: pair.master, child });
 
-    // Lecture : on renvoie du texte UTF-8 sans couper un caractère en deux entre deux blocs.
-    let h = app.clone();
+    // Lecture : un fil lit le pseudo-terminal, un autre regroupe la sortie et l'envoie à l'interface (voir pump_output).
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
     std::thread::spawn(move || {
         let mut buf = [0u8; 16 * 1024];
-        let mut pending: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    pending.extend_from_slice(&buf[..n]);
-                    let valid = match std::str::from_utf8(&pending) {
-                        Ok(_) => pending.len(),
-                        Err(e) if e.error_len().is_none() => e.valid_up_to(),
-                        Err(_) => pending.len(), // octets réellement invalides : on remplace
-                    };
-                    if valid == 0 {
-                        continue;
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
                     }
-                    let chunk: Vec<u8> = pending.drain(..valid).collect();
-                    let data = String::from_utf8_lossy(&chunk).into_owned();
-                    let _ = h.emit("pty://data", DataEvent { id, data });
                 }
             }
         }
     });
+    let h = app.clone();
+    std::thread::spawn(move || pump_output(rx, |data| {
+        let _ = h.emit("pty://data", DataEvent { id, data });
+    }));
 
     // Surveillance : avec ConPTY, la lecture peut rester bloquée après la fin de `claude`. On détecte la sortie
     // ici, puis on retire la session : fermer le pseudo-terminal débloque le lecteur.
@@ -316,6 +491,9 @@ pub fn pty_spawn(
                 }
             }
         };
+        if let Some(f) = &mcp_file {
+            let _ = std::fs::remove_file(f);
+        }
         let _ = h.emit("pty://exit", ExitEvent { id, code });
     });
 
@@ -345,4 +523,79 @@ pub fn pty_kill(state: State<'_, Ptys>, id: u32) -> Result<(), String> {
         let _ = s.child.kill();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    fn pump(chunks: Vec<Vec<u8>>) -> Vec<String> {
+        let (tx, rx) = mpsc::channel();
+        for c in chunks {
+            tx.send(c).unwrap();
+        }
+        drop(tx);
+        let mut out = Vec::new();
+        pump_output(rx, |s| out.push(s));
+        out
+    }
+
+    #[test]
+    fn regroupe_les_petits_blocs() {
+        let out = pump((0..100).map(|i| format!("{i};").into_bytes()).collect());
+        assert_eq!(out.len(), 1, "tous les blocs déjà arrivés partent en un seul envoi");
+        assert!(out[0].starts_with("0;1;2;") && out[0].ends_with("99;"));
+    }
+
+    #[test]
+    fn ne_coupe_pas_un_caractere() {
+        let e = "é".as_bytes().to_vec();
+        let (tx, rx) = mpsc::channel();
+        let h = std::thread::spawn(move || {
+            let mut out = Vec::new();
+            pump_output(rx, |s| out.push(s));
+            out
+        });
+        tx.send([b"a".as_slice(), &e[..1]].concat()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        tx.send(e[1..].to_vec()).unwrap();
+        drop(tx);
+        let out = h.join().unwrap();
+        assert_eq!(out.concat(), "aé");
+        assert!(out.iter().all(|s| !s.contains('\u{FFFD}')));
+    }
+
+    #[test]
+    fn mode_mcp() {
+        use serde_json::json;
+        assert_eq!(mcp_mode(&json!(null)), McpMode::All);
+        assert_eq!(mcp_mode(&json!({ "consoleMcp": { "mode": "none" } })), McpMode::None);
+        assert_eq!(
+            mcp_mode(&json!({ "consoleMcp": { "mode": "only", "servers": ["blender", "a b", "x"] } })),
+            McpMode::Only(vec!["blender".into(), "x".into()])
+        );
+        assert_eq!(subagent_model(&json!({ "subagentModel": "haiku" })), Some("haiku"));
+        assert_eq!(subagent_model(&json!({ "subagentModel": "gpt" })), None);
+    }
+
+    #[test]
+    fn serveurs_gardes() {
+        use serde_json::json;
+        let cfg = json!({
+            "mcpServers": { "blender": { "command": "uvx" }, "playwright": { "command": "npx" } },
+            "projects": {
+                "G:/Jeu": { "mcpServers": { "godot": { "command": "g" }, "blender": { "command": "local" } } },
+                "G:/Autre": { "mcpServers": { "secret": { "command": "s" } } }
+            }
+        });
+        let keep = vec!["blender".to_string(), "godot".to_string(), "secret".to_string()];
+        let out = mcp_servers_for(&cfg, r"G:\Jeu\", &keep);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out["blender"]["command"], "local", "la portée locale l'emporte");
+        assert!(out.contains_key("godot"));
+        assert!(!out.contains_key("playwright"), "non choisi");
+        assert!(!out.contains_key("secret"), "déclaré pour un autre dossier");
+        assert_eq!(path_key(r"\\?\G:\Jeu"), "g:/jeu");
+    }
 }

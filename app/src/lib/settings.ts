@@ -136,24 +136,58 @@ function merge(target: any, src: any) {
 let timer: ReturnType<typeof setTimeout> | undefined;
 let loaded = false;
 
-export async function loadSettings() {
-  if (inTauri) {
-    try {
-      merge(settings, await call("settings.get", {}, 5000));
-    } catch (e) {
-      console.warn("réglages :", e);
-    }
+const snapshot = () => JSON.parse(JSON.stringify(settings));
+
+/** Enregistre tout de suite ce qui attend encore le délai (fermeture de la fenêtre). */
+export function flushSettings() {
+  if (!loaded || !inTauri || timer === undefined) return;
+  clearTimeout(timer);
+  timer = undefined;
+  void call("settings.set", snapshot()).catch(console.warn);
+}
+
+async function readOnce(): Promise<boolean> {
+  try {
+    merge(settings, await call("settings.get", {}, 5000));
+    return true;
+  } catch (e) {
+    console.warn("réglages :", e);
+    return false;
   }
+}
+
+function startSaving() {
   loaded = true;
   watch(
     settings,
     () => {
-      if (!loaded || !inTauri) return;
       clearTimeout(timer);
-      timer = setTimeout(() => call("settings.set", JSON.parse(JSON.stringify(settings))).catch(console.warn), 400);
+      timer = setTimeout(() => {
+        timer = undefined;
+        call("settings.set", snapshot()).catch(console.warn);
+      }, 400);
     },
     { deep: true },
   );
+  window.addEventListener("pagehide", flushSettings);
+  window.addEventListener("beforeunload", flushSettings);
+}
+
+/**
+ * Lit les réglages enregistrés. Le cœur peut mettre plusieurs secondes à démarrer : si la première lecture échoue,
+ * l'app s'ouvre avec les valeurs par défaut et réessaie en arrière-plan. Tant que la lecture n'a pas réussi, RIEN
+ * n'est enregistré (sinon les valeurs par défaut écraseraient le nom de Jarvis, le thème…).
+ */
+export async function loadSettings() {
+  if (!inTauri) return;
+  if (await readOnce()) return startSaving();
+  void (async () => {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (await readOnce()) return startSaving();
+    }
+    console.error("réglages non lus : ils ne seront pas enregistrés pendant cette session");
+  })();
 }
 
 export function resetSettings(section?: keyof Settings) {

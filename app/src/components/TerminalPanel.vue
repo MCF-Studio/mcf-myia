@@ -3,6 +3,7 @@ import "@xterm/xterm/css/xterm.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { Archive, FolderOpen, Gauge, Loader2, RefreshCcwDot, RotateCw, SquareTerminal, X } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -107,13 +108,55 @@ function theme() {
   };
 }
 
+/** Taille déjà envoyée à Claude Code : un redimensionnement lui fait redessiner tout son écran, on n'envoie que les vrais changements. */
+let sent = { cols: 0, rows: 0 };
 function refit() {
   if (!term || !fit || !info.value || info.value.exited !== undefined) return;
+  // Panneau masqué (onglet inactif, v-show) : rien à mesurer, on refera le calcul à son affichage.
+  if (!host.value?.offsetParent) return;
   try {
     fit.fit();
-    void resizeTerminal(info.value.id, term.cols, term.rows).catch(() => undefined);
   } catch {
-    /* panneau masqué */
+    return;
+  }
+  if (term.cols === sent.cols && term.rows === sent.rows) return;
+  sent = { cols: term.cols, rows: term.rows };
+  void resizeTerminal(info.value.id, term.cols, term.rows).catch(() => undefined);
+}
+/** Au plus un calcul par image, même si plusieurs consoles de la grille sont redimensionnées ensemble. */
+let refitFrame = 0;
+function scheduleRefit() {
+  if (refitFrame) return;
+  refitFrame = requestAnimationFrame(() => {
+    refitFrame = 0;
+    refit();
+  });
+}
+
+/**
+ * Rendu par la carte graphique (WebGL) : bien plus léger que le rendu DOM quand plusieurs consoles défilent en même
+ * temps. Pas avec une image de fond (le fond transparent n'est sûr qu'avec le rendu DOM). Si le contexte WebGL est
+ * perdu (trop de consoles, pilote), on revient au rendu DOM.
+ */
+let webgl: WebglAddon | undefined;
+function useWebgl(on: boolean) {
+  if (!term) return;
+  if (!on) {
+    webgl?.dispose();
+    webgl = undefined;
+    return;
+  }
+  if (webgl) return;
+  try {
+    const addon = new WebglAddon();
+    addon.onContextLoss(() => {
+      addon.dispose();
+      if (webgl === addon) webgl = undefined;
+    });
+    term.loadAddon(addon);
+    webgl = addon;
+  } catch {
+    webgl = undefined; // WebGL indisponible : rendu DOM
   }
 }
 
@@ -137,9 +180,10 @@ onMounted(() => {
   const id = info.value.id;
   term.onData((d) => writeTerminal(id, d));
   attach(id, (d) => term?.write(d));
-  ro = new ResizeObserver(() => refit());
+  useWebgl(!withImage.value);
+  ro = new ResizeObserver(scheduleRefit);
   ro.observe(host.value);
-  requestAnimationFrame(refit);
+  scheduleRefit();
   term.focus();
 });
 
@@ -147,12 +191,18 @@ watch(
   () => settings.appearance.theme,
   () => setTimeout(() => term && (term.options.theme = theme()), 50),
 );
-watch(withImage, () => term && (term.options.theme = theme()));
+watch(withImage, (img) => {
+  if (!term) return;
+  useWebgl(!img);
+  term.options.theme = theme();
+});
 
 onBeforeUnmount(() => {
   clearInterval(timer);
   ro?.disconnect();
+  cancelAnimationFrame(refitFrame);
   if (info.value) detach(info.value.id);
+  webgl?.dispose();
   term?.dispose();
 });
 

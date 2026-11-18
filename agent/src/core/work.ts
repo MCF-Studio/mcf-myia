@@ -37,8 +37,10 @@ const ID = /^t-[a-z0-9]{6}$/;
  * Identité d'un acteur : l'id du nœud de l'équipe pour un agent (unique dans l'équipe, même si deux nœuds ont le même
  * profil ou le même nom), `@utilisateur` pour l'utilisateur. Le nom ne sert qu'à l'affichage.
  */
-const ACTOR_ID = /^(@utilisateur|[a-z0-9][a-z0-9-]{0,39})$/;
+const ACTOR_ID = /^(@utilisateur|@synchro|[a-z0-9][a-z0-9-]{0,39})$/;
 export const USER_ACTOR_ID = "@utilisateur";
+/** Changements venus du suivi externe (fournisseur exec:, core/work-sync.ts). */
+export const SYNC_ACTOR: Actor = { id: "@synchro", name: "Synchro" };
 export interface Actor {
   id: string;
   name: string;
@@ -72,6 +74,8 @@ export const WorkItemSchema = z.object({
   updatedAt: z.string(),
   closedAt: z.string().optional(),
   closeReason: z.string().max(LIMITS.note).optional(),
+  /** Référence de la tâche dans le suivi externe (« gh#42 »…), posée par la synchronisation seulement. */
+  ext: z.string().min(1).max(120).optional(),
   rev: z.number().int().min(1),
 });
 export type WorkItem = z.infer<typeof WorkItemSchema>;
@@ -101,6 +105,14 @@ export interface WorkQuery {
 /** Erreur lisible renvoyée telle quelle à l'agent (pas de pile, pas de chemin). */
 export class WorkError extends Error {}
 
+export type WorkChangeKind = "created" | "claimed" | "released" | "noted" | "updated" | "closed" | "reopened";
+/** Changement enregistré (après écriture du fichier) : `by` = id de l'acteur quand il est connu. */
+export interface WorkChange {
+  kind: WorkChangeKind;
+  item: WorkItem;
+  by?: string;
+}
+
 const now = () => new Date().toISOString();
 
 function cleanText(s: string): string {
@@ -128,6 +140,7 @@ function cleanLabels(labels: string[]): string[] {
 export class WorkStore {
   private items: WorkItem[] = [];
   private stamp = "";
+  private listeners = new Set<(c: WorkChange) => void>();
 
   constructor(readonly file: string) {}
 
@@ -205,6 +218,34 @@ export class WorkStore {
     } catch (e) {
       this.items = before;
       throw e;
+    }
+  }
+
+  /**
+   * Écriture d'une tâche, annoncée aux abonnés seulement si elle a vraiment changé (refermer une tâche fermée, par
+   * exemple, n'annonce rien). `id` absent = création.
+   */
+  private tracked(kind: WorkChangeKind, id: string | undefined, by: Actor | undefined, fn: () => WorkItem): WorkItem {
+    this.load();
+    const prev = id === undefined ? undefined : this.items.find((i) => i.id === id.trim())?.rev;
+    const out = this.mutate(fn);
+    if (id === undefined || out.rev !== prev) this.emit(kind, out, by);
+    return out;
+  }
+
+  /** Abonnement aux changements enregistrés ; rend la fonction de désabonnement. Une erreur d'abonné est ignorée. */
+  onChange(fn: (c: WorkChange) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  private emit(kind: WorkChangeKind, item: WorkItem, by?: Actor) {
+    for (const fn of this.listeners) {
+      try {
+        fn({ kind, item: structuredClone(item), by: by?.id });
+      } catch {
+        /* un abonné en erreur ne doit pas casser l'écriture */
+      }
     }
   }
 
@@ -299,7 +340,7 @@ export class WorkStore {
   // ─── écriture ───────────────────────────────────────────────────────────────
 
   create(input: NewWork, by: Actor): WorkItem {
-    return this.mutate(() => {
+    return this.tracked("created", undefined, by, () => {
       if (this.items.filter((i) => i.status !== "fermee").length >= LIMITS.openItems) {
         throw new WorkError(`registre plein : ${LIMITS.openItems} tâches non fermées. Ferme ou regroupe avant d'en créer.`);
       }
@@ -337,7 +378,7 @@ export class WorkStore {
    * quelqu'un d'autre. `expectRev` : refuse si la tâche a changé depuis la lecture de l'appelant.
    */
   claim(id: string, who: Actor, expectRev?: number): WorkItem {
-    return this.mutate(() => {
+    return this.tracked("claimed", id, who, () => {
       const item = this.find(id);
       const me = actor(who);
       if (expectRev !== undefined && item.rev !== expectRev) throw new WorkError(`${item.id} a changé depuis ta lecture : relis-la`);
@@ -357,7 +398,7 @@ export class WorkStore {
 
   /** Rend une tâche (elle redevient prête). Seul son responsable ou l'utilisateur (`force`) peut la rendre. */
   release(id: string, who: Actor, force = false): WorkItem {
-    return this.mutate(() => {
+    return this.tracked("released", id, who, () => {
       const item = this.find(id);
       if (item.status === "fermee") throw new WorkError(`${item.id} est fermée`);
       if (!force && item.assigneeId && item.assigneeId !== actor(who).id) throw new WorkError(`${item.id} est prise par ${item.assignee}, pas par toi`);
@@ -370,7 +411,7 @@ export class WorkStore {
   }
 
   note(id: string, text: string, by: Actor): WorkItem {
-    return this.mutate(() => {
+    return this.tracked("noted", id, by, () => {
       const item = this.find(id);
       const t = cleanText(text);
       if (!t) throw new WorkError("note vide");
@@ -386,7 +427,7 @@ export class WorkStore {
 
   /** Ajoute des étiquettes ou des dépendances, change de lot. Rien n'est jamais retiré par ici. */
   update(id: string, change: { labels?: string[]; needs?: string[]; parent?: string; description?: string }): WorkItem {
-    return this.mutate(() => {
+    return this.tracked("updated", id, undefined, () => {
       const item = this.find(id);
       if (change.labels?.length) {
         const merged = [...new Set([...item.labels, ...cleanLabels(change.labels)])];
@@ -407,7 +448,7 @@ export class WorkStore {
 
   /** Ferme une tâche avec une raison. Idempotent : refermer une tâche fermée ne change rien. */
   close(id: string, reason: string, by: Actor): WorkItem {
-    return this.mutate(() => {
+    return this.tracked("closed", id, by, () => {
       const item = this.find(id);
       if (item.status === "fermee") return structuredClone(item);
       const r = cleanText(reason);
@@ -423,7 +464,7 @@ export class WorkStore {
   }
 
   reopen(id: string, reason: string, by: Actor): WorkItem {
-    return this.mutate(() => {
+    return this.tracked("reopened", id, by, () => {
       const item = this.find(id);
       if (item.status !== "fermee") return structuredClone(item);
       if (this.items.filter((i) => i.status !== "fermee").length >= LIMITS.openItems) throw new WorkError("registre plein");
@@ -436,6 +477,26 @@ export class WorkStore {
       if (item.notes.length > LIMITS.notesPerItem) item.notes.splice(1, 1);
       this.touch(item);
       return structuredClone(item);
+    });
+  }
+
+  // ─── synchronisation (core/work-sync.ts) ─────────────────────────────────────
+
+  /** Tâche liée à une référence externe. */
+  byExt(ref: string): WorkItem | undefined {
+    this.load();
+    const it = this.items.find((i) => i.ext === ref);
+    return it ? structuredClone(it) : undefined;
+  }
+
+  /** Lie une tâche à sa référence externe (sans l'annoncer : ce n'est pas un changement du travail). */
+  setExt(id: string, ref: string): void {
+    const r = cleanText(ref).replace(/\s+/g, " ").slice(0, 120);
+    if (!r) throw new WorkError("référence externe vide");
+    this.mutate(() => {
+      const other = this.items.find((i) => i.ext === r && i.id !== id.trim());
+      if (other) throw new WorkError(`référence ${r} déjà liée à ${other.id}`);
+      this.find(id).ext = r;
     });
   }
 }

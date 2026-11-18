@@ -132,6 +132,24 @@ export const ConfigSchema = z.object({
        * Ne concerne pas `claude_delegate`, qui garde ses outils autorisés et sa confirmation.
        */
       bypassPermissions: z.boolean().default(false),
+      /**
+       * Modèle des sous-agents lancés par les consoles Claude Code de l'app (variable CLAUDE_CODE_SUBAGENT_MODEL) :
+       * vide = celui de la console. « haiku » ou « sonnet » ménagent l'abonnement quand plusieurs consoles délèguent
+       * en parallèle. Lu côté Rust au lancement de chaque console (pty.rs), liste fermée.
+       */
+      subagentModel: z.enum(["", "haiku", "sonnet", "opus"]).default(""),
+      /**
+       * Serveurs MCP des consoles : chaque console Claude Code relance TOUS les serveurs MCP de l'utilisateur
+       * (~300 Mo par console mesurés sur un PC avec blender-mcp, Playwright, VideoCut). « all » = comportement de
+       * Claude Code ; « none » = aucun ; « only » = seulement ceux de `servers` (portées utilisateur et locale du
+       * dossier, jamais un .mcp.json de dépôt, qui doit rester soumis à l'accord de Claude Code).
+       */
+      consoleMcp: z
+        .object({
+          mode: z.enum(["all", "none", "only"]).default("all"),
+          servers: z.array(z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/)).max(50).default([]),
+        })
+        .prefault({}),
       maxTurns: z.number().int().min(1).max(200).default(40),
       timeoutMinutes: z.number().min(1).max(240).default(30),
       defaultAllowedTools: z
@@ -152,6 +170,18 @@ export const ConfigSchema = z.object({
    * et chaque action passée ainsi est journalisée (decision « bypass »).
    */
   agents: z.object({ bypassConfirmations: z.boolean().default(false) }).prefault({}),
+  /**
+   * Registre de travail des équipes (docs/TRAVAIL.md) : « file » = le registre local seul ; « exec:<chemin absolu> » =
+   * synchronisé en plus avec un autre outil de suivi par ce script (core/work-sync.ts, protocole dans TRAVAIL.md §7).
+   */
+  work: z
+    .object({
+      provider: z.string().max(1024).default("file"),
+      /** Relève automatique du suivi externe, en minutes (0 = seulement à la demande). */
+      pullMinutes: z.number().int().min(0).max(1440).default(0),
+      timeoutSeconds: z.number().int().min(5).max(300).default(30),
+    })
+    .prefault({}),
   /** Agents sur l'API Claude (modèle « claude-api:<alias> »), payés avec la clé d'API du coffre Windows. */
   claudeApi: z
     .object({

@@ -292,6 +292,8 @@ async function loadConfigBits() {
       userName: string;
       projectRoots: { path: string; depth: number }[];
       claudeBypassPermissions?: boolean;
+      claudeSubagentModel?: string;
+      claudeConsoleMcp?: { mode: "all" | "none" | "only"; servers: string[] };
       filesFullAccess?: boolean;
       agentsBypass?: boolean;
       engine?: Engine;
@@ -303,6 +305,9 @@ async function loadConfigBits() {
     userName.value = c.userName === "l'utilisateur" ? "" : c.userName;
     roots.value = c.projectRoots;
     claudeBypass.value = c.claudeBypassPermissions === true;
+    subagentModel.value = c.claudeSubagentModel ?? "";
+    if (c.claudeConsoleMcp) consoleMcp.value = { mode: c.claudeConsoleMcp.mode, servers: [...c.claudeConsoleMcp.servers] };
+    if (consoleMcp.value.mode === "only") void loadMcpServers();
     fullAccess.value = c.filesFullAccess === true;
     agentsBypass.value = c.agentsBypass === true;
   } catch {
@@ -582,6 +587,35 @@ async function setAgentsBypass(enabled: boolean) {
     agentsBypass.value = before;
     toast((e as Error).message, "error");
   }
+}
+
+// Consoles : modèle des sous-agents et serveurs MCP lancés par chaque console (pty.rs).
+const subagentModel = ref("");
+const consoleMcp = ref<{ mode: "all" | "none" | "only"; servers: string[] }>({ mode: "all", servers: [] });
+const mcpServers = ref<{ name: string; scope: string; projects?: string[] }[]>([]);
+async function loadMcpServers() {
+  mcpServers.value = await call<typeof mcpServers.value>("claude.mcpServers").catch(() => []);
+}
+async function saveConsoles(patch: { subagentModel?: string; consoleMcp?: typeof consoleMcp.value }) {
+  try {
+    await call("config.setClaudeConsoles", patch);
+    toast("Réglage enregistré : il s'applique aux prochaines consoles ouvertes", "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+    await loadConfigBits();
+  }
+}
+function setMcpMode(mode: "all" | "none" | "only") {
+  consoleMcp.value.mode = mode;
+  if (mode === "only") void loadMcpServers();
+  void saveConsoles({ consoleMcp: consoleMcp.value });
+}
+function toggleMcp(name: string, on: boolean) {
+  const set = new Set(consoleMcp.value.servers);
+  if (on) set.add(name);
+  else set.delete(name);
+  consoleMcp.value.servers = [...set];
+  void saveConsoles({ consoleMcp: consoleMcp.value });
 }
 
 async function setClaudeBypass(enabled: boolean) {
@@ -1001,6 +1035,34 @@ const shortcuts: [string, string][] = [
         >
           <Toggle :model-value="claudeBypass" @update:model-value="setClaudeBypass" />
         </SettingRow>
+        <SettingRow
+          label="Modèle des sous-agents"
+          hint="Les sous-agents que Claude Code lance (recherche, exploration, tâches parallèles) prennent ce modèle. Haiku ou Sonnet ménagent ton abonnement quand plusieurs consoles délèguent en même temps. Sans effet en mode local."
+        >
+          <select v-model="subagentModel" class="input" style="width: 200px" @change="saveConsoles({ subagentModel })">
+            <option value="">Celui de la console</option>
+            <option value="haiku">Haiku (le plus léger)</option>
+            <option value="sonnet">Sonnet</option>
+            <option value="opus">Opus</option>
+          </select>
+        </SettingRow>
+        <SettingRow
+          label="Serveurs MCP des consoles"
+          hint="Chaque console relance tous tes serveurs MCP (Blender, Playwright…) : souvent 300 Mo de plus par console. Choisis ceux dont les consoles ont vraiment besoin. Les serveurs déclarés dans un dépôt (.mcp.json) ne sont jamais ajoutés ici."
+        >
+          <select :value="consoleMcp.mode" class="input" style="width: 200px" @change="setMcpMode(($event.target as HTMLSelectElement).value as any)">
+            <option value="all">Tous (comme Claude Code)</option>
+            <option value="only">Seulement ceux cochés</option>
+            <option value="none">Aucun</option>
+          </select>
+        </SettingRow>
+        <div v-if="consoleMcp.mode === 'only'" class="mcp-pick">
+          <label v-for="m in mcpServers" :key="m.name" class="tiny" :title="m.projects?.length ? `Déclaré pour : ${m.projects.join(', ')}` : 'Tous les dossiers'">
+            <input type="checkbox" :checked="consoleMcp.servers.includes(m.name)" @change="toggleMcp(m.name, ($event.target as HTMLInputElement).checked)" />
+            <span class="mono">{{ m.name }}</span> <span class="muted">({{ m.scope }})</span>
+          </label>
+          <span v-if="!mcpServers.length" class="tiny muted">Aucun serveur MCP trouvé dans la configuration de Claude Code (~/.claude.json).</span>
+        </div>
       </section>
 
       <section class="card">
@@ -1963,5 +2025,17 @@ kbd {
   padding-top: 14px;
   border-top: 1px solid var(--hairline);
   width: min(100%, 420px);
+}
+.mcp-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 4px 0 8px;
+}
+.mcp-pick label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 </style>

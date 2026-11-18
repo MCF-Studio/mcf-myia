@@ -48,6 +48,7 @@ Invariants (tests de `core/work.test.ts`) :
 | Membre d'une équipe (local ou Claude)   | lecture et écriture du registre de **son** équipe, par les outils `work_*`|
 | Agent seul (hors équipe)                | aucun (étape ultérieure possible : registre propre au profil)             |
 | Agent de la Guilde (bac à sable)        | **aucun**, jamais                                                         |
+| Script `exec:` de l'utilisateur (§7)    | reçoit les changements du registre de **son** équipe ; propose création, note, fermeture, réouverture |
 | Outils de fichiers des agents           | aucun : le registre est dans `data/travail/`, hors des dossiers ouverts   |
 
 - **Isolation entre équipes** : un registre par équipe (`data/travail/equipe-<id>.json`, id validé par
@@ -122,9 +123,63 @@ méthodes n'ont pas de test propre : elles ne font que valider (zod) et appeler 
 | 1     | Spec (ce fichier) ; `core/work.ts` : modèle, registre fichier, invariants testés             | fait     |
 | 2     | Outils `work_*` pour les membres d'une équipe ; `team_ask` avec `work_id` ; résumé au prompt | fait     |
 | 3     | Écran de l'app : registre d'une équipe (lecture, création, note, fermeture, réouverture, remise) | fait     |
-| 4     | Fournisseur `exec:<script>` (registre délégué à un script de l'utilisateur)                  | écartée pour l'instant |
+| 4     | Fournisseur `exec:<script>` : synchronisation avec un autre outil de suivi (§7)            | fait     |
 
-Étape 4 écartée (décision du 2026-11-18) : elle ne sert qu'à synchroniser le registre avec un autre outil de suivi
-(GitHub Issues, `bd`…), dont personne n'a besoin aujourd'hui, et elle ajouterait une surface d'attaque (un script
-lancé avec un contenu que des agents écrivent). À reprendre seulement si ce besoin apparaît.
 Parcours de bout en bout par le vrai sidecar : `agent/src/server/work.e2e.test.ts`.
+
+## 7. Fournisseur `exec:<script>` (synchronisation)
+
+Le 2026-11-18, l'étape 4 avait été écartée ; elle est reprise à la demande d'Aroun. Choix de conception : le registre
+local **reste la référence**. Un fournisseur qui remplacerait le registre ferait dépendre ses invariants (cycles,
+prise, fermeture réservée au chef) d'un script tiers, et rendrait chaque appel d'outil d'un agent dépendant d'un
+programme externe (lenteur, panne). Le script ne fait donc que **synchroniser** : il reçoit les changements et peut
+renvoyer ceux de l'autre outil (GitHub Issues, `bd`, Jira…), appliqués par les méthodes ordinaires du registre.
+
+Réglage (`config/agent.json`, docs/CONFIG.md) :
+
+```json
+"work": { "provider": "exec:C:\\outils\\sync-github.ps1", "pullMinutes": 10, "timeoutSeconds": 30 }
+```
+
+Types acceptés : `.exe`, `.cmd`, `.bat`, `.ps1` (PowerShell), `.py` (`py -3`), `.js`/`.mjs` (Node). Le script est
+lancé dans son dossier, avec un seul argument : `push` ou `pull`. Tout le reste passe sur l'entrée standard (un objet
+JSON) ; la réponse est un objet JSON sur la sortie standard (vide = rien à dire), code de sortie 0 = réussite.
+
+**push** (après chaque changement, regroupés 2 s ; les changements faits par la synchronisation ne sont pas renvoyés) :
+
+```json
+{ "version": 1, "op": "push", "team": "<id>", "events": [ { "kind": "created", "at": "…", "item": { "id": "t-ab12cd", "ext": null, "title": "…", "status": "ouverte", "…": "…" } } ] }
+```
+
+`kind` : `created`, `claimed`, `released`, `noted`, `updated`, `closed`, `reopened` (100 au plus par appel).
+Réponse facultative : `{ "refs": { "t-ab12cd": "gh#42" } }` lie une tâche à sa référence externe (affichée dans
+l'écran). En cas d'échec, les changements restent en attente (`data/travail/equipe-<id>.sync.json`, 500 au plus) et
+repartent au changement suivant, à la relève ou au bouton « Synchroniser ».
+
+**pull** (toutes les `pullMinutes`, ou bouton « Synchroniser » de l'écran Équipes) : le script reçoit
+`{ "version": 1, "op": "pull", "team": "<id>", "items": [ { "id", "ext", "status", "rev", "title" } ] }` et répond
+`{ "changes": [ … ] }` (100 au plus) :
+
+| `op`     | Champs                                                            | Effet                                                    |
+| -------- | ----------------------------------------------------------------- | -------------------------------------------------------- |
+| `create` | `ext`, `title`, `description?`, `type?` (`tache`/`bug`), `labels?` | nouvelle tâche, étiquette `externe`, ignorée si `ext` est déjà connue |
+| `note`   | `id` ou `ext`, `text`                                             | note au nom de « Synchro »                               |
+| `close`  | `id` ou `ext`, `reason`                                           | fermeture au nom de « Synchro »                          |
+| `reopen` | `id` ou `ext`, `reason`                                           | réouverture au nom de « Synchro »                        |
+
+Un changement invalide ou refusé par le registre (tâche inconnue, registre plein, étiquette invalide) est compté
+« ignoré », les autres passent. Chaque appel est inscrit au journal d'audit (`work_sync`).
+
+### Permissions et menaces propres au fournisseur
+
+| Menace                                                                 | Parade                                                                                                    |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Un agent choisit ou modifie le script                                  | Chemin lu dans config/agent.json seulement, fermé aux outils de fichiers des agents (core/access.ts) ; chemin absolu, type connu. Exception déjà assumée : le mode libre de Jarvis (terminal PowerShell, tout le PC) |
+| Un titre écrit par un agent devient une commande                       | Aucun shell ; les données passent sur l'entrée standard en JSON ; le seul argument est `push` ou `pull` ; les caractères spéciaux de cmd.exe sont refusés dans le chemin (`.cmd`/`.bat`) |
+| Le script reçoit les secrets du cœur                                   | Environnement sans les variables qui ressemblent à un secret (KEY, TOKEN, SECRET, PASSW…) ; le script s'authentifie lui-même (ex. `gh auth`) |
+| Le suivi externe (écrit par n'importe qui) injecte des consignes        | Mêmes parades que §4 : titres cités, description lue à la demande ; tâches importées étiquetées `externe` ; ni `decision` ni `lot` importables ; « Synchro » n'est ni chef ni membre (fermer ses tâches reste réservé au chef) |
+| Script bloqué ou bavard                                                | Délai (30 s par défaut, 300 au plus), sortie 1 Mo au plus, une exécution à la fois par équipe ; jamais dans le chemin d'un outil d'agent (asynchrone) |
+| Boucle d'écho (un changement importé renvoyé, puis réimporté)          | Les changements faits au nom de « Synchro » ne sont pas renvoyés ; `create` ignoré si la référence est connue |
+
+Code : `core/work-sync.ts` (tests `core/work-sync.test.ts`, dont un vrai script Node), câblage `server/main.ts`
+(`teamWorkStore`, méthodes `work.sync` et `work.syncStatus`).

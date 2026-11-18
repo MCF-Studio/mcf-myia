@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Agent } from "../core/agent.js";
+import { readMcpServers } from "../core/claude-mcp.js";
 import { checkCoordination, checkWorkspace, usableCoordination, usableWorkspace } from "../core/access.js";
 import { initCoordination, listFiches, readFiches, writeFiches } from "../core/coordination.js";
 import { audit } from "../core/audit.js";
@@ -24,6 +25,7 @@ import { deviceKeys } from "../core/guild-crypto.js";
 import { GuildLink } from "../core/guild-link.js";
 import { memoryFor } from "../core/memory.js";
 import { LIMITS as WORK_LIMITS, teamWorkFile, USER_ACTOR_ID, WORK_TYPES, workStoreFor } from "../core/work.js";
+import { execRunner, parseProvider, WorkSync } from "../core/work-sync.js";
 import { openInBrowser } from "../services/web.js";
 import { openWithDefault } from "../services/files.js";
 import { toolboxDir, toolboxManager, toolboxPython } from "../services/toolbox.js";
@@ -172,6 +174,29 @@ const profileOf = (id: string) => profiles.find((p) => p.id === id) ?? profiles[
  */
 /** Réglages de l'onglet Jarvis ; `name` = nom choisi pour l'assistant (titre de sa conversation, nom dans son prompt). */
 const jarvisOpts = { agentId: "", model: "auto", free: true, resolved: "", name: "" };
+/** Fichier des réglages de l'app (écrit par settings.set) : source des options de Jarvis, même avant l'ouverture de l'onglet. */
+const settingsFile = path.join(paths.home, "data", "app-settings.json");
+const JarvisSettings = z.object({
+  name: z.string().trim().max(40).optional(),
+  agentId: z.string().max(80).optional(),
+  model: z.string().max(200).optional(),
+  free: z.boolean().optional(),
+});
+/** Reprend le nom, l'agent, le modèle et le mode libre enregistrés ; un réglage invalide ou absent est ignoré. */
+function applyJarvisSettings(all: unknown) {
+  const r = JarvisSettings.safeParse((all as { jarvis?: unknown } | null)?.jarvis);
+  if (!r.success) return;
+  const j = r.data;
+  if (j.name !== undefined) jarvisOpts.name = j.name;
+  if (j.agentId !== undefined) jarvisOpts.agentId = j.agentId;
+  if (j.model !== undefined) jarvisOpts.model = j.model;
+  if (j.free !== undefined) jarvisOpts.free = j.free;
+}
+try {
+  applyJarvisSettings(JSON.parse(fs.readFileSync(settingsFile, "utf8")));
+} catch {
+  // pas encore de réglages : valeurs par défaut
+}
 
 /** Modèles locaux rapides qui savent appeler des outils, du meilleur compromis vitesse/qualité au moins bon. */
 const JARVIS_PREFERRED = ["qwen3:8b", "qwen3:14b", "qwen2.5:7b", "qwen2.5:14b", "llama3.1:8b", "mistral-nemo", "qwen3:4b"];
@@ -215,7 +240,7 @@ async function agentFor(c: Conversation): Promise<Live> {
         scripts: teamScripts(team),
         rootTools: planTools,
         // Registre de travail de l'équipe (docs/TRAVAIL.md) : un fichier par équipe, partagé par ses conversations.
-        work: workStoreFor(teamWorkFile(path.join(paths.home, "data"), team.id)),
+        work: teamWorkStore(team.id),
       });
     } else if (profile.master) {
       masterBudget = { used: 0 };
@@ -273,27 +298,10 @@ async function jarvisAgentFor(c: Conversation): Promise<Live> {
 
 // ─── Jarvis ──────────────────────────────────────────────────────────────────
 
-/** Règle Jarvis (agent, modèle, mode libre) et rend sa conversation (créée au besoin) et le modèle effectif. */
-rpc.method("jarvis.conversation", async (params) => {
-  const p = parse(
-    z.object({
-      agentId: z.string().max(80).optional(),
-      model: z.string().max(200).optional(),
-      free: z.boolean().optional(),
-      name: z.string().trim().max(40).optional(),
-    }),
-    params,
-  );
-  if (p.name !== undefined) jarvisOpts.name = p.name;
-  if (p.agentId !== undefined) jarvisOpts.agentId = p.agentId;
-  if (p.model !== undefined) jarvisOpts.model = p.model;
-  if (p.free !== undefined) jarvisOpts.free = p.free;
-  if (!profiles.length) throw new Error("aucun agent : crées-en un dans l'écran Agents");
-  const profile = jarvisProfile();
-  // La conversation porte le nom choisi pour l'assistant (« Paul »…), pas « Jarvis ».
+/** La conversation de Jarvis porte le nom choisi pour l'assistant (« Paul »…) ; rend son id s'il y en a une. */
+function syncJarvisTitle(): string | undefined {
   const title = jarvisOpts.name || "Jarvis";
-  let c = store.list().find((x) => x.kind === "jarvis");
-  let id = c?.id;
+  const c = store.list().find((x) => x.kind === "jarvis");
   if (c && c.title !== title) {
     const full = store.get(c.id);
     if (full) {
@@ -302,6 +310,21 @@ rpc.method("jarvis.conversation", async (params) => {
       rpc.notify("conversations.changed", {});
     }
   }
+  return c?.id;
+}
+
+/** Règle Jarvis (agent, modèle, mode libre) et rend sa conversation (créée au besoin) et le modèle effectif. */
+rpc.method("jarvis.conversation", async (params) => {
+  const p = parse(
+    JarvisSettings,
+    params,
+  );
+  applyJarvisSettings({ jarvis: p });
+  if (!profiles.length) throw new Error("aucun agent : crées-en un dans l'écran Agents");
+  const profile = jarvisProfile();
+  // La conversation porte le nom choisi pour l'assistant (« Paul »…), pas « Jarvis ».
+  const title = jarvisOpts.name || "Jarvis";
+  let id = syncJarvisTitle();
   if (!id) {
     const created = store.create(profile.id, title);
     created.kind = "jarvis";
@@ -464,8 +487,56 @@ rpc.method("teams.newNodeId", () => newNodeId());
 function teamWork(teamId: string) {
   const team = teams.find((t) => t.id === teamId);
   if (!team) throw new Error(`équipe inconnue : ${teamId}`);
-  return workStoreFor(teamWorkFile(path.join(paths.home, "data"), team.id));
+  return teamWorkStore(team.id);
 }
+
+/**
+ * Registre d'une équipe, avec sa synchronisation quand `work.provider` = « exec:<script> » (core/work-sync.ts).
+ * La synchronisation est refaite si le fournisseur change dans la config ; une config invalide la coupe (journalisé).
+ */
+const workSyncs = new Map<string, { key: string; sync?: WorkSync; lastPull: number }>();
+function teamWorkStore(teamId: string) {
+  const store = workStoreFor(teamWorkFile(path.join(paths.home, "data"), teamId));
+  const key = JSON.stringify(cfg.work);
+  const cur = workSyncs.get(teamId);
+  if (cur?.key === key) return store;
+  cur?.sync?.stop();
+  let sync: WorkSync | undefined;
+  try {
+    const provider = parseProvider(cfg.work);
+    if (provider.kind === "exec") {
+      sync = new WorkSync({
+        teamId,
+        store,
+        run: execRunner(provider, teamId),
+        outboxFile: path.join(paths.home, "data", "travail", `equipe-${teamId}.sync.json`),
+        log: (e) => audit({ event: "work_sync", ok: e.ok, error: e.error, args: { teamId, ...e } }),
+      });
+    }
+  } catch (e) {
+    audit({ event: "work_sync", ok: false, error: (e as Error).message, args: { teamId } });
+  }
+  workSyncs.set(teamId, { key, sync, lastPull: 0 });
+  return store;
+}
+
+/** Relève du suivi externe pour chaque équipe, selon `work.pullMinutes` (0 = jamais automatiquement). */
+setInterval(() => {
+  let provider;
+  try {
+    provider = parseProvider(cfg.work);
+  } catch {
+    return;
+  }
+  if (provider.kind !== "exec" || !provider.pullMs) return;
+  for (const team of teams) {
+    teamWorkStore(team.id);
+    const entry = workSyncs.get(team.id);
+    if (!entry?.sync || Date.now() - entry.lastPull < provider.pullMs) continue;
+    entry.lastPull = Date.now();
+    void entry.sync.pull();
+  }
+}, 60_000).unref();
 
 /** L'utilisateur dans le registre : une identité qu'aucun agent ne peut porter (un id de nœud n'a pas d'@). */
 const userActor = () => ({ id: USER_ACTOR_ID, name: cfg.user.name });
@@ -519,6 +590,25 @@ rpc.method("work.reopen", (params) => {
 });
 
 /** Rendre une tâche prise par un membre (bloquée chez lui, membre retiré de l'équipe…). */
+/** Synchronisation immédiate avec le suivi externe (envoi puis relève). */
+rpc.method("work.sync", async (params) => {
+  const { teamId } = parse(z.object({ teamId: z.string().max(40) }), params);
+  teamWork(teamId);
+  const entry = workSyncs.get(teamId);
+  if (!entry?.sync) throw new Error("aucun fournisseur exec: configuré (work.provider dans config/agent.json)");
+  entry.lastPull = Date.now();
+  const push = await entry.sync.push();
+  const pull = await entry.sync.pull();
+  return { push, pull, pending: entry.sync.pending() };
+});
+
+rpc.method("work.syncStatus", (params) => {
+  const { teamId } = parse(z.object({ teamId: z.string().max(40) }), params);
+  teamWork(teamId);
+  const entry = workSyncs.get(teamId);
+  return { provider: cfg.work.provider || "file", active: !!entry?.sync, pending: entry?.sync?.pending() ?? 0 };
+});
+
 rpc.method("work.release", (params) => {
   const p = parse(WorkRef, params);
   const item = teamWork(p.teamId).release(p.id, userActor(), true);
@@ -1223,8 +1313,6 @@ rpc.method("models.setDefault", async (params) => {
 
 // ─── réglages et thèmes ──────────────────────────────────────────────────────
 
-const settingsFile = path.join(paths.home, "data", "app-settings.json");
-
 rpc.method("settings.get", () => {
   try {
     return JSON.parse(fs.readFileSync(settingsFile, "utf8"));
@@ -1237,6 +1325,8 @@ rpc.method("settings.set", (params) => {
   const s = parse(z.record(z.string(), z.unknown()), params);
   if (JSON.stringify(s).length > 64_000) throw new Error("réglages trop volumineux");
   writeJsonAtomic(settingsFile, s);
+  applyJarvisSettings(s);
+  syncJarvisTitle();
   return true;
 });
 
@@ -1720,6 +1810,8 @@ rpc.method("config.get", () => ({
   projectRoots: cfg.projectRoots,
   configPath: paths.config,
   claudeBypassPermissions: cfg.claude.bypassPermissions,
+  claudeSubagentModel: cfg.claude.subagentModel,
+  claudeConsoleMcp: cfg.claude.consoleMcp,
   filesFullAccess: cfg.files.fullAccess,
   agentsBypass: cfg.agents.bypassConfirmations,
   engine: {
@@ -1913,6 +2005,29 @@ rpc.method("config.setClaudeBypassPermissions", (params) => {
   patchConfig((raw) => (raw.claude = { ...(raw.claude ?? {}), bypassPermissions: enabled }));
   return true;
 });
+
+/** Consoles Claude Code : modèle des sous-agents et serveurs MCP lancés (lus par pty.rs à chaque ouverture). */
+rpc.method("config.setClaudeConsoles", (params) => {
+  const p = parse(
+    z.object({
+      subagentModel: z.enum(["", "haiku", "sonnet", "opus"]).optional(),
+      consoleMcp: z
+        .object({ mode: z.enum(["all", "none", "only"]), servers: z.array(z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/)).max(50) })
+        .optional(),
+    }),
+    params,
+  );
+  patchConfig((raw) => {
+    raw.claude = { ...(raw.claude ?? {}) };
+    if (p.subagentModel !== undefined) raw.claude.subagentModel = p.subagentModel;
+    if (p.consoleMcp) raw.claude.consoleMcp = { mode: p.consoleMcp.mode, servers: [...new Set(p.consoleMcp.servers)] };
+  });
+  audit({ event: "claude_consoles", args: { ...p } });
+  return true;
+});
+
+/** Noms des serveurs MCP de Claude Code (~/.claude.json), sans leur configuration. */
+rpc.method("claude.mcpServers", () => readMcpServers());
 
 rpc.method("config.setUserName", (params) => {
   const { name } = parse(z.object({ name: z.string().trim().min(1).max(60) }), params);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle2, ListTodo, Plus, RefreshCw, RotateCcw, Undo2 } from "lucide-vue-next";
+import { ArrowLeftRight, CheckCircle2, ListTodo, Plus, RefreshCw, RotateCcw, Undo2 } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { call } from "../lib/rpc";
 import { toast } from "../lib/store";
@@ -29,6 +29,33 @@ async function refresh() {
   }
 }
 
+// Synchronisation avec un autre outil de suivi (work.provider = exec:<script>, docs/TRAVAIL.md §7).
+const sync = ref<{ provider: string; active: boolean; pending: number }>();
+const syncing = ref(false);
+async function refreshSync() {
+  sync.value = await call<typeof sync.value>("work.syncStatus", { teamId: props.teamId }).catch(() => undefined);
+}
+async function syncNow() {
+  syncing.value = true;
+  try {
+    const r = await call<{ push: { ok: boolean; sent?: number; error?: string }; pull: { ok: boolean; applied?: number; skipped?: number; error?: string }; pending: number }>(
+      "work.sync",
+      { teamId: props.teamId },
+      120_000,
+    );
+    const err = r.push.error ?? r.pull.error;
+    if (err) toast(`Synchronisation : ${err}`, "error");
+    else toast(`Synchronisé : ${r.push.sent ?? 0} envoyé(s), ${r.pull.applied ?? 0} reçu(s)${r.pull.skipped ? `, ${r.pull.skipped} ignoré(s)` : ""}`, "success");
+    await refresh();
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    syncing.value = false;
+    void refreshSync();
+  }
+}
+onMounted(() => void refreshSync());
+
 // Les agents écrivent pendant que l'écran est ouvert : relecture régulière (un petit fichier local).
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
@@ -41,6 +68,7 @@ watch(
   () => {
     data.value = undefined;
     void refresh();
+    void refreshSync();
   },
 );
 
@@ -121,6 +149,16 @@ async function create() {
     <div class="card-head">
       <h3><ListTodo :size="17" /> Travail de l'équipe</h3>
       <div class="row">
+        <button
+          v-if="sync?.active"
+          type="button"
+          class="btn sm ghost"
+          :title="`Envoyer les changements au suivi externe et relever les siens (${sync.provider})`"
+          :disabled="syncing"
+          @click="syncNow"
+        >
+          <ArrowLeftRight :size="14" :class="{ spin: syncing }" /> Synchroniser<span v-if="sync.pending"> ({{ sync.pending }})</span>
+        </button>
         <button type="button" class="btn sm ghost icon" title="Relire le registre" :disabled="loading" @click="refresh"><RefreshCw :size="14" :class="{ spin: loading }" /></button>
         <button type="button" class="btn sm" @click="creating = { title: '', description: '', type: 'tache' }"><Plus :size="15" /> Nouvelle tâche…</button>
       </div>
@@ -155,6 +193,7 @@ async function create() {
       <template #icon><ListTodo :size="20" /></template>
       <div class="row facts">
         <span class="badge mono">{{ current.id }}</span>
+        <span v-if="current.ext" class="badge mono" title="Référence dans le suivi externe">{{ current.ext }}</span>
         <span class="badge">{{ TYPE_LABEL[current.type] }}</span>
         <span class="badge" :class="{ ok: current.status === 'fermee' }">{{ current.status === "en_cours" ? "en cours" : current.status === "fermee" ? "fermée" : "ouverte" }}</span>
         <span v-if="current.assignee" class="badge">{{ current.assignee }}</span>

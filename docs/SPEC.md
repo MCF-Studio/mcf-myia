@@ -234,6 +234,15 @@ fichiers ou de lancer des commandes. Le réglage est lu dans la config côté Ru
 l'interface ne peut pas l'imposer pour une console) ; il ne change ni les dossiers autorisés ni `claude_delegate`,
 qui garde ses outils listés et sa confirmation. Activé, il aggrave le compromis ci-dessous : ce qui est tapé dans
 une console s'exécute sans garde-fou de Claude Code.
+**Serveurs MCP et sous-agents des consoles** (Paramètres → Général, lus côté Rust à chaque lancement) :
+`claude.consoleMcp` = `none` ou `only` lance la console avec `--strict-mcp-config --mcp-config <fichier>`. Le fichier
+est écrit par l'app dans `data/claude-mcp/console-<n>.json` (chemin jamais fourni par l'interface), avec les seuls
+serveurs choisis des portées utilisateur et locale de `~/.claude.json` ; il peut contenir leurs variables
+d'environnement (jetons) : même dossier utilisateur que `~/.claude.json`, supprimé à la fermeture de la console, et
+les restes d'une app coupée net sont effacés à la console suivante. Un `.mcp.json` de dépôt n'y est **jamais**
+recopié : Claude Code demande l'accord de l'utilisateur pour ces serveurs, une `--mcp-config` contournerait cet
+accord. `claude.subagentModel` (liste fermée `haiku`/`sonnet`/`opus`) devient `CLAUDE_CODE_SUBAGENT_MODEL`.
+La sortie d'une console est regroupée côté Rust (un envoi toutes les 12 ms au plus) avant de passer à l'interface.
 **Compromis assumé** : une page compromise pourrait taper dans une console ouverte, et Claude Code peut exécuter
 des commandes. La défense repose donc sur l'impossibilité d'injecter du script dans la page (CSP sans inline, HTML
 des réponses échappé, liens ouverts hors de l'app), et `freezePrototype` est désactivé à cause d'xterm.js.
@@ -461,6 +470,8 @@ modèle.
 | Le modèle local se trompe (mauvais destinataire, mauvais texte)                     | Destinations fermées + confirmation avec le texte exact avant tout envoi               |
 | Injection de prompt via un résultat d'outil (description d'addon, sortie de Claude) | Les actions `external` exigent toujours la confirmation humaine, quel que soit le prompt |
 | Exécution de commande arbitraire                                                    | Pas d'outil « shell libre » ; builds = argv fixés en config, sans shell                |
+| Un titre de tâche écrit par un agent devient une commande (synchronisation `exec:`) | Script choisi dans config/agent.json seulement ; données sur l'entrée standard en JSON, jamais en argument ni par un shell ; chemin filtré ; délai et sortie bornés (TRAVAIL.md §7) |
+| Jetons MCP recopiés pour une console (`claude.consoleMcp`)                          | Fichier dans le dossier utilisateur, supprimé à la fermeture ; jamais de `.mcp.json` de dépôt |
 | Fuite de jeton                                                                      | Coffre Windows, redaction dans le journal, jamais dans le contexte du modèle           |
 | Archive d'addon malveillante (chemins `..`)                                         | Extraction limitée à `addons/`, chemins normalisés et vérifiés                         |
 | Addon Godot piégé (code GDScript)                                                   | Source affichée (titre, auteur, URL) dans la confirmation ; Asset Library officielle   |

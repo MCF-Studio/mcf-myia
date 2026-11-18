@@ -142,7 +142,26 @@ export const terminals = reactive<Record<string, TerminalInfo>>({});
 
 type DataFn = (data: string) => void;
 const sinks = new Map<number, DataFn>();
-const backlog = new Map<number, string[]>();
+const backlog = new Map<number, { chunks: string[]; size: number }>();
+/** Sortie gardée pour un onglet pas encore monté : au-delà, les plus vieux blocs sont oubliés (xterm n'en garde pas plus). */
+const BACKLOG_MAX = 2_000_000;
+
+/**
+ * Volume de sortie compté HORS de l'objet réactif : l'incrémenter à chaque bloc relançait le rendu de l'en-tête de
+ * la console des dizaines de fois par seconde, par console. On le recopie dans `terminals` toutes les 3 s seulement
+ * (il ne sert qu'au coach « session longue », seuil 1,5 Mo).
+ */
+const outCount = new Map<number, number>();
+function syncOutBytes() {
+  for (const [id, n] of outCount) {
+    const t = terminals[`pty:${id}`];
+    if (t && t.outBytes !== n) t.outBytes = n;
+  }
+}
+export function resetOutBytes(t: TerminalInfo) {
+  outCount.set(t.id, 0);
+  t.outBytes = 0;
+}
 
 export const isTerminalKey = (k: string) => k.startsWith("pty:");
 
@@ -150,26 +169,30 @@ let started = false;
 export async function startTerminals() {
   if (!inTauri || started) return;
   started = true;
+  setInterval(syncOutBytes, 3000);
   await listen<{ id: number; data: string }>("pty://data", (e) => {
-    const t = terminals[`pty:${e.payload.id}`];
-    if (t) t.outBytes += e.payload.data.length;
-    const sw = switches.get(e.payload.id);
+    const { id, data } = e.payload;
+    outCount.set(id, (outCount.get(id) ?? 0) + data.length);
+    const sw = switches.get(id);
     if (sw) {
-      sw.buf = (sw.buf + e.payload.data).slice(-16_000);
+      sw.buf = (sw.buf + data).slice(-16_000);
       const v = modelSwitchVerdict(sw.buf);
-      if (v) settleSwitch(e.payload.id, v);
+      if (v) settleSwitch(id, v);
     }
-    const fn = sinks.get(e.payload.id);
-    if (fn) fn(e.payload.data);
+    const fn = sinks.get(id);
+    if (fn) fn(data);
     else {
-      // L'onglet n'est pas encore monté : on garde la sortie pour l'afficher à l'ouverture.
-      const b = backlog.get(e.payload.id) ?? [];
-      b.push(e.payload.data);
-      backlog.set(e.payload.id, b);
+      // L'onglet n'est pas encore monté : on garde la sortie (bornée) pour l'afficher à l'ouverture.
+      const b = backlog.get(id) ?? { chunks: [], size: 0 };
+      b.chunks.push(data);
+      b.size += data.length;
+      while (b.size > BACKLOG_MAX && b.chunks.length > 1) b.size -= b.chunks.shift()!.length;
+      backlog.set(id, b);
     }
   });
   await listen<{ id: number; code: number | null }>("pty://exit", (e) => {
     const t = terminals[`pty:${e.payload.id}`];
+    syncOutBytes();
     if (t) t.exited = e.payload.code;
     dropSwitch(e.payload.id);
   });
@@ -286,7 +309,7 @@ export async function resumeFresh(key: string) {
       await new Promise((r) => setTimeout(r, 2500));
       t.handoff = { file, step: "reprise" };
       sendLine(t.id, `Lis ${file} : c'est la passation de la session précédente. Reprends le travail à partir des prochaines étapes indiquées.`);
-      t.outBytes = 0;
+      resetOutBytes(t);
       t.startedAt = Date.now();
       setTimeout(() => t.handoff?.step === "reprise" && (t.handoff = { file, step: "terminée" }), 4000);
       return;
@@ -298,7 +321,8 @@ export async function resumeFresh(key: string) {
 
 export function attach(id: number, fn: DataFn) {
   sinks.set(id, fn);
-  for (const chunk of backlog.get(id) ?? []) fn(chunk);
+  const b = backlog.get(id);
+  if (b) fn(b.chunks.join(""));
   backlog.delete(id);
 }
 
@@ -339,5 +363,8 @@ export async function killTerminal(key: string) {
   if (!t) return;
   await invoke("pty_kill", { id: t.id }).catch(() => undefined);
   dropSwitch(t.id);
+  outCount.delete(t.id);
+  backlog.delete(t.id);
+  sinks.delete(t.id);
   delete terminals[key];
 }
