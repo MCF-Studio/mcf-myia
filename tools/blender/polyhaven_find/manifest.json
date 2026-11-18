@@ -1,0 +1,27 @@
+{
+  "name": "polyhaven_find",
+  "version": "1.0.0",
+  "description": "Cherche un matériau dans la bibliothèque Poly Haven locale (CC0) par mots-clés, en anglais ou en français (bois, béton, rouille…). Rend le slug à mettre dans la spec de blender_build ({\"polyhaven\": \"<slug>\"}), sa famille, ses tags et les chemins des textures. Ne télécharge rien.",
+  "category": "blender",
+  "risk": "read",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "query": {
+      "type": "string",
+      "kind": "text",
+      "required": true,
+      "max_length": 200,
+      "description": "Mots-clés (ex. « planches bois usé »)."
+    },
+    "limite": {
+      "type": "integer",
+      "min": 1,
+      "max": 20,
+      "description": "Nombre maximal de résultats (défaut 10)."
+    }
+  },
+  "permissions": [
+    "filesystem.read"
+  ]
+}

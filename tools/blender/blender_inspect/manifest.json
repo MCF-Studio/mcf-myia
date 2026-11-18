@@ -1,0 +1,27 @@
+{
+  "name": "blender_inspect",
+  "version": "1.0.0",
+  "description": "Décrit un .blend ou un .glb sans le modifier : objets (200 au plus) avec triangles, boîte englobante, matériaux, collisions (-col), pièces animées ; dimensions totales et point le plus bas. Un .blend qui charge des fichiers externes (bibliothèques liées, réseau) est refusé.",
+  "category": "blender",
+  "risk": "read",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "file": {
+      "type": "string",
+      "kind": "path",
+      "required": true,
+      "description": "Fichier .blend ou .glb à décrire."
+    },
+    "timeout": {
+      "type": "integer",
+      "min": 5,
+      "max": 600,
+      "description": "Délai maximal en secondes (défaut 120, 600 au plus) : Blender est arrêté au-delà."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "process.exec.readonly"
+  ]
+}

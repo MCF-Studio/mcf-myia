@@ -305,7 +305,8 @@ export class Agent {
       ...(this.tools.has("toolbox_run")
         ? [
             "- AVANT de déléguer ou de chercher sur le web, regarde si la boîte à outils locale sait le faire : images et textures (recolorer, " +
-              "recadrer, redimensionner, convertir, texte, icônes, planches de sprites…), recherche dans du code, vérifications Rust ou Godot, " +
+              "recadrer, redimensionner, convertir, texte, icônes, planches de sprites…), modèles 3D avec Blender (construire depuis une spec, " +
+              "contrôler, rendre des vues, exporter en .glb ; textures Poly Haven), recherche dans du code, vérifications Rust ou Godot, " +
               "analyse de logs. Appelle toolbox_find avec des mots-clés, puis toolbox_run avec l'outil et ses paramètres. " +
               "Ne propose jamais à l'utilisateur d'installer ou de lancer un programme pour une tâche qu'un outil de la boîte fait.",
           ]

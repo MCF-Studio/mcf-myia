@@ -1,0 +1,39 @@
+{
+  "name": "blender_render_views",
+  "version": "1.0.0",
+  "description": "Rend 4 vues PNG de 1024 px d'un .glb ou d'un .blend (<nom>_avant, _trois_quarts, _arriere, _dessus) dans le dossier output, et mesure la silhouette (largeur X, profondeur Y, hauteur Z en mètres). Pour une revue visuelle.",
+  "category": "blender",
+  "risk": "local",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "file": {
+      "type": "string",
+      "kind": "path",
+      "required": true,
+      "description": "Fichier .glb ou .blend à rendre."
+    },
+    "output": {
+      "type": "string",
+      "kind": "path",
+      "access": "write",
+      "required": true,
+      "description": "Dossier où écrire les 4 PNG."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Remplacer des PNG existants (défaut false : refus)."
+    },
+    "timeout": {
+      "type": "integer",
+      "min": 5,
+      "max": 600,
+      "description": "Délai maximal en secondes (défaut 300, 600 au plus) : Blender est arrêté au-delà."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "filesystem.write",
+    "process.exec"
+  ]
+}

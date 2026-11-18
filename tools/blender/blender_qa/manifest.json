@@ -1,0 +1,37 @@
+{
+  "name": "blender_qa",
+  "version": "1.0.0",
+  "description": "Contrôle qualité d'un .glb (profil game par défaut) : faces qui scintillent (z-fighting, avec les centres des paires pour localiser), pièces qui flottent, faces cachées dos à dos, normales, n-gones, UV, matériaux. pass: true = livrable. Les collisions (-col) ne sont pas contrôlées.",
+  "category": "blender",
+  "risk": "read",
+  "entrypoint": "tool.py",
+  "function": "execute",
+  "parameters": {
+    "file": {
+      "type": "string",
+      "kind": "path",
+      "required": true,
+      "description": "Fichier .glb à contrôler."
+    },
+    "profile": {
+      "type": "string",
+      "kind": "text",
+      "max_length": 10,
+      "description": "game (défaut), render ou print."
+    },
+    "held": {
+      "type": "boolean",
+      "description": "Objet tenu en main : « pas au sol » accepté (défaut false)."
+    },
+    "timeout": {
+      "type": "integer",
+      "min": 5,
+      "max": 600,
+      "description": "Délai maximal en secondes (défaut 300, 600 au plus) : Blender est arrêté au-delà."
+    }
+  },
+  "permissions": [
+    "filesystem.read",
+    "process.exec.readonly"
+  ]
+}

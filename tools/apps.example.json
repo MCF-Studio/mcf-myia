@@ -10,17 +10,25 @@
   "godot": {
     "label": "Godot Engine",
     "executable": "C:/chemin/vers/Godot.exe",
-    "aliases": ["godot", "éditeur godot", "godot engine"],
+    "aliases": [
+      "godot",
+      "éditeur godot",
+      "godot engine"
+    ],
     "allowed_args": [],
     "open_extensions": [],
     "forced_args": []
   },
   "blender": {
-    "label": "Blender",
-    "executable": "C:/chemin/vers/blender.exe",
-    "aliases": ["blender"],
+    "label": "Blender 5.2 LTS",
+    "executable": "C:/chemin/vers/Blender 5.2/blender.exe",
+    "aliases": [
+      "blender"
+    ],
     "allowed_args": [],
     "open_extensions": [],
-    "forced_args": ["--disable-autoexec"]
+    "forced_args": [
+      "--disable-autoexec"
+    ]
   }
 }
