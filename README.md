@@ -23,7 +23,7 @@ Deux interfaces sur le même cœur :
 | **Agents**         | personnalités : nom, modèle, consignes, couleur, services autorisés ; import et export en fichier         |
 | **Modèles**        | téléchargement avec progression, modèle par défaut, déchargement de la VRAM, suppression                |
 | **Marketplace**    | workflows partagés via mcfstudio.fr (voir plus bas) ; agents et thèmes : installation depuis un fichier  |
-| **Paramètres**     | thèmes (installables), lumières, densité, voix de l'IA (Windows ou neuronale Piper), sons de notification, notifications, raccourcis  |
+| **Paramètres**     | thèmes (installables), image de fond (aussi dans les consoles Claude Code), lumières, densité, voix de l'IA (Windows ou neuronale Piper), sons de notification, notifications, raccourcis  |
 
 Icône MyIA dans la zone de notification (près de l'horloge) : clic gauche pour ramener la fenêtre, clic droit pour
 ouvrir directement Conversations, Agents, Équipes, Modèles ou Paramètres, ou quitter.

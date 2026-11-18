@@ -6,6 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { Archive, FolderOpen, Gauge, Loader2, RefreshCcwDot, RotateCw, SquareTerminal, X } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { wallpaper } from "../lib/background";
 import { settings } from "../lib/settings";
 import {
   attach,
@@ -70,9 +71,30 @@ function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+/** Image de fond derrière le texte : réglage activé et image chargée. */
+const bgCfg = settings.appearance.background;
+const withImage = computed(() => bgCfg.terminals && !!wallpaper.url);
+const imageDim = computed(() => Math.min(95, Math.max(0, bgCfg.terminalDim)) / 100);
+const imageStyle = computed(() => {
+  const blur = Math.min(24, Math.max(0, bgCfg.blur));
+  const fit = bgCfg.fit === "contain" || bgCfg.fit === "tile" ? bgCfg.fit : "cover";
+  return {
+    backgroundSize: fit === "tile" ? "auto" : fit,
+    backgroundRepeat: fit === "tile" ? "repeat" : "no-repeat",
+    filter: blur ? `blur(${blur}px)` : undefined,
+    inset: `-${blur * 2}px`,
+  };
+});
+// Comme dans App.vue : la data: URL (plusieurs Mo) est posée hors du style réactif.
+const imageEl = ref<HTMLDivElement>();
+watch([imageEl, () => wallpaper.url], ([el, url]) => {
+  if (el) el.style.backgroundImage = url ? `url("${url}")` : "";
+});
+
 function theme() {
   return {
-    background: cssVar("--bg"),
+    // Fond transparent quand l'image est affichée : xterm peint sinon un aplat opaque par-dessus.
+    background: withImage.value ? "#00000000" : cssVar("--bg"),
     foreground: cssVar("--text"),
     cursor: cssVar("--accent"),
     cursorAccent: cssVar("--bg"),
@@ -103,6 +125,7 @@ onMounted(() => {
     lineHeight: 1.2,
     cursorBlink: true,
     allowProposedApi: false,
+    allowTransparency: true,
     scrollback: 5000,
     theme: theme(),
   });
@@ -124,6 +147,7 @@ watch(
   () => settings.appearance.theme,
   () => setTimeout(() => term && (term.options.theme = theme()), 50),
 );
+watch(withImage, () => term && (term.options.theme = theme()));
 
 onBeforeUnmount(() => {
   clearInterval(timer);
@@ -197,7 +221,13 @@ async function restart() {
       <button class="btn sm primary" @click="fresh">Résumer et repartir</button>
       <button class="btn sm ghost icon" title="Plus tard (30 min)" @click="snooze"><X :size="14" /></button>
     </div>
-    <div ref="host" class="term-host" @click="term?.focus()" />
+    <div class="term-body">
+      <template v-if="withImage">
+        <div ref="imageEl" class="term-image" :style="imageStyle" aria-hidden="true" />
+        <div class="term-image-dim" :style="{ opacity: imageDim }" aria-hidden="true" />
+      </template>
+      <div ref="host" class="term-host" @click="term?.focus()" />
+    </div>
   </section>
 </template>
 
@@ -294,8 +324,29 @@ async function restart() {
     transform: rotate(360deg);
   }
 }
-.term-host {
+.term-body {
+  position: relative;
   flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.term-image,
+.term-image-dim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.term-image {
+  background-position: center;
+}
+.term-image-dim {
+  background: var(--bg);
+}
+.term-host {
+  position: relative;
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   padding: 8px 6px 6px 10px;
   user-select: text;

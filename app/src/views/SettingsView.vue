@@ -1092,6 +1092,12 @@ const shortcuts: [string, string][] = [
             <SettingRow label="Opacité des panneaux" :hint="`${bg.panelOpacity} %`">
               <input v-model.number="bg.panelOpacity" type="range" min="40" max="100" step="2" class="w-220" :style="fill(bg.panelOpacity, 40, 100)" />
             </SettingRow>
+            <SettingRow label="Dans les terminaux" hint="Affiche aussi l'image derrière le texte des consoles Claude Code.">
+              <Toggle v-model="bg.terminals" />
+            </SettingRow>
+            <SettingRow v-if="bg.terminals" label="Voile des terminaux" :hint="`${bg.terminalDim} % — plus fort que celui de l'app, le texte d'une console est dense`">
+              <input v-model.number="bg.terminalDim" type="range" min="30" max="95" step="5" class="w-220" :style="fill(bg.terminalDim, 30, 95)" />
+            </SettingRow>
           </template>
           <p class="tiny muted">
             PNG, JPEG, WebP ou GIF animé, 12 Mo max. L'image est copiée dans les données de MyIA : tu peux déplacer ou supprimer l'originale.

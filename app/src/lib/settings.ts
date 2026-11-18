@@ -32,6 +32,10 @@ export const DEFAULT_SETTINGS = {
       /** Taille de l'image en % de la zone (100 = toute la zone) ; en dessous, elle est réduite et ancrée selon `anchor`. */
       size: 100,
       anchor: "center" as "center" | "bottom-right" | "bottom-left" | "top-right",
+      /** Afficher aussi l'image derrière le texte des consoles Claude Code. */
+      terminals: false,
+      /** Voile propre aux consoles, en % (plus fort que celui de l'app : le texte d'un terminal est dense). */
+      terminalDim: 80,
     },
   },
   conversations: {
