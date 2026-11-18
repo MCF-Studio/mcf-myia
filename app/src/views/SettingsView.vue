@@ -1395,6 +1395,10 @@ const shortcuts: [string, string][] = [
           <h3 class="sec-title">Crédits</h3>
           <p>Aroun LeBricodeur · Joaquine Dev &amp; contributors</p>
         </div>
+        <div class="credits">
+          <p>Prenez votre abonnement Claude via ce lien : ça aide à contribuer au projet.</p>
+          <a class="btn sm primary" href="https://claude.ai/referral/fF3KZSkBlw">S'abonner à Claude ↗</a>
+        </div>
       </section>
     </div>
   </div>
