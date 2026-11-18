@@ -225,8 +225,11 @@ dans le navigateur système, et gestion de sa propre fenêtre (déplacer, rédui
 est dessinée par l'app). La page n'ouvre jamais de lien elle-même ; les réponses sont rendues en Markdown avec le
 HTML échappé. (`freezePrototype` est désactivé : incompatible avec xterm.js, le terminal des consoles.)
 
-**Consoles Claude Code** : seule la commande `claude` peut être lancée dans un pseudo-terminal (pas de shell
-libre), uniquement dans le workspace, un dossier de `projectRoots`/`projects` ou l'espace de travail d'un agent ou
+**Consoles** : programmes en liste fermée côté Rust (`claude`, quelques IA de code, et les terminaux de Windows
+PowerShell / PowerShell 7 / cmd pris sous %SystemRoot% ou Program Files, jamais dans le PATH). Un terminal est ouvert
+par l'utilisateur et ne reçoit que sa saisie clavier : aucun agent, outil ni méthode du cœur n'écrit dans une console
+(`pty_write` n'est appelé que par l'interface : saisie d'xterm, et pour Claude Code les boutons Compacter, Modèle et
+Passation sur clic de l'utilisateur). Lancées uniquement dans le workspace, un dossier de `projectRoots`/`projects` ou l'espace de travail d'un agent ou
 d'une équipe (vérifié côté Rust à partir de la config, pas de l'interface) ; Claude Code y applique ses propres règles de permission. Les consoles meurent avec l'app.
 **Mode bypass permissions** (`claude.bypassPermissions`, Paramètres → Général, **désactivé par défaut**) : les consoles
 sont lancées avec `--dangerously-skip-permissions`, Claude Code n'y demande plus d'accord avant de modifier des

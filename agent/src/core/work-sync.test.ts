@@ -174,3 +174,42 @@ describe("vrai script", () => {
     expect(r.timedOut).toBe(true);
   });
 });
+
+describe("fournisseur livré : tableau Markdown (tools/work-sync/markdown.mjs)", () => {
+  it("tâches dans le tableau, case cochée = fermée, ligne ajoutée = nouvelle tâche, sans doublon", async () => {
+    const script = path.resolve(__dirname, "../../../tools/work-sync/markdown.mjs");
+    const boardDir = path.join(dir, "tableaux");
+    process.env.MYIA_WORK_MD_DIR = boardDir;
+    try {
+      const p = parseProvider({ provider: `exec:${script}` });
+      if (p.kind !== "exec") throw new Error("exec attendu");
+      const s = sync(execRunner(p, "test"));
+      const a = store.create({ title: "Corriger la carte" }, lead);
+      const b = store.create({ title: "Écrire la doc" }, lead);
+      store.claim(b.id, lead);
+      expect((await s.push()).ok).toBe(true);
+      const file = path.join(boardDir, "test.md");
+      let md = fs.readFileSync(file, "utf8");
+      expect(md).toContain(`- [ ] ${b.id} Écrire la doc — Chef`);
+      expect(md).toContain(`- [ ] ${a.id} Corriger la carte`);
+
+      // L'utilisateur coche une tâche et en ajoute une.
+      md = md.replace(`- [ ] ${a.id}`, `- [x] ${a.id}`).replace("## Nouvelles (seront importées dans MyIA)", "## Nouvelles (seront importées dans MyIA)\n- [ ] Préparer la démo");
+      fs.writeFileSync(file, md);
+      expect(await s.pull()).toEqual({ ok: true, applied: 2, skipped: 0 });
+      expect(store.get(a.id).status).toBe("fermee");
+      const imported = store.list({}).find((i) => i.title === "Préparer la démo")!;
+      expect(imported.labels).toContain("externe");
+      md = fs.readFileSync(file, "utf8");
+      expect(md).toContain(`- [x] ${a.id} Corriger la carte`);
+
+      // Relève suivante : rien en double, la nouvelle tâche a pris son identifiant dans le tableau.
+      expect(await s.pull()).toEqual({ ok: true, applied: 0, skipped: 0 });
+      expect(store.list({}).filter((i) => i.title === "Préparer la démo")).toHaveLength(1);
+      expect(fs.readFileSync(file, "utf8")).toContain(`- [ ] ${imported.id} Préparer la démo`);
+      s.stop();
+    } finally {
+      delete process.env.MYIA_WORK_MD_DIR;
+    }
+  });
+});

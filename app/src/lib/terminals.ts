@@ -206,7 +206,18 @@ export interface CliInfo {
   label: string;
   installed: boolean;
 }
-export const CLI_LABELS: Record<string, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "opencode", qwen: "Qwen Code" };
+export const CLI_LABELS: Record<string, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  gemini: "Gemini CLI",
+  opencode: "opencode",
+  qwen: "Qwen Code",
+  powershell: "PowerShell",
+  pwsh: "PowerShell 7",
+  cmd: "cmd",
+};
+/** Terminaux de Windows (pas une IA) : pas de tâche de départ. */
+export const isShell = (cli: string) => cli === "powershell" || cli === "pwsh" || cli === "cmd";
 export function listClis(): Promise<CliInfo[]> {
   return inTauri ? invoke<CliInfo[]>("pty_clis") : Promise.resolve([]);
 }

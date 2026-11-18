@@ -1,5 +1,6 @@
 //! Consoles intégrées : Claude Code (`claude`) dans un pseudo-terminal (ConPTY sous Windows).
-//! Seule la commande `claude` peut être lancée (pas de shell libre) ; le dossier de travail doit exister.
+//! Programmes en liste fermée : Claude Code, quelques autres IA de code, et les terminaux de Windows (PowerShell, cmd)
+//! que l'UTILISATEUR ouvre lui-même ; aucun agent ne peut taper dedans. Le dossier de travail doit exister.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -225,6 +226,21 @@ fn find_program(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Terminaux de Windows : identifiant, chemin sous %SystemRoot% (jamais cherché dans le PATH), arguments, libellé.
+fn shell_program(id: &str) -> Option<(PathBuf, &'static [&'static str], &'static str)> {
+    let root = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()));
+    match id {
+        "powershell" => Some((root.join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe"), &["-NoLogo"], "PowerShell")),
+        "cmd" => Some((root.join("System32").join("cmd.exe"), &[], "Invite de commandes")),
+        // PowerShell 7 : installé à part, dans Program Files.
+        "pwsh" => {
+            let pf = PathBuf::from(std::env::var_os("ProgramFiles").unwrap_or_else(|| "C:\\Program Files".into()));
+            Some((pf.join("PowerShell").join("7").join("pwsh.exe"), &["-NoLogo"], "PowerShell 7"))
+        }
+        _ => None,
+    }
+}
+
 #[derive(Serialize)]
 pub struct CliInfo {
     id: &'static str,
@@ -239,10 +255,26 @@ pub fn pty_clis() -> Vec<CliInfo> {
     for (id, program, _, label) in OTHER_CLIS {
         out.push(CliInfo { id, label, installed: find_program(program).is_some() });
     }
+    for id in ["powershell", "pwsh", "cmd"] {
+        if let Some((path, _, label)) = shell_program(id) {
+            out.push(CliInfo { id, label, installed: path.is_file() });
+        }
+    }
     out
 }
 
 fn other_cli_command(id: &str, prompt: Option<&str>) -> Result<CommandBuilder, String> {
+    if let Some((path, args, label)) = shell_program(id) {
+        if !path.is_file() {
+            return Err(format!("{label} introuvable sur ce PC"));
+        }
+        if prompt.is_some_and(|p| !p.trim().is_empty()) {
+            return Err("un terminal ne reçoit pas de tâche de départ : tape ta commande dedans".into());
+        }
+        let mut cmd = CommandBuilder::new(path.as_os_str());
+        cmd.args(args);
+        return Ok(cmd);
+    }
     let (_, program, prompt_flag, label) = OTHER_CLIS.iter().find(|c| c.0 == id).ok_or_else(|| format!("console inconnue : {id}"))?;
     let path = find_program(program).ok_or_else(|| format!("{label} n'est pas installé (ou pas dans le PATH)"))?;
     let is_cmd = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd"));

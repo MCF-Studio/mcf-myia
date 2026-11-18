@@ -11,6 +11,7 @@ import {
   claudeModels,
   isTerminalKey,
   killTerminal,
+  isShell,
   listClis,
   loadClaudeModels,
   LOCAL_MODEL,
@@ -138,11 +139,12 @@ async function launchConsole() {
   launching.value = true;
   try {
     const p = projects.value.find((x) => x.path === consoleDir.value) ?? workspaces.value.find((x) => x.path === consoleDir.value);
-    const task = consoleTask.value.trim();
+    let task = consoleTask.value.trim();
     let model: string | undefined = consoleModel.value || undefined;
     if (model === "auto") model = task ? (advice.value ?? (await adviseModel()))?.model : undefined;
     const cli = consoleCli.value;
     if (cli !== "claude") model = undefined;
+    if (isShell(cli)) task = "";
     const key = await openClaude(consoleDir.value, p?.name ?? "workspace", cli === "claude" && consoleResume.value, model, task || undefined, cli);
     consoleTask.value = "";
     advice.value = undefined;
@@ -418,8 +420,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           <div class="row">
             <span class="term-glyph big"><SquareTerminal :size="20" /></span>
             <div>
-              <h3>Inviter une IA de code à la table</h3>
-              <p class="small muted">Une vraie session Claude Code (ou Codex, Gemini CLI…), dans un onglet, sur le dossier de ton choix.</p>
+              <h3>Ouvrir une console</h3>
+              <p class="small muted">Claude Code (ou Codex, Gemini CLI…), ou un vrai terminal PowerShell / cmd, dans un onglet, sur le dossier de ton choix.</p>
             </div>
           </div>
           <div v-if="clis.length > 1" class="field">
@@ -450,7 +452,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
               </optgroup>
             </select>
           </label>
-          <label class="field">
+          <label v-if="!isShell(consoleCli)" class="field">
             <span class="small">Tâche <em class="muted">(optionnelle : Claude démarre directement dessus)</em></span>
             <textarea
               v-model="consoleTask"

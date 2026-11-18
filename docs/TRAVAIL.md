@@ -181,5 +181,18 @@ Le script devrait ne relayer que des tickets d'auteurs de confiance (ex. filtrer
 | Script bloqué ou bavard                                                | Délai (30 s par défaut, 300 au plus), sortie 1 Mo au plus, une exécution à la fois par équipe ; jamais dans le chemin d'un outil d'agent (asynchrone) |
 | Boucle d'écho (un changement importé renvoyé, puis réimporté)          | Les changements faits au nom de « Synchro » ne sont pas renvoyés ; `create` ignoré si la référence est connue |
 
-Code : `core/work-sync.ts` (tests `core/work-sync.test.ts`, dont un vrai script Node), câblage `server/main.ts`
+### Fournisseur livré : tableau Markdown
+
+`tools/work-sync/markdown.mjs` (Node, sans dépendance) : un tableau par équipe dans `Documents\MyIA	ravail\<équipe>.md`
+(dossier changeable par `MYIA_WORK_MD_DIR`), à ouvrir dans n'importe quel éditeur. Cocher une case ferme la tâche,
+la décocher la rouvre, une ligne « - [ ] texte » ajoutée crée une tâche (une seule fois : référence `md:<empreinte>`).
+Rien ne sort du PC. Le dossier `Documents\MyIA` est ouvert aux outils de fichiers des agents, mais modifier un fichier
+existant leur demande une confirmation : un agent ne peut pas fermer des tâches par le tableau sans l'accord de
+l'utilisateur.
+
+```json
+"work": { "provider": "exec:G:/MyIALocal/tools/work-sync/markdown.mjs", "pullMinutes": 2 }
+```
+
+Code : `core/work-sync.ts` (tests `core/work-sync.test.ts`, dont un vrai script Node et le tableau Markdown), câblage `server/main.ts`
 (`teamWorkStore`, méthodes `work.sync` et `work.syncStatus`).
