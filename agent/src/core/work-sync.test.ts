@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execRunner, launchSpec, parseProvider, scriptEnv, WorkSync, type RunResult, type Runner } from "./work-sync.js";
+import { EXTERNAL_WARNING, workCard, workLine } from "./work-tools.js";
 import { WorkStore } from "./work.js";
 
 const lead = { id: "chef", name: "Chef" };
@@ -135,6 +136,13 @@ describe("pull", () => {
     expect(imported.labels).toEqual(["ui", "externe"]);
     expect(store.get(mine.id).notes.at(-1)).toMatchObject({ by: "Synchro", text: "Commentaire GitHub" });
     expect(s.pending()).toBe(0);
+    // Montrées aux agents comme des données externes, non vérifiées.
+    expect(workLine(imported)).toContain("externe");
+    expect(workCard(imported, [])).toContain(EXTERNAL_WARNING);
+    const card = workCard(store.get(mine.id), []);
+    expect(card.startsWith(EXTERNAL_WARNING)).toBe(true);
+    expect(card).toContain("Synchro [externe, non vérifié] : Commentaire GitHub");
+    expect(workCard(store.create({ title: "Interne" }, lead), [])).not.toContain(EXTERNAL_WARNING);
     expect(calls.find((c) => c.op === "pull")!.input.items.map((i: any) => i.id)).toContain(mine.id);
     s.stop();
   });

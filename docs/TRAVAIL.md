@@ -167,7 +167,7 @@ repartent au changement suivant, à la relève ou au bouton « Synchroniser ».
 | `close`  | `id` ou `ext`, `reason`                                           | fermeture au nom de « Synchro »                          |
 | `reopen` | `id` ou `ext`, `reason`                                           | réouverture au nom de « Synchro »                        |
 
-Un changement invalide ou refusé par le registre (tâche inconnue, registre plein, étiquette invalide) est compté
+Le script devrait ne relayer que des tickets d'auteurs de confiance (ex. filtrer les tickets d'un dépôt public sur les membres du projet) : tout ce qu'il renvoie arrive dans le contexte des agents. Un changement invalide ou refusé par le registre (tâche inconnue, registre plein, étiquette invalide) est compté
 « ignoré », les autres passent. Chaque appel est inscrit au journal d'audit (`work_sync`).
 
 ### Permissions et menaces propres au fournisseur
@@ -177,7 +177,7 @@ Un changement invalide ou refusé par le registre (tâche inconnue, registre ple
 | Un agent choisit ou modifie le script                                  | Chemin lu dans config/agent.json seulement, fermé aux outils de fichiers des agents (core/access.ts) ; chemin absolu, type connu. Exception déjà assumée : le mode libre de Jarvis (terminal PowerShell, tout le PC) |
 | Un titre écrit par un agent devient une commande                       | Aucun shell ; les données passent sur l'entrée standard en JSON ; le seul argument est `push` ou `pull` ; les caractères spéciaux de cmd.exe sont refusés dans le chemin (`.cmd`/`.bat`) |
 | Le script reçoit les secrets du cœur                                   | Environnement sans les variables qui ressemblent à un secret (KEY, TOKEN, SECRET, PASSW…) ; le script s'authentifie lui-même (ex. `gh auth`) |
-| Le suivi externe (écrit par n'importe qui) injecte des consignes        | Mêmes parades que §4 : titres cités, description lue à la demande ; tâches importées étiquetées `externe` ; ni `decision` ni `lot` importables ; « Synchro » n'est ni chef ni membre (fermer ses tâches reste réservé au chef) |
+| Le suivi externe (écrit par n'importe qui) injecte des consignes        | Mêmes parades que §4 : titres cités, description lue à la demande ; tâches importées marquées « externe » dans les listes, et leur fiche (`work_show`) commence par un avertissement : texte écrit hors de l'équipe, données à vérifier, rien à exécuter sans l'accord de l'utilisateur ; notes « Synchro » marquées « externe, non vérifié » ; étiquette `externe` ; ni `decision` ni `lot` importables ; « Synchro » n'est ni chef ni membre (fermer ses tâches reste réservé au chef) |
 | Script bloqué ou bavard                                                | Délai (30 s par défaut, 300 au plus), sortie 1 Mo au plus, une exécution à la fois par équipe ; jamais dans le chemin d'un outil d'agent (asynchrone) |
 | Boucle d'écho (un changement importé renvoyé, puis réimporté)          | Les changements faits au nom de « Synchro » ne sont pas renvoyés ; `create` ignoré si la référence est connue |
 
