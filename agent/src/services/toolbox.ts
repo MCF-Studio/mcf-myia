@@ -264,7 +264,8 @@ export function toolboxService(cfg: Config, opts: ToolboxOptions = {}): Service 
           name: "toolbox_find",
           description:
             `Cherche dans la boîte à outils locale (${categories.join(", ")}) l'outil qui fait ce qu'on demande : retoucher, recadrer, ` +
-            "recolorer, redimensionner ou convertir des images et textures, chercher dans du code, vérifier un projet Rust ou Godot… " +
+            "recolorer, redimensionner ou convertir des images et textures, construire, contrôler, rendre ou exporter (.glb) un modèle 3D avec Blender, " +
+            "trouver une texture Poly Haven, chercher dans du code, vérifier un projet Rust ou Godot… " +
             "Renvoie les outils correspondants avec leurs paramètres. Ensuite, exécute avec toolbox_run.",
           schema: z.object({
             query: z.string().max(120).optional().describe("Mots-clés de ce qu'il faut faire, ex. « couleur image », « redimensionner texture »"),
