@@ -1,4 +1,4 @@
-# Registre de travail des équipes (branche `feat/beads-travail`)
+# Registre de travail des équipes
 
 Inspiré du modèle des « beads » de [Gas City](https://github.com/gastownhall/gascity) (MIT) : le travail en cours vit
 dans un registre durable, hors du contexte du modèle, au lieu d'être porté par l'historique de la conversation ou
@@ -115,11 +115,16 @@ Méthodes du sidecar (`server/main.ts`) : `work.list`, `work.create`, `work.note
 méthodes n'ont pas de test propre : elles ne font que valider (zod) et appeler le registre, testé dans
 `core/work.test.ts`.
 
-## 6. État de la branche
+## 6. État
 
 | Étape | Contenu                                                                                     | État     |
 | ----- | ------------------------------------------------------------------------------------------- | -------- |
 | 1     | Spec (ce fichier) ; `core/work.ts` : modèle, registre fichier, invariants testés             | fait     |
 | 2     | Outils `work_*` pour les membres d'une équipe ; `team_ask` avec `work_id` ; résumé au prompt | fait     |
 | 3     | Écran de l'app : registre d'une équipe (lecture, création, note, fermeture, réouverture, remise) | fait     |
-| 4     | Fournisseur `exec:<script>` (registre délégué à un script de l'utilisateur), si utile         | à décider |
+| 4     | Fournisseur `exec:<script>` (registre délégué à un script de l'utilisateur)                  | écartée pour l'instant |
+
+Étape 4 écartée (décision du 2026-11-18) : elle ne sert qu'à synchroniser le registre avec un autre outil de suivi
+(GitHub Issues, `bd`…), dont personne n'a besoin aujourd'hui, et elle ajouterait une surface d'attaque (un script
+lancé avec un contenu que des agents écrivent). À reprendre seulement si ce besoin apparaît.
+Parcours de bout en bout par le vrai sidecar : `agent/src/server/work.e2e.test.ts`.
