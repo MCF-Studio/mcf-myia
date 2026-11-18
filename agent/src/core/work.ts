@@ -282,7 +282,8 @@ export class WorkStore {
       if (this.items.filter((i) => i.status !== "fermee").length >= LIMITS.openItems) {
         throw new WorkError(`registre plein : ${LIMITS.openItems} tâches non fermées. Ferme ou regroupe avant d'en créer.`);
       }
-      const title = cleanText(input.title).slice(0, LIMITS.title);
+      // Un titre tient sur une ligne : il est montré dans les prompts, il ne doit pas pouvoir y ouvrir un faux paragraphe.
+      const title = cleanText(input.title).replace(/\s+/g, " ").slice(0, LIMITS.title);
       if (!title) throw new WorkError("titre vide");
       this.checkParent(input.parent?.trim() || undefined);
       const t = now();

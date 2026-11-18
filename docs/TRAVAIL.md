@@ -55,12 +55,17 @@ Invariants (tests de `core/work.test.ts`) :
   argument d'outil ne désigne un registre, il est donc impossible d'en viser un autre.
 - Écrire dans le registre ne demande pas de confirmation (comme le journal de coordination) : rien ne sort du PC,
   rien n'est exécuté. Supprimer une tâche n'existe pas pour les agents (on ferme, avec une raison).
+- **Fermer et rouvrir** : le chef (agent racine) ferme et rouvre toute tâche ; un autre membre seulement celles qu'il
+  a créées et que personne d'autre ne porte. Une tâche confiée par le chef est fermée par le chef, après vérification.
+- **Utilisateur** (écran Équipes) : crée, note, ferme, rouvre, rend une tâche ; chaque fermeture, réouverture et
+  remise est inscrite au journal d'audit (`work_*`).
 
 ## 4. Menaces et parades
 
 | Menace                                                                 | Parade                                                                                                             |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Injection : une description recopiée d'une page piégée donne des ordres | Le contenu du registre est présenté comme des **données** ; les liens qu'il contient ne deviennent jamais des liens de confiance (`UrlTrust` ne lit que les messages de l'utilisateur) ; les confirmations des outils sensibles restent dues |
+| Injection : une description recopiée d'une page piégée donne des ordres | Le contenu du registre est présenté comme des **données** ; le résumé du prompt système ne montre que id, type, statut, responsable et **titre cité** (une ligne, « », 90 caractères) — jamais description ni notes, lues à la demande par un outil ; les liens qu'il contient ne deviennent jamais des liens de confiance (`UrlTrust` ne lit que les messages de l'utilisateur) ; les confirmations des outils sensibles restent dues |
+| Un membre trompé ferme ou rouvre le travail des autres                 | Fermer et rouvrir réservés au chef, ou à l'auteur d'une tâche que personne d'autre ne porte (`work-tools.ts`, `lead`) |
 | Un agent invente un « fait »                                          | Fermer exige une raison ; les règles de coordination (« fait » = confirmé par un outil) s'appliquent              |
 | Gonflement (boucle qui crée des tâches à l'infini)                     | 300 tâches non fermées max, 2 000 au total (les plus anciennes fermées sont retirées), 50 notes par tâche, tailles bornées par zod |
 | Deux conversations de la même équipe écrivent en même temps            | Un seul processus (le sidecar) : file d'attente par registre ; relecture du fichier avant chaque écriture         |

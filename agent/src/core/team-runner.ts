@@ -168,7 +168,7 @@ export function makeTeamAgent(node: TeamNode, ctx: TeamContext, depth: number, c
   return new Agent(ctx.cfg, ctx.services, profile, {
     extraTools: [
       ...(tool ? [tool] : []),
-      ...(work ? workTools(work, profile.name) : []),
+      ...(work ? workTools(work, profile.name, { lead: depth === 0 && !caller }) : []),
       ...(depth === 0 && !caller ? (ctx.rootTools ?? []) : []),
     ],
     liveNote: work ? () => workSummary(work, profile.name) : undefined,
