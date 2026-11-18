@@ -2,6 +2,7 @@
 import {
   Bot,
   Boxes,
+  Bug,
   ChevronsLeft,
   ChevronsRight,
   Gauge,
@@ -12,7 +13,8 @@ import {
   Settings,
   Store,
 } from "lucide-vue-next";
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import BugReport from "./BugReport.vue";
 import logo from "../assets/logo.svg";
 import { settings } from "../lib/settings";
 import { navigate, state, type View } from "../lib/store";
@@ -31,6 +33,7 @@ const items = computed<{ id: View; label: string; icon: unknown; key: string }[]
 ]);
 
 const collapsed = computed(() => settings.appearance.sidebarCollapsed);
+const bugOpen = ref(false);
 const busyCount = computed(() => state.overview?.conversations.busy ?? 0);
 const pendingConfirms = computed(() => Object.keys(state.confirms).length);
 const loadedModel = computed(() => state.overview?.ollama.running?.[0]?.name);
@@ -73,6 +76,12 @@ const engineName = computed(() => (state.overview?.ollama.engine === "llamacpp" 
         <small class="mono">{{ loadedModel ?? state.overview?.defaultModel ?? "—" }}</small>
       </div>
     </div>
+
+    <button class="nav-item bug-btn" title="Signaler un bug à l'équipe MCF Studio" @click="bugOpen = true">
+      <Bug :size="18" />
+      <span v-if="!collapsed" class="label">Signaler un bug</span>
+    </button>
+    <BugReport v-if="bugOpen" @close="bugOpen = false" />
 
     <button class="nav-item collapse" :title="collapsed ? 'Déplier' : 'Replier'" @click="settings.appearance.sidebarCollapsed = !collapsed">
       <component :is="collapsed ? ChevronsRight : ChevronsLeft" :size="18" />

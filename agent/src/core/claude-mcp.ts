@@ -49,3 +49,41 @@ export function readMcpServers(file = claudeConfigFile()): McpServerName[] {
     return [];
   }
 }
+
+/** Serveur MCP de Claude Code importable dans MyIA (lancé par une commande, portée utilisateur). */
+export interface ImportableServer {
+  name: string;
+  command: string;
+  args: string[];
+  /** Variables d'environnement : valeurs à ranger dans le coffre Windows, jamais dans config/agent.json. */
+  env: Record<string, string>;
+}
+
+/**
+ * Serveurs de la portée utilisateur de ~/.claude.json que MyIA peut lancer lui-même (stdio). Les serveurs http/sse
+ * (adresse distante) ne sont pas repris : le service MCP de MyIA ne lance que des commandes locales.
+ */
+export function importableServers(raw: unknown): ImportableServer[] {
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const servers = obj.mcpServers && typeof obj.mcpServers === "object" ? (obj.mcpServers as Record<string, unknown>) : {};
+  const out: ImportableServer[] = [];
+  for (const [name, def] of Object.entries(servers)) {
+    if (!NAME.test(name) || !def || typeof def !== "object") continue;
+    const d = def as { type?: unknown; command?: unknown; args?: unknown; env?: unknown };
+    if ((d.type !== undefined && d.type !== "stdio") || typeof d.command !== "string" || !d.command) continue;
+    const args = Array.isArray(d.args) ? d.args.filter((a): a is string => typeof a === "string").slice(0, 50) : [];
+    const env: Record<string, string> = {};
+    if (d.env && typeof d.env === "object") {
+      for (const [k, v] of Object.entries(d.env as Record<string, unknown>)) if (/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) && typeof v === "string") env[k] = v;
+    }
+    out.push({ name, command: d.command.slice(0, 500), args, env });
+  }
+  return out;
+}
+
+/** Nom du secret qui garde une variable d'environnement d'un serveur importé. */
+export const mcpSecretName = (server: string, key: string) =>
+  `mcp_${server}_${key}`
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .slice(0, 80);

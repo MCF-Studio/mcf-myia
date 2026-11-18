@@ -16,6 +16,7 @@ export const KNOWN_SECRETS: Record<string, string> = {
   groq_api_key: "Clé d'API Groq (agents « groq-api:… »)",
   deepseek_api_key: "Clé d'API DeepSeek (agents « deepseek-api:… »)",
   xai_api_key: "Clé d'API xAI (agents « xai-api:… »)",
+  home_assistant_token: "Jeton d'accès longue durée de Home Assistant (domotique)",
   mcfstudio_map_refresh: "Autorisation « carte des agents » de mcfstudio.fr (gérée par MyIA)",
 };
 

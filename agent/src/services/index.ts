@@ -2,9 +2,11 @@ import type { Config } from "../core/config.js";
 import { ProjectRegistry } from "../core/projects.js";
 import type { Service } from "../core/types.js";
 import { claudeService } from "./claude.js";
+import { devicesService } from "./devices.js";
 import { discordService } from "./discord.js";
 import { gitService } from "./git.js";
 import { godotService } from "./godot.js";
+import { homeAssistantService } from "./home-assistant.js";
 import { mcpService } from "./mcp.js";
 import { fileWriteService } from "./file-write.js";
 import { filesService } from "./files.js";
@@ -33,6 +35,8 @@ export function buildServices(cfg: Config): Service[] {
     fileWriteService(cfg),
     memoryService(cfg),
     toolboxService(cfg),
+    homeAssistantService(cfg),
+    devicesService(),
     ...Object.entries(cfg.mcpServers).map(([name, s]) => mcpService(name, s)),
   ];
 }

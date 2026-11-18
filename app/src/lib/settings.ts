@@ -8,6 +8,8 @@ export const DEFAULT_SETTINGS = {
     metricsInterval: 2,
     /** Touche globale « appuyer pour parler » à MASTER (vide = désactivée). */
     pttKey: "F9",
+    /** Dernière version de MyIA vue : après une mise à jour, l'app invite à lire les nouveautés. */
+    seenVersion: "",
   },
   appearance: {
     theme: "volcano",

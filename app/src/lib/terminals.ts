@@ -9,6 +9,8 @@ import { toast } from "./store";
 export interface TerminalInfo {
   key: string; // "pty:<id>" : même liste d'onglets que les conversations
   id: number;
+  /** IA de la console : claude (Claude Code), codex, gemini, opencode, qwen. */
+  cli: string;
   title: string;
   cwd: string;
   exited?: number | null;
@@ -198,15 +200,32 @@ export async function startTerminals() {
   });
 }
 
-export async function openClaude(cwd: string, title: string, resume: boolean, model?: string, prompt?: string): Promise<string> {
+/** Consoles d'IA de code reconnues par l'app (liste fermée côté Rust, pty.rs OTHER_CLIS). */
+export interface CliInfo {
+  id: string;
+  label: string;
+  installed: boolean;
+}
+export const CLI_LABELS: Record<string, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "opencode", qwen: "Qwen Code" };
+export function listClis(): Promise<CliInfo[]> {
+  return inTauri ? invoke<CliInfo[]>("pty_clis") : Promise.resolve([]);
+}
+
+export async function openClaude(cwd: string, title: string, resume: boolean, model?: string, prompt?: string, cli = "claude"): Promise<string> {
+  if (cli !== "claude") {
+    const id = await invoke<number>("pty_spawn", { cwd, resume: false, cols: 120, rows: 32, model: null, prompt: prompt || null, cli });
+    const key = `pty:${id}`;
+    terminals[key] = { key, id, cli, title, cwd, startedAt: Date.now(), outBytes: 0 };
+    return key;
+  }
   // Modèle local : serveur llama.cpp démarré et modèle chargé avant l'ouverture (le premier chargement prend du temps).
   if (model === "local") {
     const r = await call<{ warning?: string }>("claude.localReady");
     if (r.warning) toast(r.warning, "error");
   }
-  const id = await invoke<number>("pty_spawn", { cwd, resume, cols: 120, rows: 32, model: model || null, prompt: prompt || null });
+  const id = await invoke<number>("pty_spawn", { cwd, resume, cols: 120, rows: 32, model: model || null, prompt: prompt || null, cli: null });
   const key = `pty:${id}`;
-  terminals[key] = { key, id, title, cwd, model, startedAt: Date.now(), outBytes: 0 };
+  terminals[key] = { key, id, cli: "claude", title, cwd, model, startedAt: Date.now(), outBytes: 0 };
   return key;
 }
 
@@ -263,6 +282,7 @@ export function compact(key: string) {
 
 /** Estimation de la longueur de session : volume de sortie et durée. Ce n'est PAS le remplissage réel du contexte. */
 export function sessionLooksLong(t: TerminalInfo): boolean {
+  if (t.cli !== "claude") return false;
   if (t.exited !== undefined || t.handoff?.step === "écriture" || (t.coachSnoozedUntil ?? 0) > Date.now()) return false;
   return t.outBytes > 1_500_000 || Date.now() - t.startedAt > 90 * 60_000;
 }

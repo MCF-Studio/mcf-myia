@@ -21,3 +21,19 @@ describe("listMcpServers", () => {
     expect(listMcpServers({ mcpServers: [], projects: "x" })).toEqual([]);
   });
 });
+
+describe("importableServers", () => {
+  it("reprend les serveurs lancés par une commande, pas les serveurs distants", async () => {
+    const { importableServers, mcpSecretName } = await import("./claude-mcp");
+    const r = importableServers({
+      mcpServers: {
+        blender: { command: "uvx", args: ["blender-mcp"] },
+        site: { type: "http", url: "https://x" },
+        mcfstudio: { type: "stdio", command: "node", args: ["s.js"], env: { MCF_TOKEN: "abc", "bad key": "x" } },
+      },
+    });
+    expect(r.map((s) => s.name)).toEqual(["blender", "mcfstudio"]);
+    expect(r[1]!.env).toEqual({ MCF_TOKEN: "abc" });
+    expect(mcpSecretName("mcf-studio", "MCF_TOKEN")).toBe("mcp_mcf_studio_mcf_token");
+  });
+});

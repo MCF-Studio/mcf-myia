@@ -11,6 +11,7 @@ import { wallpaper } from "../lib/background";
 import { settings } from "../lib/settings";
 import {
   attach,
+  CLI_LABELS,
   claudeModels,
   compact as compactSession,
   detach,
@@ -210,7 +211,7 @@ async function restart() {
   const i = info.value;
   if (!i) return;
   try {
-    const key = await openClaude(i.cwd, i.title, true, i.model);
+    const key = await openClaude(i.cwd, i.title, i.cli === "claude", i.model, undefined, i.cli);
     emit("replaced", key);
   } catch (e) {
     toast(String(e), "error");
@@ -223,10 +224,10 @@ async function restart() {
     <header class="term-head">
       <div class="term-icon"><SquareTerminal :size="17" /></div>
       <div class="term-title">
-        <strong>Claude Code</strong>
+        <strong>{{ CLI_LABELS[info?.cli ?? "claude"] ?? "Console" }}</strong>
         <span class="tiny muted mono" :title="info?.cwd"><FolderOpen :size="11" /> {{ info?.title ?? "—" }}</span>
       </div>
-      <template v-if="alive">
+      <template v-if="alive && info?.cli === 'claude'">
         <span v-if="info?.handoff && info.handoff.step !== 'terminée'" class="badge" :class="info.handoff.step === 'échec' ? 'warn' : 'accent'" :title="info.handoff.detail">
           <Loader2 v-if="busyHandoff" :size="11" class="spin" /> passation : {{ info.handoff.step }}
         </span>

@@ -100,6 +100,12 @@ Les agents ne peuvent écrire **qu'aux noms déclarés ici**. À gauche, un nom 
 | `claudeApi.maxTokens`          | `32000`    | Longueur maximale d'une réponse (borne le coût).                                       |
 | `claudeApi.timeoutMinutes`     | `10`       | Durée maximale d'une réponse.                                                          |
 
+## Domotique
+
+| Option              | Par défaut | Rôle                                                                                     |
+| ------------------- | ---------- | ---------------------------------------------------------------------------------------- |
+| `homeAssistant.url` | vide       | Adresse de Home Assistant (Paramètres → Appareils et domotique). Le jeton est dans le coffre Windows. |
+
 ## Registre de travail des équipes
 
 | Option               | Par défaut | Rôle                                                                                     |

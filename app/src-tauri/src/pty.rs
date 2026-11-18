@@ -202,6 +202,74 @@ fn write_mcp_config(id: u32, cwd: &str, mode: &McpMode) -> Result<Option<PathBuf
     Ok(Some(file))
 }
 
+/// Autres IA de code en console, en liste FERMÉE : identifiant, programme, option qui passe une tâche de départ
+/// (None = argument positionnel). Chacune garde sa propre connexion et ses propres règles d'autorisation.
+const OTHER_CLIS: &[(&str, &str, Option<&str>, &str)] = &[
+    ("codex", "codex", None, "OpenAI Codex CLI (npm i -g @openai/codex)"),
+    ("gemini", "gemini", Some("--prompt-interactive"), "Gemini CLI (npm i -g @google/gemini-cli)"),
+    ("opencode", "opencode", Some("--prompt"), "opencode (npm i -g opencode-ai)"),
+    ("qwen", "qwen", Some("--prompt-interactive"), "Qwen Code (npm i -g @qwen-code/qwen-code)"),
+];
+
+/// Cherche un programme dans le PATH : .exe d'abord, puis .cmd (scripts installés par npm).
+fn find_program(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        for ext in ["exe", "cmd"] {
+            let f = dir.join(format!("{name}.{ext}"));
+            if f.is_file() {
+                return Some(f);
+            }
+        }
+    }
+    None
+}
+
+#[derive(Serialize)]
+pub struct CliInfo {
+    id: &'static str,
+    label: &'static str,
+    installed: bool,
+}
+
+/// Consoles d'IA disponibles sur ce PC (Claude Code compris).
+#[tauri::command]
+pub fn pty_clis() -> Vec<CliInfo> {
+    let mut out = vec![CliInfo { id: "claude", label: "Claude Code", installed: find_program("claude").is_some() }];
+    for (id, program, _, label) in OTHER_CLIS {
+        out.push(CliInfo { id, label, installed: find_program(program).is_some() });
+    }
+    out
+}
+
+fn other_cli_command(id: &str, prompt: Option<&str>) -> Result<CommandBuilder, String> {
+    let (_, program, prompt_flag, label) = OTHER_CLIS.iter().find(|c| c.0 == id).ok_or_else(|| format!("console inconnue : {id}"))?;
+    let path = find_program(program).ok_or_else(|| format!("{label} n'est pas installé (ou pas dans le PATH)"))?;
+    let is_cmd = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd"));
+    let mut cmd = if is_cmd {
+        // Un .cmd passe par cmd.exe, qui réinterprète la ligne : aucun texte libre ne doit l'accompagner.
+        let mut c = CommandBuilder::new("cmd.exe");
+        c.args(["/d", "/c"]);
+        c.arg(path.as_os_str());
+        c
+    } else {
+        CommandBuilder::new(path.as_os_str())
+    };
+    if let Some(p) = prompt.map(|p| p.replace(['\r', '\n'], " ").trim().to_string()).filter(|p| !p.is_empty()) {
+        if is_cmd {
+            return Err(format!("{label} : la tâche de départ n'est pas prise en charge pour cette installation, tape-la dans la console"));
+        }
+        if p.len() > 8000 || p.starts_with('-') {
+            return Err("tâche refusée (8000 caractères max, ne commence pas par « - »)".into());
+        }
+        if let Some(flag) = prompt_flag {
+            cmd.arg(flag);
+        }
+        cmd.arg(p);
+    }
+    Ok(cmd)
+}
+
 /// Contexte donné à Claude Code en local : même valeur que CLAUDE_LOCAL_CTX côté cœur (llm.ts).
 const LOCAL_CTX: u32 = 32_768;
 
@@ -368,6 +436,7 @@ pub fn pty_spawn(
     rows: u16,
     model: Option<String>,
     prompt: Option<String>,
+    cli: Option<String>,
 ) -> Result<u32, String> {
     let dir = PathBuf::from(&cwd);
     if !dir.is_dir() {
@@ -379,67 +448,78 @@ pub fn pty_spawn(
     let pair = native_pty_system().openpty(clamp_size(cols, rows)).map_err(|e| format!("pty : {e}"))?;
 
     let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
-    let claude = claude_cfg();
-    let mcp_file = write_mcp_config(id, &cwd, &mcp_mode(&claude))?;
-    let program = std::env::var("MYIA_CLAUDE").unwrap_or_else(|_| "claude".into());
-    let mut cmd = CommandBuilder::new(program);
-    if resume {
-        cmd.arg("--continue");
-    }
-    // Serveurs MCP choisis dans les réglages : seuls ceux du fichier (chemin géré par l'app, jamais par l'interface).
-    if let Some(f) = &mcp_file {
-        // Forme « = » : --mcp-config prend plusieurs valeurs, la tâche de départ serait sinon lue comme un fichier.
-        let mut opt = std::ffi::OsString::from("--mcp-config=");
-        opt.push(f.as_os_str());
-        cmd.arg("--strict-mcp-config");
-        cmd.arg(opt);
-    }
-    // Mode sans demande d'autorisation : seulement si l'utilisateur l'a activé dans les réglages.
-    if bypass_permissions() {
-        cmd.arg("--dangerously-skip-permissions");
-    }
-    // Modèle : liste fermée d'alias Claude Code (même liste que le cœur, vérifié par claude-coach.test.ts), ou « local » (modèle llama.cpp de MyIA, voir local_claude_env).
-    let mut local_env = None;
-    if let Some(m) = model.filter(|m| !m.is_empty()) {
-        if m == "local" {
-            let (vars, id) = local_claude_env()?;
-            cmd.arg("--model");
-            cmd.arg(id);
-            local_env = Some(vars);
-        } else {
-            if !["haiku", "sonnet", "opus", "fable"].contains(&m.as_str()) {
-                return Err(format!("modèle inconnu : {m}"));
+    // Autre IA (Codex, Gemini CLI, opencode, Qwen Code) : son programme, sans les options propres à Claude Code.
+    let other = cli.as_deref().filter(|c| *c != "claude");
+    let (cmd, mcp_file) = if let Some(c) = other {
+        let mut cmd = other_cli_command(c, prompt.as_deref())?;
+        cmd.cwd(&dir);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        (cmd, None)
+    } else {
+        let claude = claude_cfg();
+        let mcp_file = write_mcp_config(id, &cwd, &mcp_mode(&claude))?;
+        let program = std::env::var("MYIA_CLAUDE").unwrap_or_else(|_| "claude".into());
+        let mut cmd = CommandBuilder::new(program);
+        if resume {
+            cmd.arg("--continue");
+        }
+        // Serveurs MCP choisis dans les réglages : seuls ceux du fichier (chemin géré par l'app, jamais par l'interface).
+        if let Some(f) = &mcp_file {
+            // Forme « = » : --mcp-config prend plusieurs valeurs, la tâche de départ serait sinon lue comme un fichier.
+            let mut opt = std::ffi::OsString::from("--mcp-config=");
+            opt.push(f.as_os_str());
+            cmd.arg("--strict-mcp-config");
+            cmd.arg(opt);
+        }
+        // Mode sans demande d'autorisation : seulement si l'utilisateur l'a activé dans les réglages.
+        if bypass_permissions() {
+            cmd.arg("--dangerously-skip-permissions");
+        }
+        // Modèle : liste fermée d'alias Claude Code (même liste que le cœur, vérifié par claude-coach.test.ts), ou « local » (modèle llama.cpp de MyIA, voir local_claude_env).
+        let mut local_env = None;
+        if let Some(m) = model.filter(|m| !m.is_empty()) {
+            if m == "local" {
+                let (vars, id) = local_claude_env()?;
+                cmd.arg("--model");
+                cmd.arg(id);
+                local_env = Some(vars);
+            } else {
+                if !["haiku", "sonnet", "opus", "fable"].contains(&m.as_str()) {
+                    return Err(format!("modèle inconnu : {m}"));
+                }
+                cmd.arg("--model");
+                cmd.arg(m);
             }
-            cmd.arg("--model");
-            cmd.arg(m);
         }
-    }
-    // Tâche de départ : un seul argument (pas de shell), une seule ligne, bornée.
-    if let Some(p) = prompt.map(|p| p.replace(['\r', '\n'], " ").trim().to_string()).filter(|p| !p.is_empty()) {
-        if p.len() > 8000 {
-            return Err("tâche trop longue (8000 caractères max)".into());
+        // Tâche de départ : un seul argument (pas de shell), une seule ligne, bornée.
+        if let Some(p) = prompt.map(|p| p.replace(['\r', '\n'], " ").trim().to_string()).filter(|p| !p.is_empty()) {
+            if p.len() > 8000 {
+                return Err("tâche trop longue (8000 caractères max)".into());
+            }
+            if p.starts_with('-') {
+                return Err("une tâche ne peut pas commencer par « - »".into());
+            }
+            cmd.arg(p);
         }
-        if p.starts_with('-') {
-            return Err("une tâche ne peut pas commencer par « - »".into());
+        cmd.cwd(&dir);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        // Sous-agents sur un modèle plus léger (réglage) ; en local, local_claude_env fixe déjà le modèle local.
+        if local_env.is_none() {
+            if let Some(m) = subagent_model(&claude) {
+                cmd.env("CLAUDE_CODE_SUBAGENT_MODEL", m);
+            }
         }
-        cmd.arg(p);
-    }
-    cmd.cwd(&dir);
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-    // Sous-agents sur un modèle plus léger (réglage) ; en local, local_claude_env fixe déjà le modèle local.
-    if local_env.is_none() {
-        if let Some(m) = subagent_model(&claude) {
-            cmd.env("CLAUDE_CODE_SUBAGENT_MODEL", m);
+        if let Some(vars) = local_env {
+            // Une clé Anthropic de l'environnement ne doit pas partir vers le serveur local (ni passer avant lui).
+            cmd.env_remove("ANTHROPIC_API_KEY");
+            for (k, v) in vars {
+                cmd.env(k, v);
+            }
         }
-    }
-    if let Some(vars) = local_env {
-        // Une clé Anthropic de l'environnement ne doit pas partir vers le serveur local (ni passer avant lui).
-        cmd.env_remove("ANTHROPIC_API_KEY");
-        for (k, v) in vars {
-            cmd.env(k, v);
-        }
-    }
+        (cmd, mcp_file)
+    };
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| {
         if let Some(f) = &mcp_file {

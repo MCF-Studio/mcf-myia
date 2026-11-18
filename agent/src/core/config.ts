@@ -171,6 +171,11 @@ export const ConfigSchema = z.object({
    */
   agents: z.object({ bypassConfirmations: z.boolean().default(false) }).prefault({}),
   /**
+   * Domotique : adresse de Home Assistant (http://homeassistant.local:8123 sur le réseau local, ou son adresse https).
+   * Le jeton d'accès est dans le coffre Windows (home_assistant_token), jamais ici.
+   */
+  homeAssistant: z.object({ url: z.string().max(200).default("") }).prefault({}),
+  /**
    * Registre de travail des équipes (docs/TRAVAIL.md) : « file » = le registre local seul ; « exec:<chemin absolu> » =
    * synchronisé en plus avec un autre outil de suivi par ce script (core/work-sync.ts, protocole dans TRAVAIL.md §7).
    */

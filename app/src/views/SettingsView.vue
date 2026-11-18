@@ -18,10 +18,12 @@ import {
   Palette,
   Play,
   RotateCcw,
+  Router,
   RotateCw,
   Search,
   Server,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
   Upload,
   Volume2,
@@ -31,6 +33,10 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import SettingRow from "../components/SettingRow.vue";
 import Toggle from "../components/Toggle.vue";
 import ToolboxSettings from "../components/ToolboxSettings.vue";
+import DevicesSettings from "../components/DevicesSettings.vue";
+import LspSettings from "../components/LspSettings.vue";
+import McpSettings from "../components/McpSettings.vue";
+import ReleaseNotes from "../components/ReleaseNotes.vue";
 import { downloadText, pickTextFile } from "../lib/files";
 import { call, inTauri, on } from "../lib/rpc";
 import { refreshDictation } from "../lib/dictation";
@@ -44,7 +50,7 @@ import { checkForUpdate, update } from "../lib/update";
 import { applyPttKey, ptt } from "../lib/ptt";
 import { apiProviders, claudeApi, loadApiProviders, loadClaudeApi } from "../lib/terminals";
 
-type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "toolbox" | "system" | "about";
+type Section = "general" | "appearance" | "sound" | "notifications" | "conversations" | "shortcuts" | "toolbox" | "devices" | "system" | "updates" | "about";
 const section = ref<Section>("general");
 const sections: { id: Section; label: string; icon: unknown }[] = [
   { id: "general", label: "Général", icon: SlidersHorizontal },
@@ -54,7 +60,9 @@ const sections: { id: Section; label: string; icon: unknown }[] = [
   { id: "conversations", label: "Conversations", icon: MessagesSquare },
   { id: "shortcuts", label: "Raccourcis", icon: Keyboard },
   { id: "toolbox", label: "Boîte à outils", icon: Wrench },
+  { id: "devices", label: "Appareils et domotique", icon: Router },
   { id: "system", label: "Système", icon: Server },
+  { id: "updates", label: "Nouveautés", icon: Sparkles },
   { id: "about", label: "À propos", icon: Info },
 ];
 
@@ -1064,6 +1072,8 @@ const shortcuts: [string, string][] = [
           <span v-if="!mcpServers.length" class="tiny muted">Aucun serveur MCP trouvé dans la configuration de Claude Code (~/.claude.json).</span>
         </div>
       </section>
+      <LspSettings />
+      <McpSettings />
 
       <section class="card">
         <div class="card-head">
@@ -1543,6 +1553,8 @@ const shortcuts: [string, string][] = [
 
       <!-- Système -->
       <ToolboxSettings v-else-if="section === 'toolbox'" />
+      <DevicesSettings v-else-if="section === 'devices'" />
+      <ReleaseNotes v-else-if="section === 'updates'" :current="appVersion" />
 
       <section v-else-if="section === 'system'" class="card">
         <h3 class="sec-title">Système</h3>

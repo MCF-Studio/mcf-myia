@@ -7,7 +7,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Agent } from "../core/agent.js";
-import { readMcpServers } from "../core/claude-mcp.js";
+import { claudeConfigFile, importableServers, mcpSecretName, readMcpServers } from "../core/claude-mcp.js";
+import { readHardware, scanLan } from "../core/devices.js";
+import { BugReportSchema, errorDigest, fetchReleases, sendBugReport } from "../core/feedback.js";
+import { installLsp, lspStatus } from "../core/lsp.js";
+import { HA_SECRET, haFetch, validHaUrl } from "../services/home-assistant.js";
 import { checkCoordination, checkWorkspace, usableCoordination, usableWorkspace } from "../core/access.js";
 import { initCoordination, listFiches, readFiches, writeFiches } from "../core/coordination.js";
 import { audit } from "../core/audit.js";
@@ -2028,6 +2032,115 @@ rpc.method("config.setClaudeConsoles", (params) => {
 
 /** Noms des serveurs MCP de Claude Code (~/.claude.json), sans leur configuration. */
 rpc.method("claude.mcpServers", () => readMcpServers());
+
+// ─── LSP des consoles Claude Code (core/lsp.ts) ──────────────────────────────
+
+rpc.method("lsp.status", () => lspStatus(cfg.claude.command));
+rpc.method("lsp.install", async (params) => {
+  const { id } = parse(z.object({ id: z.enum(["typescript", "rust", "python", "csharp"]) }), params);
+  const r = await installLsp(id, cfg.claude.command);
+  audit({ event: "lsp_install", tool: id, ok: r.ok, error: r.detail });
+  return r;
+});
+
+// ─── Signaler un bug, notes de mise à jour (core/feedback.ts) ────────────────
+
+rpc.method("bugs.report", async (params) => {
+  const p = parse(BugReportSchema.omit({ log: true }).extend({ includeLog: z.boolean().default(false) }), params);
+  let log: string | null = null;
+  if (p.includeLog) {
+    try {
+      const files = fs.readdirSync(paths.audit).filter((f) => f.endsWith(".jsonl")).sort().slice(-2);
+      const lines = files.flatMap((f) => fs.readFileSync(path.join(paths.audit, f), "utf8").split("\n"));
+      log = errorDigest(lines) || null;
+    } catch {
+      log = null;
+    }
+  }
+  await sendBugReport(cfg.site.url, { title: p.title, description: p.description, contact: p.contact, log }, { appVersion: VERSION, os: `${process.platform}-${process.arch}` });
+  audit({ event: "bug_report", ok: true });
+  return { ok: true };
+});
+
+rpc.method("app.releases", () => fetchReleases());
+
+// ─── Appareils et domotique (core/devices.ts, services/home-assistant.ts) ────
+
+rpc.method("devices.hardware", () => readHardware());
+rpc.method("devices.lan", () => scanLan());
+
+const haStatus = () => {
+  const t = getSecret(HA_SECRET);
+  return { url: cfg.homeAssistant.url, configured: !!(cfg.homeAssistant.url && t), keyEnd: t ? `…${t.slice(-4)}` : undefined };
+};
+rpc.method("homeAssistant.status", () => haStatus());
+rpc.method("homeAssistant.set", async (params) => {
+  const p = parse(z.object({ url: z.string().min(8).max(200), token: z.string().trim().min(20).max(400).optional() }), params);
+  const url = validHaUrl(p.url);
+  const token = p.token ?? getSecret(HA_SECRET);
+  if (!token) throw new Error("jeton d'accès longue durée requis (Home Assistant → Profil → Sécurité)");
+  // Vérification : GET /api/ répond {"message":"API running."} avec un bon jeton.
+  await haFetch(url, token, "");
+  if (p.token) setSecret(HA_SECRET, p.token);
+  patchConfig((raw) => (raw.homeAssistant = { ...(raw.homeAssistant ?? {}), url }));
+  audit({ event: "api_key", provider: "home_assistant", action: "set" });
+  return haStatus();
+});
+rpc.method("homeAssistant.delete", () => {
+  deleteSecret(HA_SECRET);
+  patchConfig((raw) => (raw.homeAssistant = { ...(raw.homeAssistant ?? {}), url: "" }));
+  audit({ event: "api_key", provider: "home_assistant", action: "delete" });
+  return haStatus();
+});
+
+// ─── Serveurs MCP de MyIA (pour TOUS les modèles : local, Claude, OpenAI, Gemini…) ─────────────────
+
+rpc.method("mcp.list", async () => {
+  const mine = await Promise.all(
+    services
+      .filter((x) => x.id.startsWith("mcp:") || Object.keys(cfg.mcpServers).some((n) => x.id === `mcp_${n}` || x.id === n))
+      .map(async (x) => ({ id: x.id, label: x.label, available: await x.available().catch((e: Error) => ({ ok: false, reason: e.message })) })),
+  );
+  let importable: { name: string; already: boolean; envKeys: string[] }[] = [];
+  try {
+    importable = importableServers(JSON.parse(fs.readFileSync(claudeConfigFile(), "utf8"))).map((x) => ({
+      name: x.name,
+      already: x.name in cfg.mcpServers,
+      envKeys: Object.keys(x.env),
+    }));
+  } catch {
+    /* pas de Claude Code sur ce PC */
+  }
+  return { servers: Object.keys(cfg.mcpServers), status: mine, importable };
+});
+
+/**
+ * Reprend des serveurs MCP de Claude Code (~/.claude.json, portée utilisateur) dans config/agent.json : leurs variables
+ * d'environnement (jetons) vont dans le coffre Windows, la config ne garde que « secret:<nom> ». Risque « external »
+ * par défaut : chaque outil demande confirmation tant que l'utilisateur ne l'a pas marqué en lecture seule.
+ */
+rpc.method("mcp.importFromClaude", async (params) => {
+  const { names } = parse(z.object({ names: z.array(z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/)).min(1).max(30) }), params);
+  const all = importableServers(JSON.parse(fs.readFileSync(claudeConfigFile(), "utf8")));
+  const chosen = all.filter((x) => names.includes(x.name));
+  if (!chosen.length) throw new Error("aucun de ces serveurs n'est importable");
+  patchConfig((raw) => {
+    raw.mcpServers = { ...(raw.mcpServers ?? {}) };
+    for (const x of chosen) {
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(x.env)) {
+        const secret = mcpSecretName(x.name, k);
+        setSecret(secret, v);
+        env[k] = `secret:${secret}`;
+      }
+      raw.mcpServers[x.name] = { command: x.command, args: x.args, env, description: "importé de Claude Code", enabled: true, risk: "external" };
+    }
+  });
+  await Promise.allSettled(services.map((x) => x.close?.()));
+  services = buildServices(cfg);
+  audit({ event: "mcp_import", args: { names: chosen.map((x) => x.name) } });
+  return { imported: chosen.map((x) => x.name) };
+});
 
 rpc.method("config.setUserName", (params) => {
   const { name } = parse(z.object({ name: z.string().trim().min(1).max(60) }), params);

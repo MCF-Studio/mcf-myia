@@ -6,10 +6,12 @@ import ChatPanel from "../components/ChatPanel.vue";
 import TerminalPanel from "../components/TerminalPanel.vue";
 import {
   accountLabel,
+  CLI_LABELS,
   claudeAccount,
   claudeModels,
   isTerminalKey,
   killTerminal,
+  listClis,
   loadClaudeModels,
   LOCAL_MODEL,
   loginWarning,
@@ -17,6 +19,7 @@ import {
   terminals,
   triage,
   type ClaudeAccount,
+  type CliInfo,
   type Triage,
 } from "../lib/terminals";
 import { relTime } from "../lib/format";
@@ -83,6 +86,9 @@ const consoleTask = ref("");
 /** "auto" = le modèle local choisit selon la difficulté ; "" = modèle par défaut de Claude Code. */
 /** Sinon : un alias de `claudeModels` (liste du cœur), ou "local". */
 const consoleModel = ref<string>("auto");
+/** IA de la console : Claude Code ou une autre IA de code installée (Codex, Gemini CLI, opencode, Qwen Code). */
+const consoleCli = ref("claude");
+const clis = ref<CliInfo[]>([]);
 const account = ref<ClaudeAccount>();
 const advice = ref<Triage>();
 const advising = ref(false);
@@ -106,6 +112,9 @@ async function askConsole() {
   pickerOpen.value = false;
   consoleDialog.value = true;
   void loadClaudeModels();
+  void listClis()
+    .then((l) => (clis.value = l))
+    .catch(() => undefined);
   // Abonnement relu à chaque ouverture (il peut changer) ; sans réponse, on n'affiche simplement rien.
   void claudeAccount()
     .then((a) => (account.value = a))
@@ -132,7 +141,9 @@ async function launchConsole() {
     const task = consoleTask.value.trim();
     let model: string | undefined = consoleModel.value || undefined;
     if (model === "auto") model = task ? (advice.value ?? (await adviseModel()))?.model : undefined;
-    const key = await openClaude(consoleDir.value, p?.name ?? "workspace", consoleResume.value, model, task || undefined);
+    const cli = consoleCli.value;
+    if (cli !== "claude") model = undefined;
+    const key = await openClaude(consoleDir.value, p?.name ?? "workspace", cli === "claude" && consoleResume.value, model, task || undefined, cli);
     consoleTask.value = "";
     advice.value = undefined;
     cs.openTabs.push(key);
@@ -407,8 +418,24 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           <div class="row">
             <span class="term-glyph big"><SquareTerminal :size="20" /></span>
             <div>
-              <h3>Inviter Claude Code à la table</h3>
-              <p class="small muted">Une vraie session Claude Code, dans un onglet, sur le dossier de ton choix.</p>
+              <h3>Inviter une IA de code à la table</h3>
+              <p class="small muted">Une vraie session Claude Code (ou Codex, Gemini CLI…), dans un onglet, sur le dossier de ton choix.</p>
+            </div>
+          </div>
+          <div v-if="clis.length > 1" class="field">
+            <span class="small">IA</span>
+            <div class="segmented model-seg">
+              <button
+                v-for="c in clis"
+                :key="c.id"
+                type="button"
+                :class="{ on: consoleCli === c.id }"
+                :disabled="!c.installed"
+                :title="c.installed ? c.label : `${c.label} : pas installé sur ce PC`"
+                @click="consoleCli = c.id"
+              >
+                {{ CLI_LABELS[c.id] ?? c.id }}
+              </button>
             </div>
           </div>
           <label class="field">
@@ -434,7 +461,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
               @input="advice = undefined"
             />
           </label>
-          <div class="field">
+          <div v-if="consoleCli === 'claude'" class="field">
             <span class="small">
               Modèle Claude
               <em v-if="account" class="muted" title="Compte Claude Code connecté sur cette machine">· abonnement : {{ accountLabel(account) }}</em>
@@ -479,7 +506,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
               <span v-else class="muted">Décris la tâche pour que le modèle soit choisi selon sa difficulté.</span>
             </div>
           </div>
-          <label class="row small check">
+          <label v-if="consoleCli === 'claude'" class="row small check">
             <input v-model="consoleResume" type="checkbox" />
             Reprendre la dernière session de ce dossier (<span class="mono">claude --continue</span>)
           </label>
