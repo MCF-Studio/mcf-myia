@@ -775,3 +775,17 @@ class Import(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HiddenConsoleTest(unittest.TestCase):
+    """Windows : un programme lancé par un outil n'ouvre aucune fenêtre de terminal (safety.hide_console_windows)."""
+
+    @unittest.skipUnless(os.name == "nt", "Windows seulement")
+    def test_child_has_no_console_window(self):
+        import subprocess
+        import safety
+        safety.hide_console_windows()
+        probe = "import ctypes; print(ctypes.windll.kernel32.GetConsoleWindow())"
+        r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.stdout.strip(), "0")
+        self.assertTrue(subprocess.Popen._myia_hidden)

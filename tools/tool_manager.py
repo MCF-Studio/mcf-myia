@@ -30,6 +30,8 @@ sys.path.insert(0, str(ROOT))
 
 import safety  # noqa: E402
 
+safety.hide_console_windows()   # avant tout outil : aucun terminal ne s'ouvre à l'écran
+
 POLICY_PATH = ROOT / "policy.json"
 ENTRYPOINT, FUNCTION = "tool.py", "execute"       # fixés : un manifeste ne choisit ni le fichier ni la fonction
 PATH_NAMES = {"path", "file", "project", "directory", "repo", "output", "folder", "dir"}

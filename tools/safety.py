@@ -5,6 +5,7 @@ Deux usages : le gestionnaire (contrôle de TOUS les paramètres chemin avant d'
 """
 import os
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -192,3 +193,33 @@ def check_text_target(path):
         raise PermissionError(
             f".{ext} n'est pas un format texte autorisé ({', '.join(sorted(TEXT_EXT))}). Le code ne s'écrit pas par ces outils.")
     return real
+
+
+# ─── Fenêtres de console ─────────────────────────────────────────────────────
+CREATE_NO_WINDOW = 0x08000000
+CREATE_NEW_CONSOLE = 0x00000010
+
+
+def hide_console_windows():
+    """Windows : aucun programme lancé par un outil n'ouvre de fenêtre de terminal.
+
+    MyIA lance le gestionnaire sans console ; un programme en ligne de commande lancé ensuite (git, cargo, Blender en
+    arrière-plan, Godot sans fenêtre, PowerShell…) en recevrait une NOUVELLE, visible. Tout Popen (donc
+    subprocess.run) reçoit CREATE_NO_WINDOW, outils importés compris. Sans effet sur la fenêtre d'une application
+    graphique (app_launch ouvre toujours Godot ou Blender normalement). Un outil qui demande explicitement une
+    console (CREATE_NEW_CONSOLE) la garde.
+    """
+    if os.name != "nt" or getattr(subprocess.Popen, "_myia_hidden", False):
+        return
+    base = subprocess.Popen
+
+    class HiddenPopen(base):
+        _myia_hidden = True
+
+        def __init__(self, *args, **kwargs):
+            flags = kwargs.get("creationflags", 0) or 0
+            if not flags & CREATE_NEW_CONSOLE:
+                kwargs["creationflags"] = flags | CREATE_NO_WINDOW
+            super().__init__(*args, **kwargs)
+
+    subprocess.Popen = HiddenPopen
