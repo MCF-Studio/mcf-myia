@@ -210,6 +210,68 @@ export const ConfigSchema = z.object({
       timeoutMinutes: z.number().min(1).max(60).default(10),
     })
     .prefault({}),
+  /**
+   * Optimisation des agents (opti.md, phase 1 « mesure et contrôle »). Tout est désactivé par défaut sauf les
+   * statistiques en mémoire, qui ne changent rien au comportement : sans réglage, les agents font exactement comme avant.
+   */
+  optimization: z
+    .object({
+      /** Statistiques des appels au modèle (core/llm-stats.ts) : jetons, durée, outils, erreurs ; jamais le contenu. */
+      stats: z
+        .object({
+          enabled: z.boolean().default(true),
+          /** Appels gardés en mémoire (les plus anciens sortent). */
+          maxRecords: z.number().int().min(100).max(100_000).default(2000),
+          /** Écrire aussi chaque appel dans data/stats/AAAA-MM.jsonl. */
+          journal: z.boolean().default(false),
+        })
+        .prefault({}),
+      /** Budget de chaque demande (core/token-budget.ts). 0 = sans limite ou valeur dérivée de maxSteps. */
+      budget: z
+        .object({
+          enabled: z.boolean().default(false),
+          /** Jetons au plus par demande (entrée + sortie de tous les appels ; facturés si connus, estimés sinon). 0 = sans limite. */
+          maxTokens: z.number().int().min(0).max(10_000_000).default(0),
+          /** Itérations au plus ; 0 = maxSteps. */
+          maxIterations: z.number().int().min(0).max(100).default(0),
+          /** Appels au modèle au plus ; 0 = maxSteps + 1 (le point d'étape final). */
+          maxLlmCalls: z.number().int().min(0).max(200).default(0),
+          /** Durée au plus d'une demande, en secondes ; 0 = sans limite. */
+          timeoutSeconds: z.number().int().min(0).max(86_400).default(0),
+          /** Jetons gardés pour la réponse : un appel n'est lancé que s'il reste de quoi répondre. */
+          reserveForOutput: z.number().int().min(0).max(128_000).default(2000),
+          /** Changements de modèle (escalades du routeur) au plus par demande. */
+          maxEscalations: z.number().int().min(0).max(5).default(2),
+        })
+        .prefault({}),
+      /** Context Compiler (core/context-compiler.ts) appliqué aux notes variables du prompt (coordination, registre, mémoire). */
+      context: z
+        .object({
+          enabled: z.boolean().default(false),
+          /** Plafond indicatif des blocs essentiels (jamais coupés ; dépassement signalé dans la trace). */
+          essentialMaxTokens: z.number().int().min(100).max(200_000).default(2000),
+          /** Plafond des blocs pertinents (registre de travail, mémoire) : au-delà, résumés ou écartés. */
+          relevantMaxTokens: z.number().int().min(100).max(200_000).default(4000),
+        })
+        .prefault({}),
+      /**
+       * Model Router (core/model-router.ts) : modèle léger pour les demandes simples, escalade vers un modèle plus fort
+       * si la réponse est insuffisante. Seulement pour les agents sans modèle fixé dans leur profil, et seulement entre
+       * modèles locaux pour un agent local (sa mémoire ne quitte jamais le PC).
+       */
+      router: z
+        .object({
+          enabled: z.boolean().default(false),
+          light: z.string().max(140).regex(/^[A-Za-z0-9][A-Za-z0-9._:\/-]*$/, "nom de modèle invalide").optional(),
+          strong: z.string().max(140).regex(/^[A-Za-z0-9][A-Za-z0-9._:\/-]*$/, "nom de modèle invalide").optional(),
+          /** Essais avant de juger un modèle sur une catégorie de demandes. */
+          minSamples: z.number().int().min(1).max(1000).default(5),
+          /** Taux de réussite en dessous duquel un modèle est sauté pour une catégorie. */
+          minSuccessRate: z.number().min(0).max(1).default(0.6),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   projects: z.record(z.string(), ProjectSchema).default({}),
   /** Dossiers parcourus pour trouver les projets automatiquement (depth = niveaux de sous-dossiers). */
   projectRoots: z
@@ -299,6 +361,7 @@ export function configTemplate(): Record<string, unknown> {
   d.claude = { ...d.claude, model: "", defaultAllowedTools: [] };
   d.godot = { projectsRoot: "", versionsDir: "", ...d.godot };
   d.toolbox = { dir: "", ...d.toolbox };
+  d.optimization.router = { ...d.optimization.router, light: "", strong: "" };
   return d;
 }
 

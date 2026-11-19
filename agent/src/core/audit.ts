@@ -41,7 +41,9 @@ export interface AuditEvent {
     | "config_open"
     | "toolbox_import"
     | "toolbox_setup"
-    | "toolbox_deps";
+    | "toolbox_deps"
+    // Budget d'une demande épuisé (core/token-budget.ts) : raison et compteurs dans `args`.
+    | "budget_stop";
   /** Version installée (event "ollama_install"). */
   version?: string;
   tool?: string;

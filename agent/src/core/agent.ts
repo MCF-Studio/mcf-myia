@@ -1,7 +1,7 @@
 import { audit } from "./audit.js";
 import type { Config } from "./config.js";
 import { createLlm } from "./llm-factory.js";
-import { CLOUD_ENGINES, type ChatMessage, type LlmClient, type ToolSpec } from "./llm.js";
+import { CLOUD_ENGINES, isCloudModel, type ChatMessage, type LlmClient, type ToolSpec } from "./llm.js";
 import { DEFAULT_PROFILE, type AgentProfile } from "./profiles.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -9,6 +9,26 @@ import { COORDINATION_JOURNAL, usableCoordination, usableWorkspace } from "./acc
 import { truncate, type AgentUI, type Availability, type Service, type Tool, type ToolScope } from "./types.js";
 import type { Memory } from "./memory.js";
 import { UrlTrust } from "./urls.js";
+import { randomUUID } from "node:crypto";
+import { configureLlmStats, llmStats } from "./llm-stats.js";
+import {
+  budgetLimits,
+  BudgetExceededError,
+  estimateReplyTokens,
+  estimateRequestTokens,
+  TokenBudget,
+  type BilledUsage,
+  type BudgetSnapshot,
+} from "./token-budget.js";
+import { compileContext, type ContextItem, type ContextTrace } from "./context-compiler.js";
+import { classifyTask, insufficientReason, ModelRouter, routerHistory, type TaskClass } from "./model-router.js";
+
+/** Routage de la demande en cours (Model Router actif). */
+interface Routing {
+  router: ModelRouter;
+  cls: TaskClass;
+  model: string;
+}
 
 /**
  * Taille maximale d'un résultat d'outil gardé dans l'historique. Un modèle local a un petit contexte (32 k jetons) ;
@@ -104,10 +124,23 @@ export interface ServiceStatus {
 
 export class Agent {
   private readonly llm: LlmClient;
+  /** Client de la demande en cours : celui de l'agent, sauf choix du Model Router (optimization.router). */
+  private active: LlmClient;
+  /** Clients des autres modèles choisis par le routeur, créés à la demande. */
+  private readonly routed = new Map<string, LlmClient>();
+  /** Consommation facturée du dernier appel (moteurs en ligne), relevée par callLlm. */
+  private lastUsage: BilledUsage | undefined;
   private history: ChatMessage[] = [];
   private readonly trust = new UrlTrust();
   private tools = new Map<string, Tool>();
   statuses: ServiceStatus[] = [];
+
+  /** Trace du Context Compiler pour la dernière demande (vide s'il est désactivé). */
+  lastContextTrace: ContextTrace[] = [];
+  /** Compteurs du budget de la dernière demande (undefined si le budget est désactivé). */
+  lastBudget: BudgetSnapshot | undefined;
+  /** Identifiant de la demande en cours (statistiques). */
+  private task = "";
 
   private readonly services: Service[];
 
@@ -117,19 +150,118 @@ export class Agent {
     readonly profile: AgentProfile = DEFAULT_PROFILE,
     private readonly opts: AgentOptions = {},
   ) {
-    this.llm = createLlm(cfg.llm, profile.model ?? cfg.llm.model, cfg.claude.command, {
-      ...cfg.claudeApi,
-      onUsage: (u) => audit({ event: "claude_api_usage", agent: profile.id, ...u }),
-    }, {
-      ...cfg.apiProviders,
-      onUsage: (u) => audit({ event: "api_usage", agent: profile.id, ...u }),
-    });
+    if (cfg.optimization?.stats) configureLlmStats(cfg.optimization.stats);
+    this.llm = this.makeClient(profile.model ?? cfg.llm.model);
+    this.active = this.llm;
     // Un profil peut restreindre les services auxquels l'agent a accès (liste blanche d'ids).
     const allow = profile.services;
     const allowed = allow ? services.filter((s) => allow.includes(s.id)) : services;
     // Agent confié à Claude (abonnement ou clé d'API) : ses échanges partent chez Anthropic, il n'a donc pas non plus
     // les outils de mémoire.
     this.services = [...(this.cloud ? allowed.filter((s) => s.id !== "memory") : allowed), ...(opts.extraServices ?? [])];
+  }
+
+  /** Client d'un modèle ; la consommation facturée part au journal d'audit et dans les statistiques. */
+  private makeClient(model: string): LlmClient {
+    const id = this.profile.id;
+    return createLlm(this.cfg.llm, model, this.cfg.claude.command, {
+      ...this.cfg.claudeApi,
+      onUsage: (u) => {
+        audit({ event: "claude_api_usage", agent: id, ...u });
+        this.lastUsage = { input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite };
+      },
+    }, {
+      ...this.cfg.apiProviders,
+      onUsage: (u) => {
+        audit({ event: "api_usage", agent: id, ...u });
+        this.lastUsage = { input: u.input, output: u.output, cacheRead: 0, cacheWrite: 0 };
+      },
+    });
+  }
+
+  private clientFor(model: string): LlmClient {
+    if (model === this.llm.model) return this.llm;
+    let c = this.routed.get(model);
+    if (!c) this.routed.set(model, (c = this.makeClient(model)));
+    return c;
+  }
+
+  /**
+   * Model Router : seulement s'il est activé, pour un agent sans modèle fixé par son profil, et entre modèles du même
+   * côté (local ou en ligne) que celui de l'agent. Undefined = modèle de l'agent, comme avant.
+   */
+  private routeRequest(input: string): Routing | undefined {
+    const r = this.cfg.optimization?.router;
+    if (!r?.enabled || this.profile.model) return undefined;
+    const sameSide = (m: string | undefined) => (m && isCloudModel(m) === this.cloud ? m : undefined);
+    const light = sameSide(r.light);
+    const strong = sameSide(r.strong);
+    if (!light && !strong) return undefined;
+    const router = new ModelRouter({ light, standard: this.llm.model, strong }, routerHistory, {
+      minSamples: r.minSamples,
+      minSuccessRate: r.minSuccessRate,
+    });
+    const cls = classifyTask(input);
+    const choice = router.route(cls);
+    this.active = this.clientFor(choice.model);
+    return { router, cls, model: choice.model };
+  }
+
+  /**
+   * Un appel au modèle : contrôle du budget avant, statistiques et décompte après. Sans budget ni statistiques, revient
+   * exactement à `client.chat(messages, specs, signal)`.
+   */
+  private async callLlm(messages: ChatMessage[], specs: ToolSpec[], signal: AbortSignal | undefined, budget: TokenBudget | undefined): Promise<ChatMessage> {
+    const estimatedInput = estimateRequestTokens(messages, specs);
+    if (budget) {
+      const c = budget.beforeCall(estimatedInput);
+      if (!c.ok) throw new BudgetExceededError(c);
+    }
+    const client = this.active;
+    this.takeUsage();
+    const t0 = Date.now();
+    const base = { agent: this.profile.id, task: this.task, model: client.model, engine: client.engine, estimatedInput };
+    try {
+      const reply = await client.chat(messages, specs, signal);
+      const billed = this.takeUsage();
+      const estimatedOutput = estimateReplyTokens(reply);
+      llmStats.record({
+        ...base,
+        durationMs: Date.now() - t0,
+        ok: true,
+        tools: (reply.tool_calls ?? []).map((c) => c.function.name),
+        estimatedOutput,
+        ...(billed ? { billed } : {}),
+      });
+      budget?.afterResponse({ estimatedInput, estimatedOutput, billed });
+      return reply;
+    } catch (e) {
+      const billed = this.takeUsage();
+      llmStats.record({ ...base, durationMs: Date.now() - t0, ok: false, error: (e as Error).message, tools: [], estimatedOutput: 0, ...(billed ? { billed } : {}) });
+      budget?.afterResponse({ estimatedInput, estimatedOutput: 0, billed });
+      throw e;
+    }
+  }
+
+  /** Consommation facturée relevée depuis le dernier appel à takeUsage (undefined si le moteur n'en donne pas). */
+  private takeUsage(): BilledUsage | undefined {
+    const u = this.lastUsage;
+    this.lastUsage = undefined;
+    return u;
+  }
+
+  /** Budget épuisé : arrêt propre, sans nouvel appel au modèle, en gardant le travail fait pour un « continue ». */
+  private budgetStop(err: BudgetExceededError, budget: TokenBudget): string {
+    const snap = budget.snapshot();
+    audit({ event: "budget_stop", agent: this.profile.id, model: this.active.model, args: { reason: err.check.reason, task: this.task, ...snap, remainingTokens: Number.isFinite(snap.remainingTokens) ? snap.remainingTokens : null } });
+    const text = `J'ai atteint le budget de cette demande (${err.check.message}). Dis « continue » pour que je reprenne où j'en suis.`;
+    this.history.push({ role: "assistant", content: text });
+    return text;
+  }
+
+  /** Retire les blocs d'API de la demande en cours (réflexions signées propres à un modèle) avant de changer de modèle. */
+  private stripRequestBlocks(): void {
+    for (let i = this.requestStart; i < this.history.length; i++) delete this.history[i]!.blocks;
   }
 
   /** Modèle utilisé par cet agent (avec llama.cpp, un nom Ollama non installé revient au modèle par défaut). */
@@ -280,6 +412,30 @@ export class Agent {
     }
   }
 
+  /**
+   * Notes variables du prompt : coordination de l'équipe, note du moment (registre de travail), mémoire. Context
+   * Compiler désactivé : recopiées telles quelles, comme avant. Activé : les règles de coordination (consignes de
+   * l'utilisateur) restent intactes, le reste est dédupliqué et tenu dans `relevantMaxTokens`.
+   */
+  private contextNotes(): string[] {
+    const coordination = this.coordinationNote();
+    const live = this.liveNote();
+    const memory = this.memoryContext ? ["", this.memoryContext] : [];
+    const c = this.cfg.optimization?.context;
+    if (!c?.enabled) {
+      this.lastContextTrace = [];
+      return [...coordination, ...live, ...memory];
+    }
+    const items: ContextItem[] = [
+      { id: "coordination", level: 0, pinned: true, source: "espace de coordination", text: coordination.join("\n").trim() },
+      { id: "travail", level: 1, relevance: 2, source: "note du moment", text: live.join("\n").trim() },
+      { id: "memoire", level: 1, relevance: 1, source: "mémoire", text: this.memoryContext.trim() },
+    ];
+    const out = compileContext(items.filter((i) => i.text), { essentialMaxTokens: c.essentialMaxTokens, relevantMaxTokens: c.relevantMaxTokens });
+    this.lastContextTrace = out.trace;
+    return out.text ? ["", out.text] : [];
+  }
+
   private systemPrompt(): string {
     const now = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" });
     const u = this.cfg.user.name;
@@ -289,9 +445,7 @@ export class Agent {
       ...(p.instructions ? ["", "Consignes propres à ce rôle :", p.instructions] : []),
       ...(this.opts.teamNote ? ["", this.opts.teamNote] : []),
       ...this.workspaceNote(),
-      ...this.coordinationNote(),
-      ...this.liveNote(),
-      ...(this.memoryContext ? ["", this.memoryContext] : []),
+      ...this.contextNotes(),
       "Ne te présente jamais, ne salue pas et ne rappelle pas ce que tu sais faire : réponds directement à la demande, comme dans une conversation déjà en cours.",
       ...(this.opts.voice
         ? ["Tes réponses sont lues à voix haute : une à trois phrases courtes, sans markdown, sans liste, sans parenthèses, sans emoji. Va droit au résultat."]
@@ -372,40 +526,79 @@ export class Agent {
     this.requestStart = this.history.length - 1;
     const specs = this.toolSpecs();
     let nudged = false;
+    this.task = randomUUID();
+    this.active = this.llm;
+    const budget = this.cfg.optimization?.budget?.enabled ? new TokenBudget(budgetLimits(this.cfg)) : undefined;
+    this.lastBudget = undefined;
+    const routing = this.routeRequest(input);
+    let escalations = 0;
+    const maxEscalations = this.cfg.optimization?.budget?.maxEscalations ?? 0;
     // Prompt système figé pour toute la demande : stable d'une étape à l'autre (cache de l'API Claude, réflexions
     // signées valides entre deux appels d'outils).
     const system = this.systemPrompt();
 
-    for (let step = 0; step < this.cfg.maxSteps; step++) {
-      const messages: ChatMessage[] = [{ role: "system", content: system }, ...this.trimmedHistory()];
-      const reply = await this.llm.chat(messages, specs, signal);
-      this.history.push({ role: "assistant", content: reply.content ?? "", tool_calls: reply.tool_calls, ...(reply.blocks ? { blocks: reply.blocks } : {}) });
-
-      if (!reply.tool_calls?.length) {
-        const text = reply.content?.trim() ?? "";
-        // Petit modèle : il annonce parfois une action (« je vais chercher… ») sans appeler l'outil. Une relance, pas plus.
-        if (!nudged && announcesAction(text) && step < this.cfg.maxSteps - 1) {
-          nudged = true;
-          this.history.push({
-            role: "user",
-            content: "(note automatique) Tu viens d'annoncer une action sans la faire : fais-la maintenant en appelant l'outil adapté, ou donne ta réponse finale.",
-          });
-          continue;
+    try {
+      for (let step = 0; step < this.cfg.maxSteps; step++) {
+        if (budget) {
+          const c = budget.beforeIteration();
+          if (!c.ok) throw new BudgetExceededError(c);
         }
-        return text || "(pas de réponse)";
-      }
+        const messages: ChatMessage[] = [{ role: "system", content: system }, ...this.trimmedHistory()];
+        const reply = await this.callLlm(messages, specs, signal, budget);
+        this.history.push({ role: "assistant", content: reply.content ?? "", tool_calls: reply.tool_calls, ...(reply.blocks ? { blocks: reply.blocks } : {}) });
 
-      for (const call of reply.tool_calls) {
-        const result = await this.execute(call.function.name, call.function.arguments, ui, signal);
-        this.history.push({
-          role: "tool",
-          tool_name: call.function.name,
-          ...(call.id ? { tool_call_id: call.id } : {}),
-          content: truncate(result, this.cloud ? TOOL_RESULT_MAX_CLOUD : TOOL_RESULT_MAX_LOCAL),
-        });
+        if (!reply.tool_calls?.length) {
+          const text = reply.content?.trim() ?? "";
+          // Petit modèle : il annonce parfois une action (« je vais chercher… ») sans appeler l'outil. Une relance, pas plus.
+          if (!nudged && announcesAction(text) && step < this.cfg.maxSteps - 1) {
+            nudged = true;
+            this.history.push({
+              role: "user",
+              content: "(note automatique) Tu viens d'annoncer une action sans la faire : fais-la maintenant en appelant l'outil adapté, ou donne ta réponse finale.",
+            });
+            continue;
+          }
+          if (routing) {
+            // Réponse insuffisante (règles fixes) : un modèle plus fort reprend la demande, dans la limite des escalades.
+            const why = insufficientReason(text, { announced: announcesAction(text) });
+            const next = why ? routing.router.escalate(routing.model) : undefined;
+            if (why && next && escalations < maxEscalations && (budget?.canEscalate() ?? true) && step < this.cfg.maxSteps - 1) {
+              routerHistory.record(routing.cls.category, routing.model, false);
+              escalations++;
+              budget?.recordEscalation();
+              this.history.pop();
+              this.stripRequestBlocks();
+              ui.progress(`Réponse insuffisante (${why}) : je passe au modèle ${next}`);
+              routing.model = next;
+              this.active = this.clientFor(next);
+              continue;
+            }
+            routerHistory.record(routing.cls.category, routing.model, !why);
+          }
+          return text || "(pas de réponse)";
+        }
+
+        for (const call of reply.tool_calls) {
+          const result = await this.execute(call.function.name, call.function.arguments, ui, signal);
+          this.history.push({
+            role: "tool",
+            tool_name: call.function.name,
+            ...(call.id ? { tool_call_id: call.id } : {}),
+            content: truncate(result, this.cloud ? TOOL_RESULT_MAX_CLOUD : TOOL_RESULT_MAX_LOCAL),
+          });
+        }
       }
+      if (routing) routerHistory.record(routing.cls.category, routing.model, false);
+      return await this.stepsExhausted(system, specs, signal, budget);
+    } catch (e) {
+      if (e instanceof BudgetExceededError && budget) {
+        if (routing) routerHistory.record(routing.cls.category, routing.model, false);
+        return this.budgetStop(e, budget);
+      }
+      throw e;
+    } finally {
+      this.lastBudget = budget?.snapshot();
     }
-    return this.stepsExhausted(system, specs, signal);
   }
 
   /**
@@ -413,7 +606,7 @@ export class Agent {
    * à faire) pour que l'utilisateur relance avec « continue ». Les outils restent déclarés (l'API Claude l'exige quand
    * l'historique contient des appels d'outils), mais un nouvel appel est ignoré.
    */
-  private async stepsExhausted(system: string, specs: ToolSpec[], signal?: AbortSignal): Promise<string> {
+  private async stepsExhausted(system: string, specs: ToolSpec[], signal?: AbortSignal, budget?: TokenBudget): Promise<string> {
     const fallback = `J'ai atteint la limite de ${this.cfg.maxSteps} étapes pour cette demande. Dis « continue » pour que je reprenne où j'en suis.`;
     this.history.push({
       role: "user",
@@ -422,7 +615,7 @@ export class Agent {
         "ce qui est fait (avec ses preuves), ce qui reste à faire. Termine en proposant de continuer.",
     });
     try {
-      const reply = await this.llm.chat([{ role: "system", content: system }, ...this.trimmedHistory()], specs, signal);
+      const reply = await this.callLlm([{ role: "system", content: system }, ...this.trimmedHistory()], specs, signal, budget);
       const text = reply.content?.trim() ?? "";
       if (reply.tool_calls?.length || !text) {
         this.history.push({ role: "assistant", content: fallback });

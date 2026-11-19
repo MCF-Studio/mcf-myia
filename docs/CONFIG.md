@@ -132,3 +132,78 @@ dans ce fichier. Le modèle se choisit dans **Agents → Modèle → Autres IA**
 | `toolbox.dir`    | vide       | Dossier de la boîte à outils Python (vide = celle livrée avec MyIA).                   |
 | `toolbox.python` | `python`   | Python qui lance la boîte à outils.                                                     |
 | `mcpServers`     | vide       | N'importe quel serveur MCP (stdio) devient un service. Exemple dans `config/agent.example.json`. Un secret s'écrit `"secret:<nom>"` et se range avec `myia secret set <nom>` (console, depuis les sources). |
+
+## Optimisation des agents (`optimization`)
+
+Phase 1 de `opti.md` : mesurer et contrôler la consommation des agents. **Tout est désactivé par défaut**, sauf les
+statistiques en mémoire, qui ne changent rien au comportement : sans réglage, les agents font exactement comme avant.
+
+### Statistiques des appels (`optimization.stats`)
+
+Chaque appel au modèle est enregistré : agent, demande, modèle, jetons (estimés, et facturés quand le moteur les donne),
+durée, outils demandés, erreur. **Jamais le contenu des échanges.**
+
+| Option                          | Par défaut | Rôle                                                                             |
+| ------------------------------- | ---------- | -------------------------------------------------------------------------------- |
+| `optimization.stats.enabled`    | `true`     | Enregistrer les appels (en mémoire).                                             |
+| `optimization.stats.maxRecords` | `2000`     | Appels gardés en mémoire (100 à 100000) ; les plus anciens sortent.              |
+| `optimization.stats.journal`    | `false`    | Écrire aussi chaque appel dans `data/stats/AAAA-MM.jsonl` (un fichier par mois). |
+
+### Budget par demande (`optimization.budget`)
+
+Chaque demande a son budget, contrôlé avant chaque itération, avant chaque appel et après chaque réponse. Budget épuisé :
+l'agent s'arrête proprement, sans nouvel appel, et propose de continuer (« Dis « continue » »). L'arrêt est journalisé
+(événement d'audit `budget_stop`). Les jetons **facturés** (API Claude, autres fournisseurs) sont décomptés quand ils sont
+connus, l'estimation (environ 3,5 caractères par jeton) sinon (modèle local, Claude Code par abonnement).
+
+| Option                                 | Par défaut | Rôle                                                                                |
+| -------------------------------------- | ---------- | ----------------------------------------------------------------------------------- |
+| `optimization.budget.enabled`          | `false`    | Activer le budget.                                                                  |
+| `optimization.budget.maxTokens`        | `0`        | Jetons au plus par demande, entrée + sortie de tous les appels. 0 = sans limite.    |
+| `optimization.budget.maxIterations`    | `0`        | Tours de la boucle au plus. 0 = `maxSteps`.                                         |
+| `optimization.budget.maxLlmCalls`      | `0`        | Appels au modèle au plus. 0 = `maxSteps` + 1 (le point d'étape final).              |
+| `optimization.budget.timeoutSeconds`   | `0`        | Durée au plus d'une demande. 0 = sans limite. Contrôlée entre deux appels : un appel en cours n'est pas coupé. |
+| `optimization.budget.reserveForOutput` | `2000`     | Jetons gardés pour la réponse : un appel n'est lancé que s'il en reste assez.       |
+| `optimization.budget.maxEscalations`   | `2`        | Changements de modèle (routeur) au plus par demande (0 à 5).                        |
+
+### Context Compiler (`optimization.context`)
+
+Assemble les notes variables du prompt (coordination de l'équipe, note du moment, mémoire) sous un budget de jetons, sans
+appel au modèle : doublons retirés, blocs trop longs résumés puis tronqués avec un marqueur. Les règles de coordination
+(consignes de l'utilisateur) ne sont **jamais** coupées. La trace de la dernière demande est dans `Agent.lastContextTrace`.
+
+| Option                                    | Par défaut | Rôle                                                                            |
+| ----------------------------------------- | ---------- | ------------------------------------------------------------------------------- |
+| `optimization.context.enabled`            | `false`    | Activer le compilateur (sinon les notes sont recopiées telles quelles).         |
+| `optimization.context.essentialMaxTokens` | `2000`     | Plafond indicatif des blocs essentiels : dépassement signalé, rien n'est coupé. |
+| `optimization.context.relevantMaxTokens`  | `4000`     | Plafond des blocs pertinents (registre de travail, mémoire).                    |
+
+### Model Router (`optimization.router`)
+
+Choisit le modèle d'une demande **sans appeler de modèle** : classification par mots-clés, longueur et nombre d'étapes.
+Modèle léger pour une demande simple, modèle de l'agent sinon. Si la réponse finale est jugée insuffisante (vide, coupée
+par la limite de longueur, action annoncée sans être faite), la demande est reprise par le palier supérieur, dans la limite
+de `budget.maxEscalations`. Un modèle qui échoue trop souvent sur une catégorie (historique en mémoire, remis à zéro au
+redémarrage) est sauté.
+
+- Seulement pour les agents **sans modèle fixé dans leur profil**.
+- **Confidentialité** : un agent local ne reçoit que des modèles locaux. Un modèle en ligne indiqué pour un agent local
+  est ignoré (sa mémoire et ses notes ne quittent pas le PC), et inversement.
+
+| Option                               | Par défaut | Rôle                                                                  |
+| ------------------------------------ | ---------- | --------------------------------------------------------------------- |
+| `optimization.router.enabled`        | `false`    | Activer le routeur.                                                   |
+| `optimization.router.light`          | vide       | Modèle léger pour les demandes simples (ex. `qwen3:4b`).              |
+| `optimization.router.strong`         | vide       | Modèle plus fort pour l'escalade (ex. `qwen3:14b`).                   |
+| `optimization.router.minSamples`     | `5`        | Essais sur une catégorie avant de juger un modèle sur son historique. |
+| `optimization.router.minSuccessRate` | `0.6`      | Taux de réussite en dessous duquel le modèle est sauté (0 à 1).       |
+
+Exemple :
+
+```json
+"optimization": {
+  "budget": { "enabled": true, "maxTokens": 60000, "timeoutSeconds": 300 },
+  "context": { "enabled": true },
+  "router": { "enabled": true, "light": "qwen3:4b", "strong": "qwen3:14b" }
+}
+```
