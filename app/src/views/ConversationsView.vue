@@ -661,6 +661,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 }
 .model-seg {
   align-self: flex-start;
+  /* 8 IA (Claude Code… cmd) ne tiennent pas sur une ligne : on passe à la ligne au lieu de déborder du dialogue. */
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.model-seg button {
+  white-space: nowrap;
 }
 .advice {
   display: flex;
