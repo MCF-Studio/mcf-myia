@@ -10,6 +10,8 @@ export const paths = {
   home: MYIA_HOME,
   config: path.join(MYIA_HOME, "config", "agent.json"),
   audit: path.join(MYIA_HOME, "data", "audit"),
+  /** Journal des statistiques d'appels au modèle (optimization.stats.journal), un JSONL par mois. */
+  stats: path.join(MYIA_HOME, "data", "stats"),
   workspace: path.join(MYIA_HOME, "workspace"),
   ollamaExe: path.join(MYIA_HOME, "runtime", "ollama", "ollama.exe"),
   ollamaModels: path.join(MYIA_HOME, "ollama", "models"),
