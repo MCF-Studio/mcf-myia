@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { countNodes, parseTeam, reachable, TeamBudget, type TeamNode } from "./teams.js";
+import { countNodes, parseTeam, reachable, reorderTeams, TeamBudget, type Team, type TeamNode } from "./teams.js";
+
+describe("reorderTeams", () => {
+  const list = [{ id: "a" }, { id: "b" }, { id: "c" }] as Team[];
+  it("réordonne sans rien changer aux équipes", () => {
+    const out = reorderTeams(list, ["c", "a", "b"]);
+    expect(out.map((t) => t.id)).toEqual(["c", "a", "b"]);
+    expect(out[1]).toBe(list[0]);
+  });
+  it("refuse une liste qui n'est pas une permutation exacte", () => {
+    for (const ids of [["a", "b"], ["a", "b", "b"], ["a", "b", "x"], ["a", "b", "c", "d"]]) {
+      expect(() => reorderTeams(list, ids)).toThrow(/ordre des équipes invalide/);
+    }
+  });
+});
 
 const node = (id: string, agentId: string, subagents: TeamNode[] = [], teammates: TeamNode[] = []): TeamNode => ({
   id,

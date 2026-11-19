@@ -63,18 +63,47 @@ export function listThemes(): Theme[] {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function installTheme(raw: unknown): Theme {
+/** Valide un thème (texte JSON ou objet) sans l'enregistrer. Les clés inconnues (ex. `aide` du modèle) sont ignorées. */
+export function parseTheme(raw: unknown): Theme {
   if (typeof raw === "string") {
     if (raw.length > 32_000) throw new Error("fichier de thème trop gros");
-    raw = JSON.parse(raw);
+    try {
+      raw = JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`JSON invalide : ${(e as Error).message}`);
+    }
   }
   const res = ThemeSchema.safeParse(raw);
   if (!res.success) {
     throw new Error("Thème invalide : " + res.error.issues.map((i) => `${i.path.join(".")} : ${i.message}`).join(" ; "));
   }
-  if (BUILTIN.has(res.data.id)) throw new Error(`l'id « ${res.data.id} » est réservé à un thème intégré`);
-  writeJsonAtomic(path.join(dir(), `${res.data.id}.json`), res.data);
   return res.data;
+}
+
+/**
+ * Lit un fichier de thème choisi par l'utilisateur, pour l'essayer (aperçu) sans l'installer. L'app relit le même
+ * fichier à intervalle régulier : on modifie les couleurs dans son éditeur et on voit le résultat aussitôt.
+ * Seul un .json de 32 Ko au plus est lu ; le contenu passe par la même validation que l'installation.
+ */
+export function readThemeFile(file: string): { theme: Theme; mtimeMs: number } {
+  if (!path.isAbsolute(file) || path.extname(file).toLowerCase() !== ".json") throw new Error("fichier .json attendu");
+  const st = fs.statSync(file);
+  if (!st.isFile()) throw new Error("ce n'est pas un fichier");
+  if (st.size > 32_000) throw new Error("fichier de thème trop gros (32 Ko max)");
+  return { theme: parseTheme(fs.readFileSync(file, "utf8")), mtimeMs: st.mtimeMs };
+}
+
+/** Date de modification d'un fichier de thème en aperçu (pour ne le relire que s'il a changé). */
+export function themeFileMtime(file: string): number {
+  if (!path.isAbsolute(file) || path.extname(file).toLowerCase() !== ".json") throw new Error("fichier .json attendu");
+  return fs.statSync(file).mtimeMs;
+}
+
+export function installTheme(raw: unknown): Theme {
+  const theme = parseTheme(raw);
+  if (BUILTIN.has(theme.id)) throw new Error(`l'id « ${theme.id} » est réservé à un thème intégré`);
+  writeJsonAtomic(path.join(dir(), `${theme.id}.json`), theme);
+  return theme;
 }
 
 export function deleteTheme(id: string) {

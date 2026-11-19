@@ -1,3 +1,5 @@
+import { reactive } from "vue";
+import { call } from "./rpc";
 import type { Theme } from "./types";
 
 /** Thèmes intégrés. « volcano » est le thème par défaut : sombre, lumières orange fusion → jaune foncé. */
@@ -232,4 +234,95 @@ export function applyTheme(t: Theme, opts: { glow: boolean; panelOpacity?: numbe
 export function exportTheme(t: Theme): string {
   const { builtin: _b, ...rest } = t;
   return JSON.stringify(rest, null, 2);
+}
+
+/** Rôle de chaque couleur, écrit dans le modèle téléchargeable (clé `aide`, ignorée à l'installation). */
+const TOKEN_HELP: Record<keyof Theme["colors"], string> = {
+  bg: "fond de la fenêtre",
+  "bg-elevated": "barre latérale, champs de saisie, fond des sélecteurs",
+  surface: "cartes et panneaux",
+  "surface-2": "panneaux en relief, bulles, bouton sélectionné",
+  border: "bordures et séparateurs",
+  text: "texte principal",
+  "text-muted": "texte secondaire (indices, dates)",
+  accent: "couleur principale : boutons, liens, élément actif",
+  "accent-2": "seconde couleur des dégradés",
+  "accent-contrast": "texte posé sur la couleur principale (bouton plein)",
+  glow: "halo lumineux autour des éléments actifs (rgba conseillé, transparence 0.2 à 0.4)",
+  success: "réussite",
+  warning: "avertissement",
+  danger: "erreur, suppression",
+};
+
+/**
+ * Modèle de thème à télécharger : les couleurs du thème `base`, un id et un nom à changer, et une aide qui décrit
+ * chaque couleur. On le modifie dans un éditeur, on l'essaie dans MyIA (aperçu en direct), puis on l'installe.
+ */
+export function themeTemplate(base: Theme): string {
+  return JSON.stringify(
+    {
+      id: "mon-theme",
+      name: "Mon thème",
+      author: "",
+      version: "1.0.0",
+      mode: base.mode,
+      radius: base.radius,
+      colors: { ...base.colors },
+      aide: {
+        "à savoir":
+          "Change id (minuscules, chiffres, tirets), name et les couleurs (#rrggbb, #rgb ou rgba(r, g, b, a)). mode : dark ou light. radius : sharp, normal ou round. Dans MyIA : Paramètres → Apparence → Essayer, puis garde le fichier ouvert : chaque enregistrement s'affiche aussitôt. Cette section « aide » est ignorée à l'installation.",
+        ...TOKEN_HELP,
+      },
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * Thème en cours d'essai (aperçu) : prioritaire sur le thème choisi tant qu'il est là, jamais enregistré dans les
+ * réglages. Le fichier est relu dès qu'il change sur le disque (modification dans un éditeur).
+ */
+export const themePreview = reactive({ theme: null as Theme | null, file: "", error: "", mtimeMs: 0 });
+
+let previewTimer: ReturnType<typeof setInterval> | undefined;
+
+async function readPreview(): Promise<void> {
+  const file = themePreview.file;
+  try {
+    const res = await call<{ theme: Theme; mtimeMs: number }>("themes.readFile", { path: file }, 10_000);
+    if (themePreview.file !== file) return;
+    themePreview.theme = res.theme;
+    themePreview.mtimeMs = res.mtimeMs;
+    themePreview.error = "";
+  } catch (e) {
+    // Fichier en cours d'écriture ou faute de frappe : on garde le dernier aperçu valide et on montre l'erreur.
+    if (themePreview.file === file) themePreview.error = String((e as Error).message ?? e);
+  }
+}
+
+/** Essaie un fichier de thème : aperçu immédiat, puis relu à chaque enregistrement. */
+export async function startThemePreview(file: string): Promise<void> {
+  stopThemePreview();
+  themePreview.file = file;
+  await readPreview();
+  if (!themePreview.theme) {
+    const err = themePreview.error;
+    stopThemePreview();
+    throw new Error(err || "thème illisible");
+  }
+  previewTimer = setInterval(async () => {
+    try {
+      const m = await call<number>("themes.fileMtime", { path: themePreview.file }, 5000);
+      if (m !== themePreview.mtimeMs) await readPreview();
+    } catch (e) {
+      themePreview.error = String((e as Error).message ?? e);
+    }
+  }, 1500);
+}
+
+export function stopThemePreview(): void {
+  clearInterval(previewTimer);
+  previewTimer = undefined;
+  Object.assign(themePreview, { theme: null, file: "", error: "", mtimeMs: 0 });
 }

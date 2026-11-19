@@ -381,6 +381,53 @@ textarea,
   opacity: 0.8;
 }
 
+/* Glisser-déposer pour réordonner (lib/reorder.ts) : repère d'insertion avant/après la cible.
+   Le conteneur indique l'axe : data-axis="y" (liste verticale) ou "x" (grille, rangée). */
+.is-dragging {
+  opacity: 0.45;
+}
+.drop-before,
+.drop-after {
+  position: relative;
+}
+.drop-before::before,
+.drop-after::before {
+  content: "";
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--glow);
+}
+[data-axis="y"] .drop-before::before,
+[data-axis="y"] .drop-after::before {
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+[data-axis="y"] .drop-before::before {
+  top: -6px;
+}
+[data-axis="y"] .drop-after::before {
+  bottom: -6px;
+}
+[data-axis="x"] .drop-before::before,
+[data-axis="x"] .drop-after::before {
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+[data-axis="x"] .drop-before::before {
+  left: -7px;
+}
+[data-axis="x"] .drop-after::before {
+  right: -7px;
+}
+[draggable="true"] {
+  -webkit-user-drag: element;
+}
+
 .segmented {
   display: inline-flex;
   padding: 3px;

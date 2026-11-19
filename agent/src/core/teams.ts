@@ -111,6 +111,15 @@ export function saveTeams(teams: Team[], file = teamsFile()) {
   writeJsonAtomic(file, { teams });
 }
 
+/** Réordonne les équipes ; refuse toute liste qui n'est pas une permutation exacte des ids existants. */
+export function reorderTeams(list: Team[], ids: string[]): Team[] {
+  const byId = new Map(list.map((t) => [t.id, t]));
+  if (ids.length !== list.length || new Set(ids).size !== ids.length || !ids.every((id) => byId.has(id))) {
+    throw new Error("ordre des équipes invalide (liste périmée ?) : recharge l'écran Équipes");
+  }
+  return ids.map((id) => byId.get(id)!);
+}
+
 /** Agents qu'un nœud peut appeler : ses sous-agents et ses coéquipiers, hors de la chaîne d'appels en cours. */
 export function reachable(node: TeamNode, chain: ReadonlySet<string>): { node: TeamNode; relation: "sous-agent" | "coéquipier" }[] {
   return [

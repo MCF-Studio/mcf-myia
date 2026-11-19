@@ -9,6 +9,7 @@ import { Archive, FolderOpen, Gauge, Loader2, RefreshCcwDot, RotateCw, SquareTer
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { wallpaper } from "../lib/background";
 import { settings } from "../lib/settings";
+import { themePreview } from "../lib/themes";
 import {
   attach,
   CLI_LABELS,
@@ -84,7 +85,8 @@ const imageStyle = computed(() => {
     backgroundSize: fit === "tile" ? "auto" : fit,
     backgroundRepeat: fit === "tile" ? "repeat" : "no-repeat",
     filter: blur ? `blur(${blur}px)` : undefined,
-    inset: `-${blur * 2}px`,
+    // Marge fixe (2 × flou maximal) : si elle suivait le flou, l'image serait recadrée à chaque cran du curseur.
+    inset: "-48px",
   };
 });
 // Comme dans App.vue : la data: URL (plusieurs Mo) est posée hors du style réactif.
@@ -189,7 +191,7 @@ onMounted(() => {
 });
 
 watch(
-  () => settings.appearance.theme,
+  () => [settings.appearance.theme, themePreview.theme],
   () => setTimeout(() => term && (term.options.theme = theme()), 50),
 );
 watch(withImage, (img) => {

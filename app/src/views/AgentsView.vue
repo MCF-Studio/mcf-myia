@@ -11,6 +11,7 @@ import Toggle from "../components/Toggle.vue";
 import { downloadText, pickAvatar, pickTextFile } from "../lib/files";
 import { agentColor } from "../lib/format";
 import { call } from "../lib/rpc";
+import { moveId, useSortable } from "../lib/reorder";
 import { createConversation, refreshAgents, refreshOverview, state, toast } from "../lib/store";
 import { apiProviders, claudeApi, claudeModels, loadApiProviders, loadClaudeApi, loadClaudeModels } from "../lib/terminals";
 import type { AgentProfile, ModelInfo } from "../lib/types";
@@ -249,6 +250,27 @@ async function move(id: string, dir: -1 | 1) {
   const j = i + dir;
   if (moving || i < 0 || j < 0 || j >= list.length) return;
   [list[i], list[j]] = [list[j]!, list[i]!];
+  await saveOrder(list);
+}
+
+/** Glisser-déposer d'un agent (liste et grille) : même enregistrement que les flèches. */
+const sortable = useSortable({
+  group: "agents",
+  axis: () => (mode.value === "grid" ? "x" : "y"),
+  onReorder: (dragged, target, after) => {
+    const ids = moveId(
+      state.agents.map((a) => a.id),
+      dragged,
+      target,
+      after,
+    );
+    const byId = new Map(state.agents.map((a) => [a.id, a]));
+    void saveOrder(ids.map((id) => byId.get(id)!));
+  },
+});
+
+async function saveOrder(list: AgentProfile[]) {
+  if (moving || list.every((a, k) => a.id === state.agents[k]?.id)) return;
   const before = state.agents;
   state.agents = list;
   moving = true;
@@ -286,8 +308,15 @@ async function move(id: string, dir: -1 | 1) {
     <div class="layout" :class="`mode-${mode}`">
       <AgentTopology v-if="mode === 'map'" :graph="graph" :selected="isNew ? undefined : selected" :height="460" @select="(id) => pick(state.agents.find((a) => a.id === id))" />
       <div v-else class="agent-cards">
-        <TransitionGroup name="reorder" tag="div" class="agent-list">
-          <div v-for="(a, i) in state.agents" :key="a.id" class="agent-row">
+        <TransitionGroup name="reorder" tag="div" class="agent-list" :data-axis="mode === 'grid' ? 'x' : 'y'">
+          <div
+            v-for="(a, i) in state.agents"
+            :key="a.id"
+            class="agent-row"
+            :class="sortable.classes(a.id)"
+            :title="state.agents.length > 1 ? 'Glisse pour changer l\'ordre' : undefined"
+            v-bind="state.agents.length > 1 ? sortable.item(a.id) : {}"
+          >
             <button
               class="agent-card card"
               :class="{ active: selected === a.id && !isNew }"

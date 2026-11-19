@@ -8,6 +8,8 @@ import {
   AlertTriangle,
   AppWindow,
   Download,
+  Eye,
+  FileDown,
   FilePlus2,
   FolderOpen,
   FolderPlus,
@@ -43,7 +45,7 @@ import { refreshDictation } from "../lib/dictation";
 import { resetSettings, settings } from "../lib/settings";
 import { piper, playSound, refreshPiper, SOUND_PACKS, speak, stopSpeaking, voices } from "../lib/sound";
 import { refreshOverview, refreshSidecar, refreshThemes, restartSidecar, state, toast } from "../lib/store";
-import { BUILTIN_THEMES, exportTheme } from "../lib/themes";
+import { BUILTIN_THEMES, exportTheme, startThemePreview, stopThemePreview, themePreview, themeTemplate } from "../lib/themes";
 import { BACKGROUND_EXTENSIONS, clearWallpaper, setWallpaper, wallpaper } from "../lib/background";
 import type { Theme } from "../lib/types";
 import { checkForUpdate, update } from "../lib/update";
@@ -130,6 +132,40 @@ async function installTheme() {
     await refreshThemes();
     a.theme = t.id;
     toast(`Thème « ${t.name} » installé`, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+/** Télécharge un modèle de thème (couleurs du thème actuel + aide sur chaque couleur), à modifier puis essayer. */
+function downloadThemeTemplate() {
+  const base = themes.value.find((t) => t.id === a.theme) ?? BUILTIN_THEMES[0]!;
+  downloadText("mon-theme.theme.json", themeTemplate(base));
+  toast("Modèle téléchargé : modifie-le, puis « Essayer » pour le voir en direct", "success");
+}
+
+/** Essaie un fichier de thème sans l'installer : aperçu relu à chaque enregistrement du fichier. */
+async function tryThemeFile() {
+  const file = await openDialog({ multiple: false, title: "Fichier de thème à essayer", filters: [{ name: "Thème MyIA (JSON)", extensions: ["json"] }] });
+  if (typeof file !== "string") return;
+  try {
+    await startThemePreview(file);
+    toast(`Aperçu de « ${themePreview.theme?.name} » : enregistre le fichier pour voir tes changements`, "success");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+/** Installe le thème en cours d'essai et le choisit. */
+async function installPreview() {
+  const t = themePreview.theme;
+  if (!t) return;
+  try {
+    const installed = await call<Theme>("themes.install", { json: exportTheme(t) });
+    stopThemePreview();
+    await refreshThemes();
+    a.theme = installed.id;
+    toast(`Thème « ${installed.name} » installé`, "success");
   } catch (e) {
     toast((e as Error).message, "error");
   }
@@ -1226,11 +1262,28 @@ const shortcuts: [string, string][] = [
           <div class="card-head">
             <h3 class="sec-title">Thème</h3>
             <div class="row">
+              <button class="btn sm" title="Un fichier de thème à modifier, avec l'explication de chaque couleur" @click="downloadThemeTemplate">
+                <FileDown :size="14" /> Télécharger un modèle
+              </button>
+              <button class="btn sm" :disabled="!inTauri" title="Voir un fichier de thème en direct, sans l'installer" @click="tryThemeFile">
+                <Eye :size="14" /> Essayer
+              </button>
               <button class="btn sm" @click="installTheme"><Upload :size="14" /> Installer</button>
             </div>
           </div>
+          <div v-if="themePreview.theme" class="theme-trial">
+            <Eye :size="16" />
+            <div class="grow">
+              <strong>Aperçu : {{ themePreview.theme.name }}</strong>
+              <span class="tiny muted"> · {{ themePreview.file }}</span>
+              <p class="tiny muted">Modifie le fichier dans ton éditeur : chaque enregistrement s'affiche ici aussitôt.</p>
+              <p v-if="themePreview.error" class="tiny trial-error">{{ themePreview.error }} — dernier aperçu valide conservé.</p>
+            </div>
+            <button class="btn sm primary" @click="installPreview"><Upload :size="14" /> Installer</button>
+            <button class="btn sm ghost" @click="stopThemePreview">Arrêter l'aperçu</button>
+          </div>
           <div class="themes">
-            <div v-for="t in themes" :key="t.id" class="theme" :class="{ on: a.theme === t.id }" @click="a.theme = t.id">
+            <div v-for="t in themes" :key="t.id" class="theme" :class="{ on: !themePreview.theme && a.theme === t.id }" @click="stopThemePreview(); a.theme = t.id">
               <div class="theme-art" :style="{ background: t.colors.bg, borderColor: t.colors.border }">
                 <div class="art-side" :style="{ background: t.colors['bg-elevated'] }">
                   <i v-for="k in 4" :key="k" :style="{ background: k === 1 ? t.colors.accent : t.colors.surface }" />
@@ -1255,8 +1308,8 @@ const shortcuts: [string, string][] = [
             </div>
           </div>
           <p class="tiny muted">
-            Un thème est un fichier JSON de couleurs (aucun code). Exporte un thème intégré pour t'en servir de modèle, puis partage le tien sur la
-            Marketplace.
+            Un thème est un fichier JSON de couleurs (aucun code). Télécharge un modèle (il part des couleurs du thème actuel), joue avec les
+            couleurs, essaie-le en direct, puis installe-le et partage-le sur la Marketplace.
           </p>
         </section>
 
@@ -1831,6 +1884,26 @@ const shortcuts: [string, string][] = [
   width: 100%;
   object-fit: cover;
   display: block;
+}
+.theme-trial {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+.theme-trial > svg {
+  color: var(--accent);
+  margin-top: 2px;
+}
+.theme-trial p {
+  margin: 2px 0 0;
+}
+.trial-error {
+  color: var(--danger);
 }
 .themes {
   display: grid;

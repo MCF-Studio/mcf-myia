@@ -1,8 +1,11 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { AgentProfileSchema } from "../core/profiles.js";
 import { RpcPeer } from "./rpc.js";
-import { ThemeSchema, THEME_TOKENS } from "./themes.js";
+import { parseTheme, readThemeFile, ThemeSchema, THEME_TOKENS } from "./themes.js";
 
 const colors = Object.fromEntries(THEME_TOKENS.map((t) => [t, "#ff7a1a"]));
 const theme = { id: "test-theme", name: "Test", mode: "dark", colors };
@@ -22,6 +25,25 @@ describe("thèmes partagés", () => {
   });
   it("refuse un id qui sort du dossier des thèmes", () => {
     expect(ThemeSchema.safeParse({ ...theme, id: "../config/agent" }).success).toBe(false);
+  });
+  it("le modèle téléchargeable (avec son aide) se valide et perd l'aide", () => {
+    const parsed = parseTheme(JSON.stringify({ ...theme, aide: { bg: "fond de la fenêtre" } }));
+    expect(parsed.id).toBe("test-theme");
+    expect("aide" in parsed).toBe(false);
+  });
+  it("donne une erreur lisible pour un JSON cassé", () => {
+    expect(() => parseTheme("{ \"id\": ")).toThrow(/JSON invalide/);
+  });
+  it("ne lit qu'un .json en chemin absolu pour l'aperçu", () => {
+    expect(() => readThemeFile("theme.json")).toThrow(/\.json attendu/);
+    expect(() => readThemeFile(path.resolve("config/agent.txt"))).toThrow(/\.json attendu/);
+  });
+  it("lit un fichier de thème pour l'aperçu", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "myia-theme-"));
+    const f = path.join(dir, "mon-theme.theme.json");
+    fs.writeFileSync(f, JSON.stringify(theme));
+    expect(readThemeFile(f).theme.name).toBe("Test");
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 
