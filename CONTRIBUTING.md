@@ -36,7 +36,8 @@ externe sans code : une entrée `mcpServers` dans la config suffit.
 Les releases sont construites et publiées depuis le poste du mainteneur, pas par GitHub Actions :
 
 1. Monte la version dans `app/src-tauri/tauri.conf.json`, `app/src-tauri/Cargo.toml`, `app/package.json` et
-   `agent/package.json`, commit, pousse sur `main`.
+   `agent/package.json` (et les lockfiles), commit « Version x.y.z », pousse sur `main` : c'est le seul commit
+   poussé directement sur `main` ; tout le reste passe par une PR (`CLAUDE.md`).
 2. `cd app && npm run release` (ajoute `-- --dry-run` pour construire sans publier).
 
 Le script lance les tests, construit l'installateur, le signe avec la clé de mise à jour
