@@ -536,6 +536,8 @@ export class Agent {
     // Prompt système figé pour toute la demande : stable d'une étape à l'autre (cache de l'API Claude, réflexions
     // signées valides entre deux appels d'outils).
     const system = this.systemPrompt();
+    // Vrai une fois la limite d'étapes atteinte (échec déjà noté pour le routeur).
+    let exhausted = false;
 
     try {
       for (let step = 0; step < this.cfg.maxSteps; step++) {
@@ -589,10 +591,12 @@ export class Agent {
         }
       }
       if (routing) routerHistory.record(routing.cls.category, routing.model, false);
+      exhausted = true;
       return await this.stepsExhausted(system, specs, signal, budget);
     } catch (e) {
+      // Toute fin de demande par le budget (boucle, appel au modèle, point d'étape de stepsExhausted) passe par budgetStop.
       if (e instanceof BudgetExceededError && budget) {
-        if (routing) routerHistory.record(routing.cls.category, routing.model, false);
+        if (routing && !exhausted) routerHistory.record(routing.cls.category, routing.model, false);
         return this.budgetStop(e, budget);
       }
       throw e;
@@ -608,12 +612,10 @@ export class Agent {
    */
   private async stepsExhausted(system: string, specs: ToolSpec[], signal?: AbortSignal, budget?: TokenBudget): Promise<string> {
     const fallback = `J'ai atteint la limite de ${this.cfg.maxSteps} étapes pour cette demande. Dis « continue » pour que je reprenne où j'en suis.`;
-    this.history.push({
-      role: "user",
-      content:
-        `(note automatique) Limite de ${this.cfg.maxSteps} étapes atteinte : n'appelle plus d'outil. Fais le point en quelques lignes : ` +
-        "ce qui est fait (avec ses preuves), ce qui reste à faire. Termine en proposant de continuer.",
-    });
+    const note =
+      `(note automatique) Limite de ${this.cfg.maxSteps} étapes atteinte : n'appelle plus d'outil. Fais le point en quelques lignes : ` +
+      "ce qui est fait (avec ses preuves), ce qui reste à faire. Termine en proposant de continuer.";
+    this.history.push({ role: "user", content: note });
     try {
       const reply = await this.callLlm([{ role: "system", content: system }, ...this.trimmedHistory()], specs, signal, budget);
       const text = reply.content?.trim() ?? "";
@@ -627,6 +629,12 @@ export class Agent {
 (${fallback})`;
     } catch (e) {
       if (signal?.aborted) throw e;
+      if (e instanceof BudgetExceededError) {
+        // Budget épuisé pendant le point d'étape : arrêt de budget unifié (budgetStop, audit compris) dans handle. La
+        // note automatique (« n'appelle plus d'outil ») ne doit pas rester dans l'historique pour le « continue ».
+        if (this.history.at(-1)?.content === note) this.history.pop();
+        throw e;
+      }
       this.history.push({ role: "assistant", content: fallback });
       return fallback;
     }

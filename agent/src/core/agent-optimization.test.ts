@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { Agent } from "./agent.js";
 import { ConfigSchema, parseConfig } from "./config.js";
@@ -13,6 +13,11 @@ import { defineTool, type Service } from "./types.js";
 
 // Le journal d'audit (budget_stop) part dans un dossier temporaire.
 process.env.MYIA_HOME ??= fs.mkdtempSync(path.join(os.tmpdir(), "myia-opti-"));
+
+// Événements d'audit relevés pour vérifier que l'arrêt de budget passe par budgetStop (rien n'est écrit sur disque).
+const audited = vi.hoisted(() => [] as { event: string; args?: unknown }[]);
+vi.mock("./audit.js", () => ({ audit: (ev: { event: string; args?: unknown }) => void audited.push(ev) }));
+const budgetStops = () => audited.filter((e) => e.event === "budget_stop");
 
 const lister: Service = {
   id: "essai",
@@ -49,6 +54,7 @@ const inject = (agent: Agent, c: LlmClient) => (agent as unknown as { routed: Ma
 beforeEach(() => {
   llmStats.clear();
   routerHistory.clear();
+  audited.length = 0;
 });
 
 describe("optimisation : rien ne change sans réglage", () => {
@@ -146,6 +152,59 @@ describe("budget d'une demande", () => {
     expect(agent.lastBudget).toMatchObject({ iterations: 3, llmCalls: 4 });
     expect(agent.lastBudget!.estimatedTokens).toBeGreaterThan(0);
     expect(agent.lastBudget!.billedTokens).toBe(0);
+  });
+});
+
+describe("arrêt de budget unifié (budgetStop)", () => {
+  it("BudgetExceededError dans la boucle : budgetStop, événement budget_stop, pas de point d'étape", async () => {
+    let n = 0;
+    const agent = await agentWith(
+      () => {
+        n++;
+        return callTool;
+      },
+      { maxSteps: 5, optimization: { budget: { enabled: true, maxIterations: 2 } } },
+    );
+    const r = await agent.handle("range", ui);
+    expect(r).toMatch(/budget de cette demande.*2 itérations.*continue/);
+    expect(n).toBe(2);
+    expect(budgetStops()).toHaveLength(1);
+    expect(budgetStops()[0]!.args).toMatchObject({ reason: "iterations" });
+    expect(agent.exportHistory().some((m) => m.content.startsWith("(note automatique) Limite"))).toBe(false);
+    expect(agent.exportHistory().at(-1)).toMatchObject({ role: "assistant", content: r });
+  });
+
+  it("stepsExhausted sans budget pour le point d'étape : budgetStop, pas la réponse de repli", async () => {
+    let n = 0;
+    const agent = await agentWith(
+      () => {
+        n++;
+        return callTool;
+      },
+      // 3 étapes et 3 appels : le point d'étape (4e appel) est refusé par le budget.
+      { maxSteps: 3, optimization: { budget: { enabled: true, maxLlmCalls: 3 } } },
+    );
+    const r = await agent.handle("range", ui);
+    expect(n).toBe(3);
+    expect(r).toMatch(/budget de cette demande.*3 appels.*continue/);
+    expect(r).not.toMatch(/limite de 3 étapes/);
+    expect(budgetStops()).toHaveLength(1);
+    expect(budgetStops()[0]!.args).toMatchObject({ reason: "llm_calls" });
+    const hist = agent.exportHistory();
+    // La note « n'appelle plus d'outil » ne reste pas pour le « continue » ; la réponse finale est celle de budgetStop.
+    expect(hist.some((m) => m.content.startsWith("(note automatique) Limite"))).toBe(false);
+    expect(hist.at(-1)).toMatchObject({ role: "assistant", content: r });
+    expect(agent.lastBudget).toMatchObject({ llmCalls: 3, iterations: 3 });
+  });
+
+  it("stepsExhausted avec routeur : un seul échec noté pour le modèle", async () => {
+    const agent = await agentWith(() => callTool, {
+      maxSteps: 2,
+      optimization: { router: { enabled: true, light: "petit:1b" }, budget: { enabled: true, maxLlmCalls: 2 } },
+    });
+    inject(agent, fakeClient("petit:1b", () => callTool));
+    expect(await agent.handle("merci", ui)).toMatch(/budget de cette demande/);
+    expect(routerHistory.stats("conversation", "petit:1b")).toMatchObject({ ok: 0, fail: 1 });
   });
 });
 
