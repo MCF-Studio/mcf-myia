@@ -23,7 +23,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import ArcReactor from "../components/ArcReactor.vue";
 import Sparkline from "../components/Sparkline.vue";
 import { dictation } from "../lib/dictation";
-import { bytes, duration } from "../lib/format";
+import { bytes, duration, stripAnsi } from "../lib/format";
 import { ask, ensureConversation, handle, jarvis, listenNow, masterAgent, maybeDailyBriefing, pendingConfirm } from "../lib/jarvis";
 import { greeting } from "../lib/jarvisCore";
 import { call, inTauri } from "../lib/rpc";
@@ -448,7 +448,7 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
         <div v-for="x in feed" :key="x.id" class="line" :class="x.role">
           <span class="ts mono">{{ fmtTime(x.ts) }}</span>
           <span class="who">{{ x.role === "user" ? (x.from ?? "Toi") : x.role === "assistant" ? j.name : x.role === "progress" ? "SYS" : x.role === "error" ? "ERR" : "ACC" }}</span>
-          <span class="txt">{{ x.role === "confirm" ? `${x.title} → ${x.decision === "approved" ? "autorisé" : "refusé"}` : x.text }}</span>
+          <span class="txt">{{ x.role === "confirm" ? `${x.title} → ${x.decision === "approved" ? "autorisé" : "refusé"}` : stripAnsi(x.text) }}</span>
         </div>
         <div v-if="!feed.length" class="line muted"><span class="txt">Dis « {{ j.name }}, fais-moi un briefing » ou tape une commande ci-dessous.</span></div>
       </div>
@@ -781,7 +781,9 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  overflow: auto;
+  min-width: 0;
+  /* Défilement vertical seulement : une ligne trop longue se coupe (…), elle n'élargit jamais la colonne. */
+  overflow: hidden auto;
   scrollbar-width: thin;
 }
 .panel {
@@ -894,14 +896,24 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
 .list.click li:not(.muted):hover {
   background: color-mix(in srgb, var(--hud) 12%, transparent);
 }
+/* Bloc (pas flex) : dans un conteneur flex, le texte ne se coupe pas avec « … » et une longue tâche du planning
+   sortait du panneau. Le bloc prend la place restante de la ligne et se réduit ; l'icône reste en ligne. */
 .ellipsis {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+}
+.ellipsis > svg,
+.ellipsis > .pip {
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+.list li > :not(.ellipsis):not(.alert-txt) {
+  flex: none;
+  white-space: nowrap;
 }
 .tags {
   font-size: 0.66rem;
