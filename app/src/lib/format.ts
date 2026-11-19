@@ -41,6 +41,14 @@ export function initials(name: string): string {
     .toUpperCase();
 }
 
+/**
+ * Retire les séquences d'échappement d'un terminal (couleurs ANSI, titres de fenêtre) d'un texte affiché tel quel :
+ * la sortie d'un outil (tests, build) arrivait dans le journal de Jarvis avec ses « ␛[33m ».
+ */
+export function stripAnsi(text: string): string {
+  return text.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]/g, "");
+}
+
 /** Couleur d'agent par défaut, stable selon l'id. */
 export function agentColor(a: { id: string; color?: string }): string {
   if (a.color) return a.color;
