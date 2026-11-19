@@ -44,7 +44,7 @@ import { activeBuild, activeServerExe, BUILDS, CATALOG, installBuild, installedB
 import { makeTeamRoot } from "../core/team-runner.js";
 import { describeSchedule, Planner, plannerTools } from "../core/planner.js";
 import { appControlTools, type AppControl } from "../services/app-control.js";
-import { loadTeams, newNodeId, parseTeam, saveTeams, TeamBudget, teamsFile, walk, type Team } from "../core/teams.js";
+import { loadTeams, newNodeId, parseTeam, reorderTeams, saveTeams, TeamBudget, teamsFile, walk, type Team } from "../core/teams.js";
 import { findRuntime, installUv, SCRIPT_ID, SCRIPT_MAX_FILES, ScriptPackSchema, ScriptStore, scriptHash, UV, type ScriptEntry } from "../core/scripts.js";
 import { exportWorkflow, freeId, parseWorkflow, planImport, sha256Text, WORKFLOW_MAX_BYTES } from "../core/workflow.js";
 import { Market } from "../core/market.js";
@@ -71,7 +71,7 @@ import { runProcess } from "../core/proc.js";
 import { RpcError, RpcPeer } from "./rpc.js";
 import { ConversationStore, type Conversation, type DisplayMessage } from "./store.js";
 import { clearBackground, readBackground, setBackground } from "./background.js";
-import { deleteTheme, installTheme, listThemes } from "./themes.js";
+import { deleteTheme, installTheme, listThemes, readThemeFile, themeFileMtime } from "./themes.js";
 
 // stdout = protocole. Tout le reste part sur stderr (journal du sidecar côté app).
 for (const k of ["log", "info", "warn", "debug"] as const) {
@@ -502,6 +502,14 @@ rpc.method("teams.delete", (params) => {
   const used = store.list().filter((c) => c.teamId === id).length;
   if (used) throw new Error(`${used} conversation(s) utilisent encore cette équipe`);
   teams = teams.filter((t) => t.id !== id);
+  saveTeams(teams);
+  return true;
+});
+
+/** Nouvel ordre d'affichage des équipes : exactement les ids existants, chacun une fois. */
+rpc.method("teams.reorder", (params) => {
+  const { ids } = parse(z.object({ ids: z.array(z.string().max(64)).max(500) }), params);
+  teams = reorderTeams(teams, ids);
   saveTeams(teams);
   return true;
 });
@@ -1359,6 +1367,8 @@ rpc.method("settings.set", (params) => {
 
 rpc.method("themes.list", () => listThemes());
 rpc.method("themes.install", (params) => installTheme(parse(z.object({ json: z.string() }), params).json));
+rpc.method("themes.readFile", (params) => readThemeFile(parse(z.object({ path: z.string().min(1).max(1024) }), params).path));
+rpc.method("themes.fileMtime", (params) => themeFileMtime(parse(z.object({ path: z.string().min(1).max(1024) }), params).path));
 rpc.method("themes.delete", (params) => {
   deleteTheme(parse(z.object({ id: z.string() }), params).id);
   return true;

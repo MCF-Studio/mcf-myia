@@ -32,8 +32,34 @@ import WorkflowPreviewDialog from "../components/WorkflowPreviewDialog.vue";
 import { downloadText, pickTextFile } from "../lib/files";
 import { focusTeam } from "../lib/focus";
 import { call } from "../lib/rpc";
+import { moveId, useSortable } from "../lib/reorder";
 import { createConversation, refreshOverview, refreshTeams, state, toast } from "../lib/store";
 import type { Team, TeamNode, WorkflowInstalled, WorkflowPreview } from "../lib/types";
+
+/** Glisser-déposer d'une équipe pour changer l'ordre (enregistré par le cœur dans config/teams.json). */
+const sortable = useSortable({
+  group: "teams",
+  axis: () => "x",
+  onReorder: async (dragged, target, after) => {
+    const ids = moveId(
+      state.teams.map((t) => t.id),
+      dragged,
+      target,
+      after,
+    );
+    if (ids.every((id, k) => id === state.teams[k]?.id)) return;
+    const before = state.teams;
+    const byId = new Map(before.map((t) => [t.id, t]));
+    state.teams = ids.map((id) => byId.get(id)!);
+    try {
+      await call("teams.reorder", { ids });
+    } catch (e) {
+      state.teams = before;
+      toast((e as Error).message, "error");
+      await refreshTeams();
+    }
+  },
+});
 
 const selectedId = ref<string>();
 const draft = ref<Team>();
@@ -329,9 +355,17 @@ watch(
     </div>
 
     <div class="layout">
-      <aside class="team-list">
+      <aside class="team-list" data-axis="x">
         <h2>Équipes</h2>
-        <button v-for="t in state.teams" :key="t.id" class="team-item" :class="{ active: selectedId === t.id && !isNew }" @click="select(t)">
+        <button
+          v-for="t in state.teams"
+          :key="t.id"
+          class="team-item"
+          :class="[{ active: selectedId === t.id && !isNew }, sortable.classes(t.id)]"
+          :title="state.teams.length > 1 ? 'Glisse pour changer l\'ordre' : undefined"
+          v-bind="state.teams.length > 1 ? sortable.item(t.id) : {}"
+          @click="select(t)"
+        >
           <Network :size="18" />
           <div>
             <strong>{{ t.name }}</strong>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, Columns2, LayoutGrid, MessageSquarePlus, Network, Pin, PinOff, Search, SquareTerminal, Trash2, X } from "lucide-vue-next";
-import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import ChatPanel from "../components/ChatPanel.vue";
 import TerminalPanel from "../components/TerminalPanel.vue";
@@ -24,6 +24,7 @@ import {
   type Triage,
 } from "../lib/terminals";
 import { relTime } from "../lib/format";
+import { flatten, moveTab, normalizeCells, type DropTarget, type GridCell } from "../lib/gridCells";
 import { call } from "../lib/rpc";
 import { settings } from "../lib/settings";
 import {
@@ -164,7 +165,100 @@ function replaced(oldKey: string, newKey: string) {
   if (cs.activeTab === oldKey) cs.activeTab = newKey;
   delete terminals[oldKey];
 }
-const gridCols = computed(() => Math.min(cs.gridColumns, Math.max(1, tabs.value.length)));
+// ─── Vue grille : cases réorganisables par glisser-déposer, onglets dans une case ───
+/** Cases affichées ; enregistrées dans les réglages seulement quand l'utilisateur agit (rien n'est réécrit au chargement). */
+const cells = computed(() => normalizeCells(cs.gridCells, tabs.value));
+const gridCols = computed(() => Math.min(cs.gridColumns, Math.max(1, cells.value.length)));
+
+function saveCells(next: GridCell[]) {
+  cs.gridCells = next;
+  // La vue onglets suit le même ordre ; les onglets pas encore chargés gardent leur place à la fin.
+  const flat = flatten(next);
+  cs.openTabs = [...flat, ...cs.openTabs.filter((id) => !flat.includes(id))];
+}
+
+function showInCell(i: number, id: string) {
+  saveCells(cells.value.map((c, k) => (k === i ? { tabs: c.tabs, active: id } : c)));
+  cs.activeTab = id;
+}
+
+/**
+ * Glisser un onglet : depuis l'en-tête d'un panneau (l'onglet affiché de la case) ou depuis la barre d'onglets d'une
+ * case. On lâche au centre d'une case → il y devient un onglet ; sur son bord gauche/droit → nouvelle case à côté ;
+ * dans le vide de la grille → nouvelle case à la fin.
+ */
+const DRAG_MIME = "application/x-myia-tab";
+const drag = reactive({ id: "", cell: -1, mode: "" as "" | "tab" | "before" | "after" | "end" });
+
+/** La case n'est déplaçable que si on l'attrape par l'en-tête (pas depuis le texte, un champ, un bouton ou la console). */
+function armCell(e: PointerEvent) {
+  const t = e.target as HTMLElement;
+  const el = e.currentTarget as HTMLElement;
+  el.draggable = !!t.closest(".chat-head, .term-head") && !t.closest("button, input, textarea, select, a, [contenteditable]");
+}
+function disarmCell(e: Event) {
+  (e.currentTarget as HTMLElement).draggable = false;
+}
+
+function startDrag(id: string, e: DragEvent) {
+  e.dataTransfer?.setData(DRAG_MIME, id);
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  // Après coup : Chromium annule le glisser si l'élément tiré change d'aspect pendant « dragstart ».
+  setTimeout(() => (drag.id = id));
+}
+function endDrag(e?: Event) {
+  Object.assign(drag, { id: "", cell: -1, mode: "" });
+  if (e?.currentTarget instanceof HTMLElement && e.currentTarget.classList.contains("cell")) e.currentTarget.draggable = false;
+}
+
+function overCell(i: number, e: DragEvent) {
+  if (!drag.id || !e.dataTransfer?.types.includes(DRAG_MIME)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  e.dataTransfer.dropEffect = "move";
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width;
+  drag.cell = i;
+  drag.mode = x < 0.25 ? "before" : x > 0.75 ? "after" : "tab";
+}
+function overGrid(e: DragEvent) {
+  if (!drag.id || !e.dataTransfer?.types.includes(DRAG_MIME)) return;
+  e.preventDefault();
+  drag.cell = -1;
+  drag.mode = "end";
+}
+function dropTab(e: DragEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  const id = e.dataTransfer?.getData(DRAG_MIME) || drag.id;
+  const target: DropTarget | undefined =
+    drag.mode === "end" ? { mode: "end" } : drag.mode && drag.cell >= 0 ? { cell: drag.cell, mode: drag.mode } : undefined;
+  endDrag();
+  if (!id || !target) return;
+  saveCells(moveTab(cells.value, id, target));
+  cs.activeTab = id;
+}
+const dropClass = (i: number) => (drag.id && drag.cell === i ? `drop-${drag.mode}` : "");
+
+/**
+ * Hauteur des rangées : deux rangées remplissent la zone ; au-delà (5e conversation sur 2 colonnes…), les rangées
+ * gardent cette hauteur et la grille défile, au lieu d'écraser toutes les consoles.
+ */
+const gridEl = ref<HTMLElement>();
+const gridHeight = ref(0);
+let gridObserver: ResizeObserver | undefined;
+watch(gridEl, (el) => {
+  gridObserver?.disconnect();
+  if (!el) return;
+  gridObserver = new ResizeObserver(([entry]) => (gridHeight.value = entry?.contentRect.height ?? 0));
+  gridObserver.observe(el);
+});
+const GRID_GAP = 12;
+const gridRows = computed(() => {
+  const rows = Math.ceil(cells.value.length / gridCols.value);
+  if (rows <= 2 || !gridHeight.value) return "minmax(320px, 1fr)";
+  return `${Math.max(320, Math.floor((gridHeight.value - GRID_GAP) / 2))}px`;
+});
 
 async function newWith(agentId: string) {
   pickerOpen.value = false;
@@ -257,7 +351,10 @@ onMounted(() => window.addEventListener("keydown", onKey));
 onActivated(() => {
   if (state.ready) void ensureConversationShown();
 });
-onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKey);
+  gridObserver?.disconnect();
+});
 </script>
 
 <template>
@@ -388,28 +485,74 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
         />
       </div>
 
-      <div v-else class="grid-view" :style="{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }">
-        <template v-for="id in tabs" :key="id">
-          <TerminalPanel
-            v-if="isTerminalKey(id)"
-            :tab-key="id"
-            compact
-            closable
-            :class="{ focused: cs.activeTab === id }"
-            @close="closeAny(id)"
-            @replaced="(n) => replaced(id, n)"
-            @focusin="cs.activeTab = id"
-          />
-          <ChatPanel
-            v-else
-            :id="id"
-            compact
-            closable
-            :class="{ focused: cs.activeTab === id }"
-            @close="closeTab(id)"
-            @focusin="cs.activeTab = id"
-          />
-        </template>
+      <div
+        v-else
+        ref="gridEl"
+        class="grid-view"
+        :class="{ dragging: !!drag.id, 'drop-end': drag.mode === 'end' }"
+        :style="{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, gridAutoRows: gridRows }"
+        @dragover="overGrid"
+        @drop="dropTab"
+      >
+        <div
+          v-for="(cell, i) in cells"
+          :key="cell.tabs[0]"
+          class="cell"
+          :class="[dropClass(i), { 'is-dragging': cell.tabs.length === 1 && drag.id === cell.tabs[0] }]"
+          @pointerdown="armCell"
+          @pointerup="disarmCell"
+          @dragstart="startDrag(cell.active, $event)"
+          @dragend="endDrag"
+          @dragover="overCell(i, $event)"
+          @drop="dropTab"
+        >
+          <!-- Plusieurs onglets dans la case : barre d'onglets (chaque onglet se glisse ailleurs pour l'en sortir). -->
+          <div v-if="cell.tabs.length > 1" class="cell-tabs">
+            <button
+              v-for="id in cell.tabs"
+              :key="id"
+              type="button"
+              class="cell-tab"
+              :class="{ on: cell.active === id, busy: state.open[id]?.busy, 'is-dragging': drag.id === id }"
+              draggable="true"
+              :title="`${titleOf(id)} — glisse pour déplacer`"
+              @dragstart.stop="startDrag(id, $event)"
+              @dragend.stop="endDrag"
+              @click="showInCell(i, id)"
+              @auxclick.middle="closeAny(id)"
+            >
+              <SquareTerminal v-if="isTerminalKey(id)" :size="13" class="tab-term" />
+              <span v-else class="dot" :class="state.open[id]?.busy ? 'busy' : 'off'" />
+              <span class="tab-title">{{ titleOf(id) }}</span>
+              <X :size="12" class="tab-x" @click.stop="closeAny(id)" />
+            </button>
+          </div>
+          <div class="cell-body">
+            <template v-for="id in cell.tabs" :key="id">
+              <!-- Consoles gardées montées (v-show) pour garder leur écran ; une conversation se recharge à l'affichage. -->
+              <TerminalPanel
+                v-if="isTerminalKey(id)"
+                v-show="cell.active === id"
+                :tab-key="id"
+                compact
+                closable
+                :class="{ focused: cs.activeTab === id }"
+                @close="closeAny(id)"
+                @replaced="(n) => replaced(id, n)"
+                @focusin="cs.activeTab = id"
+              />
+              <ChatPanel
+                v-else-if="cell.active === id"
+                :id="id"
+                compact
+                closable
+                :class="{ focused: cs.activeTab === id }"
+                @close="closeTab(id)"
+                @focusin="cs.activeTab = id"
+              />
+            </template>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -925,8 +1068,106 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   min-height: 0;
   display: grid;
   gap: 12px;
-  grid-auto-rows: minmax(320px, 1fr);
   overflow-y: auto;
+  border-radius: var(--radius);
+  transition: box-shadow 0.15s;
+}
+.grid-view.drop-end {
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+.cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 6px;
+}
+.cell-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.cell-body > * {
+  height: 100%;
+}
+/* En-tête des panneaux : c'est là qu'on attrape une case pour la déplacer. */
+.cell :deep(.chat-head),
+.cell :deep(.term-head) {
+  cursor: grab;
+}
+.cell.is-dragging,
+.cell-tab.is-dragging {
+  opacity: 0.45;
+}
+/* Pendant un glisser : on n'envoie pas les survols à la console (xterm) ni au texte. */
+.grid-view.dragging .cell-body {
+  pointer-events: none;
+}
+/* Repère de dépôt : au centre = onglet de la case ; sur un bord = nouvelle case à côté. */
+.cell.drop-tab::after,
+.cell.drop-before::after,
+.cell.drop-after::after {
+  content: "";
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  border-radius: var(--radius);
+}
+.cell.drop-tab::after {
+  inset: 0;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.cell.drop-before::after,
+.cell.drop-after::after {
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent);
+  box-shadow: 0 0 14px var(--glow);
+}
+.cell.drop-before::after {
+  left: -8px;
+}
+.cell.drop-after::after {
+  right: -8px;
+}
+.cell-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  flex: none;
+}
+.cell-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: grab;
+}
+.cell-tab.on {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline));
+}
+.cell-tab .tab-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cell-tab .tab-x {
+  flex: none;
+  opacity: 0.6;
+}
+.cell-tab .tab-x:hover {
+  opacity: 1;
 }
 .grid-view .focused {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline));

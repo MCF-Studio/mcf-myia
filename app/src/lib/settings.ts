@@ -48,6 +48,11 @@ export const DEFAULT_SETTINGS = {
     showTimestamps: true,
     openTabs: [] as string[],
     activeTab: "" as string,
+    /**
+     * Vue grille : cases dans l'ordre choisi (glisser-déposer). Une case contient un ou plusieurs onglets
+     * (conversations, consoles) dont un seul est affiché. Les onglets ouverts absents d'ici vont dans une case à la fin.
+     */
+    gridCells: [] as { tabs: string[]; active: string }[],
   },
   sound: {
     master: 80,

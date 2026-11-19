@@ -8,7 +8,7 @@ import TitleBar from "./components/TitleBar.vue";
 import { inTauri } from "./lib/rpc";
 import { settings } from "./lib/settings";
 import { navigate, restartSidecar, startPolling, state, type View } from "./lib/store";
-import { applyTheme, BUILTIN_THEMES } from "./lib/themes";
+import { applyTheme, BUILTIN_THEMES, themePreview } from "./lib/themes";
 import { startUpdates, update } from "./lib/update";
 import { startPtt } from "./lib/ptt";
 import { startWallpaper, wallpaper } from "./lib/background";
@@ -41,7 +41,7 @@ const views = {
 // Apparence : thème, densité, taille de police, animations.
 watchEffect(() => {
   const a = settings.appearance;
-  const theme = [...BUILTIN_THEMES, ...state.installedThemes].find((t) => t.id === a.theme) ?? BUILTIN_THEMES[0]!;
+  const theme = themePreview.theme ?? [...BUILTIN_THEMES, ...state.installedThemes].find((t) => t.id === a.theme) ?? BUILTIN_THEMES[0]!;
   const bg = a.background;
   applyTheme(theme, { glow: a.glow, panelOpacity: wallpaper.url ? bg.panelOpacity : 100 });
   document.documentElement.dataset.wallpaper = wallpaper.url ? "on" : "off";
@@ -111,6 +111,8 @@ onUnmounted(() => {
 
 const current = computed(() => views[state.view]);
 
+/** Marge du calque de l'image de fond, en px : 2 × le flou maximal (24 px). */
+const BLEED = 48;
 /** Calque de l'image de fond : ajustement, flou, voile de la couleur du thème pour garder le texte lisible. */
 const wallpaperStyle = computed(() => {
   const b = settings.appearance.background;
@@ -118,8 +120,10 @@ const wallpaperStyle = computed(() => {
   const blur = Math.min(24, Math.max(0, b.blur));
   const scale = Math.min(100, Math.max(20, b.size)) / 100;
   const anchor = ["bottom-right", "bottom-left", "top-right"].includes(b.anchor) ? b.anchor.replace("-", " ") : "center";
-  // Le flou fait baver les bords : on agrandit un peu le calque pour les cacher.
-  const bleed = blur * 2;
+  // Le flou fait baver les bords : on agrandit le calque pour les cacher. Marge FIXE (celle du flou maximal) :
+  // si elle suivait le flou, le calque changerait de taille et l'image (« Remplir ») serait recadrée à chaque cran.
+  // Petite image posée dans un coin : pas de marge, elle doit rester à sa place.
+  const bleed = scale < 1 && fit !== "tile" ? 0 : BLEED;
   // Mosaïque réduite : calque agrandi de 1/scale puis rétréci, pour des carreaux plus petits sur toute la zone.
   // Sinon : l'image entière est réduite et posée dans le coin choisi (mode « petite »).
   const grow = fit === "tile" && scale < 1 ? ((1 / scale - 1) * 50).toFixed(3) : "0";
