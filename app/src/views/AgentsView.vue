@@ -215,6 +215,15 @@ function exportJson() {
   return JSON.stringify({ $schema: "myia/agent@1", ...shared }, null, 2);
 }
 
+async function exportAgentFile() {
+  try {
+    const saved = await downloadText(`${form.id}.agent.json`, exportJson());
+    if (saved) toast(`Agent exporté : ${saved}`, "success");
+  } catch (e) {
+    toast((e as Error).message ?? String(e), "error");
+  }
+}
+
 async function choosePhoto() {
   try {
     const data = await pickAvatar();
@@ -545,7 +554,7 @@ async function saveOrder(list: AgentProfile[]) {
           <button type="button" class="btn ghost" title="Copier le JSON pour le partager" @click="copyJson">
             <Copy :size="15" />
           </button>
-          <button type="button" class="btn" :disabled="!form.id" @click="downloadText(`${form.id}.agent.json`, exportJson())"><Download :size="15" /> Exporter</button>
+          <button type="button" class="btn" :disabled="!form.id" @click="exportAgentFile"><Download :size="15" /> Exporter</button>
           <button type="submit" class="btn primary" :disabled="!form.name.trim() || (form.restrict && !form.services.length)">
             <Save :size="15" /> Enregistrer
           </button>
