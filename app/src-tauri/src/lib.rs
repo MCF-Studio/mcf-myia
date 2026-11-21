@@ -1,3 +1,4 @@
+mod export;
 mod metrics;
 mod ptt;
 mod pty;
@@ -35,6 +36,7 @@ pub fn run() {
             update::update_status,
             update::update_check,
             ptt::ptt_set,
+            export::export_text,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

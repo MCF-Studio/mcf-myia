@@ -247,13 +247,14 @@ async function doExport(fiches: string[]) {
       id: draft.value.id,
       fiches,
     });
-    downloadText(r.filename, r.json);
+    const saved = await downloadText(r.filename, r.json);
+    if (!saved) return; // fenêtre « Enregistrer sous » annulée
     const parts = [
       ...(r.scripts ? [`${r.scripts} script${r.scripts > 1 ? "s" : ""}`] : []),
       ...(r.fiches ? [`${r.fiches} fiche${r.fiches > 1 ? "s" : ""}`] : []),
     ];
     toast(
-      `Workflow exporté : ${r.filename}${parts.length ? ` (avec ${parts.join(" et ")})` : ""}${r.avatarsDropped ? ", sans les photos des agents (trop lourdes)" : ""}`,
+      `Workflow exporté : ${saved}${parts.length ? ` (avec ${parts.join(" et ")})` : ""}${r.avatarsDropped ? ", sans les photos des agents (trop lourdes)" : ""}`,
       "success",
     );
   } catch (e) {

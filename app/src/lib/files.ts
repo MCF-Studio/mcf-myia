@@ -1,4 +1,7 @@
-/** Lecture d'un fichier choisi par l'utilisateur (taille plafonnée) et export par téléchargement. */
+import { invoke } from "@tauri-apps/api/core";
+import { inTauri } from "./rpc";
+
+/** Lecture d'un fichier choisi par l'utilisateur (taille plafonnée) et export dans un fichier. */
 export function pickTextFile(accept = ".json", maxBytes = 64_000): Promise<string | undefined> {
   return new Promise((resolve, reject) => {
     const input = document.createElement("input");
@@ -71,7 +74,13 @@ export function pickAvatar(size = 256): Promise<string | undefined> {
   });
 }
 
-export function downloadText(filename: string, text: string) {
+/**
+ * Exporte un texte dans un fichier. Dans l'app : fenêtre « Enregistrer sous » du système (côté Rust, export.rs),
+ * car un lien de téléchargement n'y écrit rien. Rend le chemin écrit, ou `undefined` si l'utilisateur a annulé.
+ * Hors de l'app (page ouverte dans un navigateur, en développement) : téléchargement classique.
+ */
+export async function downloadText(filename: string, text: string): Promise<string | undefined> {
+  if (inTauri) return (await invoke<string | null>("export_text", { filename, text })) ?? undefined;
   const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
   const a = document.createElement("a");
   a.href = url;
@@ -81,4 +90,5 @@ export function downloadText(filename: string, text: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return filename;
 }

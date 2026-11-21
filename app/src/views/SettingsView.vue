@@ -138,10 +138,23 @@ async function installTheme() {
 }
 
 /** Télécharge un modèle de thème (couleurs du thème actuel + aide sur chaque couleur), à modifier puis essayer. */
-function downloadThemeTemplate() {
+async function downloadThemeTemplate() {
   const base = themes.value.find((t) => t.id === a.theme) ?? BUILTIN_THEMES[0]!;
-  downloadText("mon-theme.theme.json", themeTemplate(base));
-  toast("Modèle téléchargé : modifie-le, puis « Essayer » pour le voir en direct", "success");
+  try {
+    const saved = await downloadText("mon-theme.theme.json", themeTemplate(base));
+    if (saved) toast(`Modèle enregistré : ${saved}. Modifie-le, puis « Essayer » pour le voir en direct`, "success");
+  } catch (e) {
+    toast((e as Error).message ?? String(e), "error");
+  }
+}
+
+async function exportThemeFile(t: Theme) {
+  try {
+    const saved = await downloadText(`${t.id}.theme.json`, exportTheme(t));
+    if (saved) toast(`Thème exporté : ${saved}`, "success");
+  } catch (e) {
+    toast((e as Error).message ?? String(e), "error");
+  }
 }
 
 /** Essaie un fichier de thème sans l'installer : aperçu relu à chaque enregistrement du fichier. */
@@ -1298,7 +1311,7 @@ const shortcuts: [string, string][] = [
                 <strong>{{ t.name }}</strong>
                 <span class="tiny muted">{{ t.builtin ? "intégré" : t.author ?? "communauté" }}</span>
                 <span class="spacer" />
-                <button class="btn sm ghost icon" title="Exporter" @click.stop="downloadText(`${t.id}.theme.json`, exportTheme(t))">
+                <button class="btn sm ghost icon" title="Exporter" @click.stop="exportThemeFile(t)">
                   <Download :size="13" />
                 </button>
                 <button v-if="!t.builtin" class="btn sm ghost icon danger" title="Désinstaller" @click.stop="deleteTheme(t.id)">

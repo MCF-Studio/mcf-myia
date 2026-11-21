@@ -879,6 +879,8 @@ const fmtNext = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", {
   margin: 0;
   padding: 0;
   display: grid;
+  /* Colonne bornée à la largeur du panneau : sans cela, une ligne longue élargit la grille au lieu de se couper. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   font-size: 0.82rem;
 }
