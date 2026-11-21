@@ -43,6 +43,38 @@ la reçoivent, les autres restent vides (`""`, `[]` ou `{}`). Il ne modifie jama
 | `llm.llamacpp.modelsMax` | `1`                      | Modèles chargés en même temps (1 avec 8 Go de VRAM).                              |
 | `llm.llamacpp.ctx`       | `auto`                   | Contexte de llama.cpp : `auto` ou un nombre (2048 à 262144).                      |
 
+### Taille du contexte : qui fait quoi
+
+Le **contexte** est tout ce que le modèle a sous les yeux pour un appel : consignes de l'agent, description des outils,
+messages relus, résultats d'outils, et la réponse qu'il écrit. Il se compte en jetons (environ 3,5 caractères par jeton).
+Plusieurs réglages y touchent, chacun à un endroit différent :
+
+| Réglage                         | Bornes                      | Ce qu'il fixe                                                                                   | Concerne                         |
+| ------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------- |
+| `llm.numCtx`                    | 2048 à 131072 (défaut 8192) | La fenêtre de contexte demandée à Ollama à chaque appel.                                        | Agents locaux, moteur Ollama     |
+| `llm.llamacpp.ctx`              | `auto`, ou 2048 à 262144    | La fenêtre de llama.cpp, fixée au lancement du moteur. `auto` = la plus grande qui tient en mémoire, en visant 32 768. | Agents locaux, moteur llama.cpp |
+| (fixe, non réglable)            | 32 768                      | La fenêtre donnée à Claude Code quand il tourne sur un modèle local (son prompt seul fait environ 15 000 jetons). | Consoles Claude Code en local |
+| `llm.kvCache`                   | `f16`, `q8_0`, `q4_0`       | La mémoire que coûte chaque jeton de contexte, **pas** la taille de la fenêtre. `q8_0` : environ moitié moins. | Les deux moteurs locaux |
+| `historyMessages`               | 4 à 200 (défaut 30)         | Le nombre de messages de la conversation relus à chaque demande.                                | Tous les agents                  |
+| (fixe, non réglable)            | 4 000 / 30 000 caractères   | La longueur gardée de chaque résultat d'outil : 4 000 pour un agent local, 30 000 pour un agent en ligne. | Tous les agents          |
+| `optimization.context.*`        | 100 à 200000 jetons         | La place des notes ajoutées au prompt (coordination, registre de travail, mémoire).             | Si le Context Compiler est activé |
+| `claudeApi.maxTokens`, `apiProviders.maxTokens` | jusqu'à 128000 | La longueur maximale d'une **réponse**. La fenêtre d'entrée, elle, est celle du modèle en ligne. | Agents en ligne      |
+| `optimization.budget.maxTokens` | 0 à 10 000 000              | Le total consommé par une demande (tous les appels cumulés). Ce n'est pas une taille de fenêtre. | Si le budget est activé         |
+
+À retenir :
+
+- **Un seul moteur à la fois.** `llm.numCtx` ne sert qu'avec Ollama, `llm.llamacpp.ctx` qu'avec llama.cpp. Changer l'un
+  quand l'autre moteur est actif n'a aucun effet.
+- **Plus grand = plus de mémoire.** La fenêtre se réserve au chargement du modèle. Si elle ne tient plus dans la VRAM, une
+  partie du modèle passe sur le processeur et les réponses ralentissent nettement. Avec 8 Go de VRAM et un modèle 8B,
+  8192 à 16384 est une plage raisonnable.
+- **Au-delà de ce que le modèle sait faire, rien n'est gagné.** Chaque modèle a une fenêtre maximale (affichée dans sa
+  fiche) : il n'a pas été entraîné au-delà, une valeur plus haute n'apporte rien.
+- **Quand la fenêtre est pleine**, Ollama écarte sans prévenir le début de l'échange : l'agent « oublie » les premières
+  consignes ou le début de la conversation. Si un agent local perd le fil sur de longues tâches, monte `llm.numCtx`, ou
+  baisse `historyMessages`.
+- Ces réglages se changent dans le fichier (`llm.kvCache` aussi dans **Paramètres → Système**), puis redémarrage de MyIA.
+
 ## Comportement des agents
 
 | Option                       | Par défaut | Rôle                                                                                       |
