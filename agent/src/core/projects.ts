@@ -252,7 +252,9 @@ export function analyzeProject(dir: string, godotExes: Record<string, string>): 
     const c = componentAt(path.join(dir, s), godotExes);
     if (c && !(root?.kinds.includes("node") && c.kinds.includes("node"))) add(c, s);
   }
-  return p.kinds.length ? p : undefined;
+  // Un dépôt git sans build reconnu (docs, assets, jeu sous un moteur non géré) reste un projet : les outils git en
+  // ont besoin. Il n'a simplement aucune cible de build.
+  return p.kinds.length || exists(dir, ".git") ? p : undefined;
 }
 
 export function discoverProjectDirs(roots: { path: string; depth: number }[]): string[] {

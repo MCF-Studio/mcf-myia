@@ -179,8 +179,12 @@ export_path="build/x.exe"
     write(path.join(root, "protos", "Mon-Jeu", "project.godot"), "");
     write(path.join(root, "protos", "Launcher", "src-tauri", "Cargo.toml"), "");
     write(path.join(root, "Divers", "notes.md"), "");
+    // Dépôt git sans build reconnu (docs, assets) : un projet quand même, sans cible, pour les outils git.
+    write(path.join(root, "Git", "Docs-Jeu", ".git", "HEAD"), "ref: refs/heads/main\n");
+    write(path.join(root, "Git", "Docs-Jeu", "README.md"), "x");
     const reg = new ProjectRegistry(parseConfig({ projectRoots: [{ path: root, depth: 2 }] }));
-    expect(reg.all.map((p) => p.name).sort()).toEqual(["Git/Mon-Jeu", "Launcher", "protos/Mon-Jeu"]);
+    expect(reg.all.map((p) => p.name).sort()).toEqual(["Docs-Jeu", "Git/Mon-Jeu", "Launcher", "protos/Mon-Jeu"]);
+    expect(reg.resolve("docs jeu")).toMatchObject({ kinds: [], targets: {} });
     expect(reg.resolve("launcher").kinds).toEqual(["tauri"]);
     expect(reg.resolve("protos mon jeu").name).toBe("protos/Mon-Jeu");
     expect(() => reg.resolve("mon jeu")).toThrow(/plusieurs/);

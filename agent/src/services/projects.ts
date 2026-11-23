@@ -5,7 +5,7 @@ import { defaultTarget, type Project, type ProjectRegistry } from "../core/proje
 import { defineTool, type Service } from "../core/types.js";
 
 function describe(p: Project, withTargets: boolean): string {
-  const head = `- ${p.name} [${p.kinds.join("+")}${p.godotVersion ? ` ${p.godotVersion}` : ""}] ${p.path}${p.description ? ` — ${p.description}` : ""}`;
+  const head = `- ${p.name} [${p.kinds.join("+") || "git"}${p.godotVersion ? ` ${p.godotVersion}` : ""}] ${p.path}${p.description ? ` — ${p.description}` : ""}`;
   if (!withTargets) return head;
   const targets = Object.keys(p.targets).filter((t) => !t.endsWith(" [debug]"));
   const debug = Object.keys(p.targets).length > targets.length ? " (chaque export Godot existe aussi en « [debug] »)" : "";
